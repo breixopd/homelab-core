@@ -1,0 +1,45 @@
+# Local config overrides — copy to config.local.yaml and fill in your values.
+# This file is gitignored and never committed.
+# It overrides values from config.yaml at runtime.
+
+# Optional: override the owner SSO password without editing secrets.enc.yaml on disk.
+# Prefer secrets.enc.yaml (SSO_USER_PASSWORD) or the Web UI Secrets page for day-to-day changes.
+# owner_password: "your-sso-password"
+
+proxmox:
+  # Proxmox API endpoint (REQUIRED)
+  # Format: https://YOUR_PROXMOX_IP_OR_HOSTNAME:8006
+  api_url: https://192.168.1.100:8006
+
+  # Proxmox node name (default: first node)
+  node: pve
+
+  # Optional SSH/DNS name when the API URL is not reachable over SSH.
+  # control_host: pve-admin.example.net
+
+  ssh:
+    user: root
+    port: 22
+    key_file: ~/.ssh/proxmox
+    connect_timeout: 30
+    command_timeout: 120
+    retries: 3
+
+  # Optional private CA bundle. When empty, the toolkit retrieves the Proxmox
+  # cluster CA over authenticated SSH and caches a verified local trust bundle.
+  # tls_ca_file: /etc/homelab/proxmox-ca.pem
+
+  # SSH public key injected into LXCs for root access (REQUIRED)
+  ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI..."
+
+  # Optional provider settings. The defaults pin the supported Debian LXC image.
+  # lxc_storage: local-lvm
+  # lxc_template_datastore: local
+
+ssh:
+  # Shared private key for managed guests. Guest users and ports are declared
+  # by their machine plugins; this path never enters tracked config.yaml.
+  key_file: ~/.ssh/homelab-guests
+
+# Storage: set proxmox.lxc_storage to the datastore that owns guest disks.
+# Set storage.zfs_enabled in config.yaml when the toolkit should reconcile ZFS.

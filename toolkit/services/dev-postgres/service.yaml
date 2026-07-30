@@ -1,0 +1,40 @@
+name: dev-postgres
+label: Dev PostgreSQL
+description: Gitea / dev project database
+icon: 🔧
+category: cloud
+placement: apps
+priority: 30
+host_sources:
+  DEV_POSTGRES_DATA_SOURCE:
+    path: data/dev-postgres
+stateful: true
+database_provider:
+  engine: postgresql
+  admin_username_env: DEV_POSTGRES_USER
+  admin_password_env: DEV_POSTGRES_PASSWORD
+  admin_database_env: DEV_POSTGRES_DB
+service_endpoint:
+  container_port: 5432
+  published_port: 5433
+data_specs:
+- name: dev-postgres-data
+  source_env: DEV_POSTGRES_DATA_SOURCE
+  target: /var/lib/postgresql/data
+  size_estimate_gb: 10
+  snapshot: false
+  host_uid: 70
+  host_gid: 70
+backup_exports:
+- artifact: dev-postgres.sql.gz
+  strategy: container
+  command: [pg_dumpall, -U, dev]
+variables:
+  DEV_POSTGRES_USER: dev
+  DEV_POSTGRES_DB: dev
+required_secrets:
+- name: DEV_POSTGRES_PASSWORD
+  tier: generated
+  length: 32
+  description: Development PostgreSQL administrator password
+  rotation: persistent

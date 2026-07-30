@@ -1,0 +1,157 @@
+---
+# Kopia-owned host lifecycle units.
+#
+# The core Ansible layer only dispatches this file.  Backup scheduling and
+# restore-drill placement therefore follow the Kopia manifest instead of being
+# encoded in a shared operational task file.
+
+- name: Reconcile Kopia backup units when backups are enabled
+  when: homelab_backups_enabled | default(false) | bool
+  block:
+    - name: Install Kopia snapshot service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/kopia-snapshot.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Kopia automated repository snapshot
+          After=docker.service network-online.target
+          Requires=docker.service
+          StartLimitIntervalSec=1h
+          StartLimitBurst=3
+
+          [Service]
+          Type=oneshot
+          Environment=HOMELAB_ROOT={{ repo_dest | default('/opt/homelab') }}
+          Environment=HOMELAB_NODE={{ homelab_node_id }}
+          ExecStart={{ repo_dest | default('/opt/homelab') }}/.venv/bin/python3 -m toolkit.cli \
+            --root {{ repo_dest | default('/opt/homelab') }} maintenance snapshot --node {{ homelab_node_id }}
+          StandardOutput=journal
+          StandardError=journal
+          TimeoutStartSec=3600
+          Restart=on-failure
+          RestartSec=15min
+
+    - name: Install Kopia snapshot timer
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/kopia-snapshot.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Kopia automated backup (every 6 hours)
+
+          [Timer]
+          OnBootSec=30min
+          OnCalendar=*-*-* 00,06,12,18:30:00
+          RandomizedDelaySec=600
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Enable Kopia snapshot timer
+      ansible.builtin.systemd:
+        name: kopia-snapshot.timer
+        enabled: "{{ homelab_enable_timers | default(true) }}"
+        state: "{{ 'started' if homelab_enable_timers | default(true) else 'stopped' }}"
+        daemon_reload: true
+
+    - name: Install Kopia restore drill service on the repository node
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/kopia-restore-drill.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Bounded Kopia restore verification
+          After=docker.service network-online.target
+          Requires=docker.service
+          StartLimitIntervalSec=6h
+          StartLimitBurst=3
+
+          [Service]
+          Type=oneshot
+          Environment=HOMELAB_ROOT={{ repo_dest | default('/opt/homelab') }}
+          Environment=HOMELAB_NODE={{ service_nodes['kopia'] }}
+          ExecStart={{ repo_dest | default('/opt/homelab') }}/.venv/bin/python3 -m toolkit.cli \
+            --root {{ repo_dest | default('/opt/homelab') }} maintenance backup-drill
+          StandardOutput=journal
+          StandardError=journal
+          TimeoutStartSec=3600
+          Restart=on-failure
+          RestartSec=1h
+      when: homelab_node_id == service_nodes['kopia']
+
+    - name: Install Kopia restore drill timer on the repository node
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/kopia-restore-drill.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Weekly bounded Kopia restore verification
+
+          [Timer]
+          OnBootSec=2h
+          OnCalendar=Sun *-*-* 05:30:00
+          RandomizedDelaySec=1800
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+      when: homelab_node_id == service_nodes['kopia']
+
+    - name: Enable Kopia restore drill timer on the repository node
+      ansible.builtin.systemd:
+        name: kopia-restore-drill.timer
+        enabled: "{{ homelab_enable_timers | default(true) }}"
+        state: "{{ 'started' if homelab_enable_timers | default(true) else 'stopped' }}"
+        daemon_reload: true
+      when: homelab_node_id == service_nodes['kopia']
+
+    - name: Disable restore drill outside the Kopia repository node
+      ansible.builtin.systemd:
+        name: kopia-restore-drill.timer
+        enabled: false
+        state: stopped
+      failed_when: false
+      when: homelab_node_id != service_nodes['kopia']
+
+    - name: Remove restore drill units outside the Kopia repository node
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/kopia-restore-drill.service
+        - /etc/systemd/system/kopia-restore-drill.timer
+      when: homelab_node_id != service_nodes['kopia']
+
+    - name: Reload systemd after removing stale Kopia restore units
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: homelab_node_id != service_nodes['kopia']
+
+- name: Remove Kopia host lifecycle units when backups are disabled
+  when: not (homelab_backups_enabled | default(false) | bool)
+  block:
+    - name: Stop disabled Kopia timers
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: false
+        state: stopped
+      loop:
+        - kopia-snapshot.timer
+        - kopia-restore-drill.timer
+      failed_when: false
+
+    - name: Remove disabled Kopia units
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/kopia-snapshot.service
+        - /etc/systemd/system/kopia-snapshot.timer
+        - /etc/systemd/system/kopia-restore-drill.service
+        - /etc/systemd/system/kopia-restore-drill.timer
+
+    - name: Reload systemd after removing disabled Kopia units
+      ansible.builtin.systemd:
+        daemon_reload: true

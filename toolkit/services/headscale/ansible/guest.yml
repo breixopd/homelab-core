@@ -1,0 +1,6 @@
+---
+# Headscale owns the Tailscale client enrollment integration.  Empty generated
+# credentials intentionally keep the role's no-op behavior for unconfigured
+# enrollment rather than leaking credentials into the playbook.
+- name: Apply Headscale guest hook
+  ansible.builtin.include_tasks: "{{ homelab_controller_root }}/toolkit/services/headscale/ansible/vpn.yml"

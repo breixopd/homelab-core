@@ -1,0 +1,78 @@
+name: crowdsec
+label: CrowdSec
+description: Intrusion detection — shares attack scenarios, blocks malicious IPs at the edge
+icon: 🛡️
+category: security
+placement: control
+priority: 35
+essential: true
+restart_policy: careful
+depends_on: []
+memory_tier: medium
+host_sources:
+  CROWDSEC_DATA_SOURCE:
+    path: data/crowdsec
+  CROWDSEC_CONFIG_SOURCE:
+    path: data/crowdsec/etc
+  CROWDSEC_ACCESS_LOG_SOURCE:
+    path: data/caddy-access
+  GENERATED_CROWDSEC_ACQUISITION:
+    path: generated/crowdsec/acquis.yaml
+  GENERATED_CROWDSEC_CONFIG_LOCAL:
+    path: generated/crowdsec/config.yaml.local
+generated_artifacts:
+- path: generated/crowdsec/acquis.yaml
+- path: generated/crowdsec/config.yaml.local
+  sensitive: true
+host_integrations:
+- id: crowdsec-agent
+  label: CrowdSec intrusion-prevention agent
+  kinds: [plain, fleet]
+  default_for: [plain, fleet]
+  after: [vpn-client]
+  ansible_role: crowdsec_agent
+network_listeners:
+- id: host-agent-api
+  port: 8080
+  sources: ['@service:caddy', '@integration:crowdsec-agent']
+stateful: true
+
+required_secrets:
+- name: CROWDSEC_CADDY_BOUNCER_KEY
+  tier: generated
+  length: 64
+  description: Caddy bouncer key for the CrowdSec Local API
+  rotation: persistent
+- name: CROWDSEC_AGENT_REGISTRATION_TOKEN
+  tier: generated
+  length: 64
+  description: Private LAPI auto-registration token for managed CrowdSec agents
+  rotation: persistent
+
+routes: []
+
+management:
+  panels:
+  - id: agent-enrollment
+    title: Agent enrollment
+    description: Managed hosts are enrolled after connectivity exists; no mesh address is required while creating a host.
+    items:
+    - label: Local API
+      value: http://{address}:8080
+      copyable: true
+    - label: Enrollment
+      value: Select CrowdSec when adding a managed host; Homelab Core registers and verifies the agent
+    - label: Credentials
+      value: Registration tokens remain encrypted and are never shown on this page
+
+data_specs:
+- name: crowdsec-data
+  source_env: CROWDSEC_DATA_SOURCE
+  target: /var/lib/crowdsec/data
+  size_estimate_gb: 2
+  snapshot: true
+- name: crowdsec-config
+  source_env: CROWDSEC_CONFIG_SOURCE
+  target: /etc/crowdsec
+  size_estimate_gb: 1
+  snapshot: true

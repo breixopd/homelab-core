@@ -1,0 +1,86 @@
+name: wazuh-indexer
+label: Wazuh Indexer
+description: SIEM alert index
+icon: 🔍
+category: security
+placement: control
+priority: 15
+guest_task_order: 100
+recovery_task_order: 120
+essential: true
+restart_policy: careful
+depends_on: []
+memory_tier: heavy
+host_sources:
+  WAZUH_INDEXER_DATA_SOURCE:
+    path: data/wazuh/indexer
+  WAZUH_CERTS_SOURCE:
+    path: data/wazuh/certs
+generated_artifacts:
+- path: generated/wazuh/internal_users.yml
+  sensitive: true
+runtimes:
+  wazuh-indexer-certs-init:
+    mode: oneshot
+network_listeners:
+- id: agent-events
+  port: 1514
+  host_process: true
+  sources: ['@all', '@integration:wazuh-agent']
+- id: agent-enrollment
+  port: 1515
+  host_process: true
+  sources: ['@all', '@integration:wazuh-agent']
+host_paths:
+- path: generated/wazuh
+  uid: 1000
+  gid: 1000
+stateful: true
+variables:
+  WAZUH_INDEXER_JAVA_OPTS: -Xms768m -Xmx768m
+data_specs:
+- name: wazuh-index
+  source_env: WAZUH_INDEXER_DATA_SOURCE
+  target: /var/lib/wazuh-indexer
+  size_estimate_gb: 30
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: wazuh-certificates
+  source_env: WAZUH_CERTS_SOURCE
+  target: /certificates
+  size_estimate_gb: 1
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+management:
+  panels:
+  - id: indexer-access
+    title: Security index
+    description: The indexer is internal-only; use the Wazuh dashboard for searches, alerts, and agent status.
+    items:
+    - label: Wazuh dashboard
+      value: https://siem.{domain}
+      href: https://siem.{domain}
+    - label: Internal indexer API
+      value: https://wazuh-indexer:9200
+      copyable: true
+    - label: Native credentials
+      value: Managed internally and never displayed here
+  actions:
+  - id: reconcile-security
+    label: Reconcile security credentials
+    description: Reapply the mounted Wazuh security configuration without replacing persisted index data.
+    confirmation: Reconcile Wazuh security credentials while preserving index data?
+required_secrets:
+- name: WAZUH_INDEXER_PASSWORD
+  tier: generated
+  length: 32
+  description: Indexer administrator password
+  rotation: persistent
+- name: WAZUH_API_PASSWORD
+  tier: generated
+  length: 24
+  generator: password
+  description: Native Wazuh manager API password
+  rotation: reconcile

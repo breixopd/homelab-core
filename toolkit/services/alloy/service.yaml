@@ -1,0 +1,29 @@
+name: alloy
+label: Alloy
+description: Node-local log collection and delivery
+icon: Logs
+category: management
+placement: control
+priority: 10
+depends_on: ['loki']
+integrations:
+- service: loki
+  host_env: ALLOY_LOKI_HOST
+  port_env: ALLOY_LOKI_PORT
+runtimes:
+  alloy-agent:
+    placements: ['@non-primary']
+    compose_profile: monitoring-agent
+  alloy-agent-docker-proxy:
+    placements: ['@non-primary']
+    compose_profile: monitoring-agent
+host_sources:
+  ALLOY_DATA_SOURCE:
+    path: data/alloy
+stateful: true
+data_specs:
+- name: alloy-data
+  source_env: ALLOY_DATA_SOURCE
+  target: /var/lib/alloy/data
+  size_estimate_gb: 1
+  snapshot: false

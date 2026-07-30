@@ -1,0 +1,94 @@
+name: immich-server
+label: Immich
+description: Photo/video backup
+icon: 📸
+category: cloud
+placement: apps
+priority: 30
+restart_policy: careful
+depends_on:
+- immich-postgres
+databases:
+- provider: immich-postgres
+  database: immich
+  username: immich
+  host_env: IMMICH_DB_HOST
+  port_env: IMMICH_DB_PORT
+  database_env: IMMICH_DB_NAME
+  username_env: IMMICH_DB_USER
+  password_env: IMMICH_DB_PASSWORD
+memory_tier: heavy
+host_sources:
+  IMMICH_UPLOAD_SOURCE:
+    path: data/immich-upload
+stateful: true
+data_specs:
+- name: immich-uploads
+  source_env: IMMICH_UPLOAD_SOURCE
+  target: /usr/src/app/upload
+  size_estimate_gb: 100
+  snapshot: true
+variables:
+  IMMICH_OAUTH_ISSUER_URL: https://auth.{config.domain}
+oidc:
+  client_id: immich
+  secret_env_var: IMMICH_OIDC_CLIENT_SECRET
+  redirect_uris:
+  - https://photos.{domain}/auth/login
+  - https://photos.{domain}/user-settings
+  - https://photos.{domain}/api/oauth/mobile-redirect
+  - app.immich:///oauth-callback
+  scopes: [openid, profile, email]
+  authorization_policy: two_factor
+  token_endpoint_auth_method: client_secret_post
+  response_types: [code]
+  grant_types: [authorization_code]
+required_secrets:
+- name: IMMICH_DB_PASSWORD
+  tier: generated
+  length: 32
+  description: Immich application database password
+  rotation: reconcile
+- name: IMMICH_OIDC_CLIENT_SECRET
+  tier: generated
+  length: 48
+  description: OIDC client secret for Authelia integration
+  rotation: restart
+- name: IMMICH_ADMIN_PASSWORD
+  tier: generated
+  length: 32
+  fallback_env: SSO_USER_PASSWORD
+  description: Owner password for automated bootstrap and recovery
+  rotation: reconcile
+- name: IMMICH_REDIS_PASSWORD
+  tier: generated
+  length: 32
+  description: Immich-dedicated Redis authentication password
+  rotation: restart
+credentials:
+- name: Immich
+  url: '{proto}://photos.{domain}'
+  password_env: IMMICH_ADMIN_PASSWORD
+  tags: [immich, photos, admin]
+  notes: Owner account credential; routine access uses Authelia OIDC.
+routes:
+- subdomain: photos
+  upstream: immich-server:2283
+  published_port: 2283
+  exposure: public
+  auth:
+    mode: oidc
+health:
+  public_probe_path: /api/server/ping
+identity:
+  invite:
+    group: homelab-cloud
+    priority: 20
+    blurb: Photo library and mobile backups
+    sign_in: Sign in with Authelia; your account is created on first visit.
+  provisioning:
+  - id: immich_oidc_first_login
+    mode: first_login
+    priority: 30
+    message: 'Immich: first Authelia SSO login will create the account (OIDC auto-provision)'
+    disabled_message: 'Immich OIDC: cloud service disabled'

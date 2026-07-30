@@ -1,0 +1,63 @@
+name: navidrome
+label: Navidrome
+description: Music streaming
+icon: 🎵
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on: []
+memory_tier: light
+health:
+  starting_policy: pending
+host_sources:
+  NAVIDROME_DATA_SOURCE:
+    path: data/navidrome
+stateful: true
+variables:
+  NAVIDROME_BASE_URL: ''
+  NAVIDROME_EXTAUTH_TRUSTED_SOURCES: '{derived.edge_proxy_cidr}'
+  NAVIDROME_EXTAUTH_LOGOUT_URL: '{derived.public_url_protocol}://auth.{config.domain}/logout'
+data_specs:
+- name: navidrome-data
+  source_env: NAVIDROME_DATA_SOURCE
+  target: /data
+  size_estimate_gb: 5
+  snapshot: true
+routes:
+- subdomain: music
+  upstream: navidrome:4533
+  published_port: 4533
+  exposure: public
+  auth:
+    mode: native
+  match:
+    kind: prefix
+    paths: [/rest/]
+- subdomain: music
+  upstream: navidrome:4533
+  published_port: 4533
+  exposure: public
+  auth:
+    mode: native
+  match:
+    kind: prefix
+    paths: [/share/]
+- subdomain: music
+  upstream: navidrome:4533
+  published_port: 4533
+  exposure: public
+  auth:
+    mode: forward_auth
+identity:
+  invite:
+    group: homelab-media
+    priority: 20
+    blurb: Stream your music library
+    sign_in: Use Log in with Authelia; no separate account is needed.
+  provisioning:
+  - id: navidrome_external_auth_first_login
+    mode: first_login
+    priority: 50
+    message: 'Navidrome: the authenticated directory account is created on first login'
+    disabled_message: 'Navidrome external authentication: media service disabled'

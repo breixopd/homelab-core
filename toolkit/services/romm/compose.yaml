@@ -1,0 +1,91 @@
+services:
+  romm:
+    restart: unless-stopped
+    profiles:
+    - cloud
+    - svc-romm
+    image: docker.io/rommapp/romm:5.0.0@sha256:91f6611eca5a4dafc4f4a1d72a1ed7dd66a11375d939f28410dc1d1de0b80b1b
+    container_name: romm
+    init: true
+    user: 1000:1000
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=256m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      ROMM_BASE_PATH: ${ROMM_BASE_PATH:-/romm}
+      ROMM_BASE_URL: ${ROMM_BASE_URL}
+      ROMM_PORT: ${ROMM_PORT:-8080}
+      ROMM_DB_DRIVER: ${ROMM_DB_DRIVER:-postgresql}
+      DB_HOST: ${ROMM_DB_HOST}
+      DB_PORT: ${ROMM_DB_PORT}
+      DB_NAME: ${ROMM_DB_NAME}
+      DB_USER: ${ROMM_DB_USER}
+      DB_PASSWD: ${ROMM_DB_PASSWORD}
+      REDIS_HOST: ${ROMM_REDIS_HOST}
+      REDIS_PORT: ${ROMM_REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DB: ${ROMM_REDIS_DB:-5}
+      ROMM_AUTH_SECRET_KEY: ${ROMM_AUTH_SECRET_KEY}
+      OIDC_ENABLED: 'true'
+      OIDC_AUTOLOGIN: 'false'
+      OIDC_ALLOW_REGISTRATION: 'true'
+      OIDC_PROVIDER: authelia
+      OIDC_CLIENT_ID: romm
+      OIDC_CLIENT_SECRET: ${ROMM_OIDC_CLIENT_SECRET}
+      OIDC_REDIRECT_URI: ${ROMM_BASE_URL}/api/oauth/openid
+      OIDC_SERVER_APPLICATION_URL: ${OIDC_SERVER_APPLICATION_URL:-https://auth.${BASE_DOMAIN}}
+      OIDC_SERVER_METADATA_URL: ${OIDC_SERVER_METADATA_URL:-https://auth.${BASE_DOMAIN}/.well-known/openid-configuration}
+      OIDC_CLAIM_ROLES: groups
+      OIDC_ROLE_ADMIN: homelab-admin
+      DISABLE_SETUP_WIZARD: ${ROMM_DISABLE_SETUP_WIZARD:-true}
+      DISABLE_DOWNLOAD_ENDPOINT_AUTH: ${ROMM_DISABLE_DOWNLOAD_ENDPOINT_AUTH:-false}
+      DISABLE_CSRF_PROTECTION: ${ROMM_DISABLE_CSRF_PROTECTION:-false}
+      DISABLE_USERPASS_LOGIN: ${ROMM_DISABLE_USERPASS_LOGIN:-false}
+      SCAN_WORKERS: ${ROMM_SCAN_WORKERS:-1}
+      ENABLE_RESCAN_ON_FILESYSTEM_CHANGE: ${ROMM_ENABLE_RESCAN_ON_FILESYSTEM_CHANGE:-false}
+      ENABLE_SCHEDULED_RESCAN: ${ROMM_ENABLE_SCHEDULED_RESCAN:-false}
+      HASHEOUS_API_ENABLED: ${ROMM_HASHEOUS_API_ENABLED:-true}
+      HLTB_API_ENABLED: ${ROMM_HLTB_API_ENABLED:-true}
+      TGDB_API_ENABLED: ${ROMM_TGDB_API_ENABLED:-true}
+      PLAYMATCH_API_ENABLED: ${ROMM_PLAYMATCH_API_ENABLED:-false}
+      FLASHPOINT_API_ENABLED: ${ROMM_FLASHPOINT_API_ENABLED:-false}
+      IGDB_CLIENT_ID: ${IGDB_CLIENT_ID:-}
+      IGDB_CLIENT_SECRET: ${IGDB_CLIENT_SECRET:-}
+      SCREENSCRAPER_USER: ${SCREENSCRAPER_USER:-}
+      SCREENSCRAPER_PASSWORD: ${SCREENSCRAPER_PASSWORD:-}
+      STEAMGRIDDB_API_KEY: ${STEAMGRIDDB_API_KEY:-}
+      RETROACHIEVEMENTS_API_KEY: ${RETROACHIEVEMENTS_API_KEY:-}
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8090:8080
+    volumes:
+    - ${ROMM_LIBRARY_SOURCE:-./data/romm/library}:/romm/library
+    - ${ROMM_RESOURCES_SOURCE:-./data/romm/resources}:/romm/resources
+    - ${ROMM_ASSETS_SOURCE:-./data/romm/assets}:/romm/assets
+    - ${ROMM_CONFIG_SOURCE:-./data/romm/config}:/romm/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://127.0.0.1:8080/api/heartbeat >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    mem_limit: 1g
+    cpus: 2.0
+    pids_limit: 512

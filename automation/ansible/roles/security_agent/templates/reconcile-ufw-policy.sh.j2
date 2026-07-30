@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+desired=$(cat <<'RULES'
+ufw default deny incoming
+ufw default allow outgoing
+{% for item in homelab_firewall_rules | default([]) %}
+{% if item.roles | intersect(group_names) | length > 0 %}
+{% if item.from_ip == 'any' %}
+ufw allow {{ (item.port | string + '/' + item.proto) | quote }} comment {{ item.comment | quote }}
+{% else %}
+ufw allow from {{ item.from_ip | quote }} to any port {{ item.port | quote }} proto {{ item.proto | quote }} comment {{ item.comment | quote }}
+{% endif %}
+{% endif %}
+{% endfor %}
+RULES
+)
+
+current=""
+if ufw status 2>/dev/null | grep -qx 'Status: active' \
+  && ufw status verbose 2>/dev/null | grep -q 'Default: deny (incoming), allow (outgoing)'; then
+  current=$(printf 'ufw default deny incoming\nufw default allow outgoing\n'; ufw show added | tail -n +2)
+fi
+
+if [[ "$current" == "$desired" ]]; then
+  echo 'ufw-policy: unchanged'
+  exit 0
+fi
+
+ufw --force reset >/dev/null
+ufw default deny incoming >/dev/null
+ufw default allow outgoing >/dev/null
+{% for item in homelab_firewall_rules | default([]) %}
+{% if item.roles | intersect(group_names) | length > 0 %}
+{% if item.from_ip == 'any' %}
+ufw allow {{ (item.port | string + '/' + item.proto) | quote }} comment {{ item.comment | quote }} >/dev/null
+{% else %}
+ufw allow from {{ item.from_ip | quote }} to any port {{ item.port | quote }} proto {{ item.proto | quote }} comment {{ item.comment | quote }} >/dev/null
+{% endif %}
+{% endif %}
+{% endfor %}
+ufw --force enable >/dev/null
+echo 'ufw-policy: changed'

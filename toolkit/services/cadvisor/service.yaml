@@ -1,0 +1,21 @@
+name: cadvisor
+label: cAdvisor
+description: Container metrics
+icon: 🔧
+category: management
+placement: control
+priority: 10
+runtimes:
+  cadvisor-agent:
+    placements: ['@non-primary']
+    compose_profile: monitoring-agent
+prometheus:
+- id: controller
+  job: cadvisor
+  container_port: 8080
+  host_port: 8089
+- id: managed
+  job: cadvisor
+  container_port: 8080
+  host_port: 8088
+  runtime_service: cadvisor-agent

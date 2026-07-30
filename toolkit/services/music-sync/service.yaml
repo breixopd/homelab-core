@@ -1,0 +1,188 @@
+name: music-sync
+label: Music Sync
+description: Import Spotify and YouTube Music libraries
+icon: 🎶
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on:
+- navidrome
+memory_tier: light
+host_sources:
+  MUSIC_SYNC_CONFIG_SOURCE:
+    path: data/music-sync/config
+image_release:
+  compose_service: music-sync
+  repository: ghcr.io/breixopd/music-sync
+  version: v1.1.2
+  digest: sha256:04bf5917092baa9275f5d3244a4a9d038ba12afe5152add5c9853b7dec7b047e
+stateful: true
+data_specs:
+- name: music-sync-config
+  source_env: MUSIC_SYNC_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 1
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: music-library
+  source_env: MEDIA_LIBRARY_ROOT
+  source_subpath: music
+  target: /music
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+variables:
+  MUSIC_SYNC_TRUSTED_PROXY_CIDRS: '{derived.edge_proxy_cidr}'
+  MUSIC_SYNC_WEB_PUBLIC_URL: '{derived.public_url_protocol}://music-sync.{config.domain}'
+  MUSIC_SYNC_INTERVAL_MINUTES: '{setting.interval-minutes}'
+  MUSIC_SYNC_PRUNE: '{setting.prune}'
+  MUSIC_SYNC_SPOTIFY_SAVED_TRACKS: '{setting.spotify-saved-tracks}'
+  MUSIC_SYNC_SPOTIFY_PLAYLISTS: '{setting.spotify-playlists}'
+  MUSIC_SYNC_YTMUSIC_LIKED: '{setting.youtube-liked}'
+  MUSIC_SYNC_YTMUSIC_PLAYLISTS: '{setting.youtube-playlists}'
+  SPOTIFY_REDIRECT_URI: https://music-sync.{config.domain}/spotify/callback
+routes:
+- upstream: music-sync:8845
+  published_port: 8845
+  exposure: private
+  auth:
+    mode: forward_auth
+guidance:
+- id: spotify-credentials
+  phase: pre_deploy
+  category: Prerequisite
+  title: Spotify API credentials before OAuth
+  instructions: >-
+    Provide SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in setup. After
+    deployment, complete the one-time authorization flow in Music Sync.
+- id: authorize-sources
+  phase: post_deploy
+  category: Required
+  title: Authorize Music Sync sources
+  instructions: >-
+    Visit {url} and complete Spotify authorization. For YouTube Music, follow
+    the in-app authentication helper.
+  route_url: true
+identity:
+  access_groups: [homelab-admin]
+operator_bookmark:
+  section: Media administration
+  priority: 60
+  description: Music source authorization and synchronization
+management:
+  panels:
+  - id: source-authorization
+    title: Source authorization
+    description: Connect music providers here, then use Sync now to import configured libraries.
+    items:
+    - label: Web interface
+      value: https://music-sync.{domain}
+      href: https://music-sync.{domain}
+    - label: Spotify
+      value: Requires a personal application client ID and secret
+    - label: YouTube Music
+      value: Requires one-time browser authorization when enabled
+    - label: Imported library
+      value: Published through Navidrome at https://music.{domain}
+      href: https://music.{domain}
+  settings:
+  - key: enabled
+    label: Enabled
+    description: Import configured Spotify and YouTube Music sources.
+    type: boolean
+    default: true
+    setup: true
+  - key: interval-minutes
+    label: Sync interval
+    description: Minutes between automatic library synchronization runs.
+    type: number
+    default: 60
+    minimum: 5
+    maximum: 1440
+    step: 5
+  - key: prune
+    label: Remove unselected tracks
+    description: Remove previously managed tracks only after every configured provider returns a safe, successful result.
+    type: boolean
+    default: false
+  - key: spotify-saved-tracks
+    label: Spotify saved tracks
+    type: boolean
+    default: true
+  - key: youtube-liked
+    label: YouTube Music liked tracks
+    type: boolean
+    default: false
+  - key: spotify-playlists
+    label: Spotify playlists
+    description: Comma-separated Spotify playlist URLs or IDs to synchronize.
+    type: text
+    default: ''
+  - key: youtube-playlists
+    label: YouTube Music playlists
+    description: Comma-separated YouTube Music playlist IDs to synchronize.
+    type: text
+    default: ''
+  actions:
+  - id: sync-now
+    label: Sync now
+    description: Start a music library synchronization in the background.
+    confirmation: Start a music library sync now?
+  metrics:
+  - key: tracks
+    label: Imported tracks
+    source: status
+    field: tracks
+    unit: count
+  - key: playlists
+    label: Playlists
+    source: status
+    field: playlists
+    unit: count
+  - key: heartbeat_age_seconds
+    label: Last heartbeat age
+    source: status
+    field: heartbeat_age_seconds
+    unit: seconds
+required_secrets:
+- name: SPOTIFY_CLIENT_ID
+  tier: user
+  length: 32
+  description: Spotify application client ID
+  setup:
+    label: Spotify client ID
+    input: text
+    required: true
+    when:
+    - setting: music-sync.enabled
+      equals: true
+- name: SPOTIFY_CLIENT_SECRET
+  tier: user
+  length: 32
+  description: Spotify application client secret
+  setup:
+    label: Spotify client secret
+    input: password
+    required: true
+    when:
+    - setting: music-sync.enabled
+      equals: true
+- name: MUSIC_SYNC_WEB_USERNAME
+  tier: generated
+  length: 32
+  default: admin
+  description: Web interface administrator username
+  rotation: persistent
+- name: MUSIC_SYNC_WEB_PASSWORD
+  tier: generated
+  length: 24
+  description: Web interface administrator password
+  rotation: persistent
+- name: MUSIC_SYNC_WEB_SECRET
+  tier: generated
+  length: 32
+  description: Web session signing secret
+  rotation: restart

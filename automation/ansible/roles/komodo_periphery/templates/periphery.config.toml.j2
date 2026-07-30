@@ -1,0 +1,10 @@
+root_directory = {{ komodo_periphery_root | to_json }}
+core_address = {{ komodo_core_address | to_json }}
+connect_as = {{ komodo_connect_as | to_json }}
+{% if komodo_onboarding_key | default('') | length > 0 %}
+onboarding_key = {{ komodo_onboarding_key | to_json }}
+{% endif %}
+server_enabled = false
+logging.level = "info"
+logging.stdio = "json"
+pretty_startup_config = false

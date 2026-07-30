@@ -1,0 +1,117 @@
+name: nextcloud
+label: Nextcloud
+description: File sync + office
+icon: ☁️
+category: cloud
+placement: apps
+priority: 30
+restart_policy: careful
+depends_on:
+- postgres
+- redis
+databases:
+- provider: postgres
+  database: nextcloud
+  username: nextcloud
+  host_env: NEXTCLOUD_DB_HOST
+  port_env: NEXTCLOUD_DB_PORT
+  database_env: NEXTCLOUD_DB_NAME
+  username_env: NEXTCLOUD_DB_USER
+  password_env: NEXTCLOUD_DB_PASSWORD
+integrations:
+- service: redis
+  host_env: NEXTCLOUD_REDIS_HOST
+  port_env: NEXTCLOUD_REDIS_PORT
+memory_tier: heavy
+host_sources:
+  NEXTCLOUD_DATA_SOURCE:
+    path: data/nextcloud
+stateful: true
+data_specs:
+- name: nextcloud-data
+  source_env: NEXTCLOUD_DATA_SOURCE
+  target: /var/www/html
+  size_estimate_gb: 200
+  snapshot: true
+  host_uid: 33
+  host_gid: 33
+variables:
+  NEXTCLOUD_ADMIN_USER: admin
+  NEXTCLOUD_HOST: cloud.{config.domain}
+oidc:
+  client_id: nextcloud
+  secret_env_var: NEXTCLOUD_OIDC_CLIENT_SECRET
+  redirect_uris:
+  - https://cloud.{domain}/apps/oidc_login/oidc
+  claims_policy: nextcloud_userinfo
+  scopes: [openid, profile, email, groups, nextcloud_userinfo]
+  authorization_policy: two_factor
+  require_pkce: true
+  pkce_challenge_method: S256
+  token_endpoint_auth_method: client_secret_basic
+  response_types: [code]
+  grant_types: [authorization_code]
+required_secrets:
+- name: NEXTCLOUD_ADMIN_PASSWORD
+  tier: bootstrapped
+  fallback_env: SSO_USER_PASSWORD
+  description: First-run administrator password derived from the owner account
+- name: NEXTCLOUD_OIDC_CLIENT_SECRET
+  tier: generated
+  length: 48
+  description: OIDC client secret for Authelia integration
+  rotation: restart
+- name: NEXTCLOUD_DB_PASSWORD
+  tier: generated
+  length: 32
+  description: PostgreSQL database password
+  rotation: reconcile
+credentials:
+- name: Nextcloud
+  url: '{proto}://cloud.{domain}'
+  username_env: NEXTCLOUD_ADMIN_USER
+  username: admin
+  password_env: NEXTCLOUD_ADMIN_PASSWORD
+  tags: [nextcloud, cloud, admin]
+  notes: Local recovery administrator; routine access uses Authelia OIDC.
+routes:
+- subdomain: cloud
+  upstream: nextcloud:80
+  published_port: 8083
+  exposure: public
+  auth:
+    mode: oidc
+health:
+  public_probe_path: /status.php
+  starting_policy: pending
+management:
+  panels:
+  - id: client-endpoints
+    title: Client endpoints
+    description: Use these addresses in desktop, mobile, calendar, and contacts clients.
+    items:
+    - label: Server
+      value: https://cloud.{domain}
+      href: https://cloud.{domain}
+      copyable: true
+    - label: WebDAV
+      value: https://cloud.{domain}/remote.php/dav/files/{username}/
+      copyable: true
+    - label: CalDAV and CardDAV
+      value: https://cloud.{domain}/remote.php/dav/
+      copyable: true
+identity:
+  invite:
+    group: homelab-cloud
+    priority: 10
+    blurb: Files, calendar, and contacts
+    sign_in: Sign in with Authelia; your account is created on first visit.
+  provisioning:
+  - id: nextcloud_oidc_auto_provision
+    mode: plugin
+    priority: 20
+    disabled_message: 'Nextcloud OIDC: cloud service disabled'
+  - id: nextcloud_oidc_group_provision
+    mode: plugin
+    priority: 21
+    disabled_message: 'Nextcloud OIDC groups: cloud service disabled'

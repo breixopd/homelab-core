@@ -1,0 +1,101 @@
+services:
+  nextcloud-cron:
+    restart: unless-stopped
+    profiles:
+    - cloud
+    - svc-nextcloud
+    image: nextcloud:33.0.6-apache@sha256:73280a6f559e9a6c96e012324086ff63af7ccfbed260f71f17738e5494375052
+    container_name: nextcloud-cron
+    command: /cron.sh
+    read_only: false
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    - NET_BIND_SERVICE
+    tmpfs:
+    - /tmp
+    - /run
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+    - ${NEXTCLOUD_DATA_SOURCE:-./data/nextcloud}:/var/www/html
+    depends_on:
+      nextcloud:
+        condition: service_healthy
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 128
+  nextcloud:
+    restart: unless-stopped
+    profiles:
+    - cloud
+    - svc-nextcloud
+    image: nextcloud:33.0.6-apache@sha256:73280a6f559e9a6c96e012324086ff63af7ccfbed260f71f17738e5494375052
+    container_name: nextcloud
+    read_only: false
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    - NET_BIND_SERVICE
+    tmpfs:
+    - /tmp
+    - /run
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_HOST}
+      POSTGRES_HOST: ${NEXTCLOUD_DB_HOST}
+      POSTGRES_DB: ${NEXTCLOUD_DB_NAME}
+      POSTGRES_USER: ${NEXTCLOUD_DB_USER}
+      POSTGRES_PASSWORD: ${NEXTCLOUD_DB_PASSWORD}
+      REDIS_HOST: ${NEXTCLOUD_REDIS_HOST}
+      REDIS_HOST_PORT: ${NEXTCLOUD_REDIS_PORT}
+      REDIS_HOST_PASSWORD: ${REDIS_PASSWORD}
+    expose:
+    - 80
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8083:80
+    volumes:
+    - ${NEXTCLOUD_DATA_SOURCE:-./data/nextcloud}:/var/www/html
+    - ${INSTALL_ROOT}/toolkit/services/nextcloud/apache-server-name.conf:/etc/apache2/conf-enabled/server-name.conf:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -sf
+      - http://localhost/status.php
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 512

@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block page_actions %}
+<a href="/services" class="btn btn-ghost btn-sm">Services</a>
+<a href="/secrets" class="btn btn-ghost btn-sm">Secrets</a>
+<a href="/dns" class="btn btn-ghost btn-sm">Network</a>
+{% endblock %}
+
+{% block content %}
+{% if flash %}
+<div class="alert {% if flash_ok %}alert-ok{% else %}alert-error{% endif %}" role="status">{{ flash }}</div>
+{% endif %}
+{% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
+
+<label class="settings-section-select" for="settings-section-jump">
+  <span>Section</span>
+  <select id="settings-section-jump" data-section-jump>
+    <option value="settings-general">General</option>
+    <option value="settings-services">Services</option>
+    <option value="settings-notifications">Notifications</option>
+    <option value="settings-ssh">SSH</option>
+    <option value="settings-proxmox">Proxmox</option>
+    <option value="settings-network">Network</option>
+  </select>
+</label>
+
+<div class="settings-layout">
+  <aside class="settings-index" aria-label="Settings sections">
+    <nav>
+      <a href="#settings-general">General</a>
+      <a href="#settings-services">Services</a>
+      <a href="#settings-notifications">Notifications</a>
+      <a href="#settings-ssh">SSH</a>
+      <a href="#settings-proxmox">Proxmox</a>
+      <a href="#settings-network">Network</a>
+    </nav>
+  </aside>
+
+  <div class="settings-sections">
+    <form method="post" action="/settings/save" class="settings-form">
+      <input type="hidden" name="revision" value="{{ revision }}">
+
+      <section id="settings-general" class="content-band settings-section" aria-labelledby="settings-general-heading">
+        <div class="section-head"><h2 id="settings-general-heading">General</h2></div>
+        <div class="field-grid settings-field-grid">
+          <label class="form-field span-4" for="setting-domain"><span>Domain</span><input id="setting-domain" name="domain" value="{{ values.domain }}" required></label>
+          <label class="form-field span-4" for="setting-email"><span>Owner email</span><input id="setting-email" name="email" type="email" value="{{ values.email }}" required></label>
+          <label class="form-field span-4" for="setting-timezone"><span>Timezone</span><input id="setting-timezone" name="timezone" value="{{ values.timezone }}" required></label>
+        </div>
+      </section>
+
+      <section id="settings-services" class="content-band settings-section" aria-labelledby="settings-services-heading">
+        <div class="section-head">
+          <div><h2 id="settings-services-heading">Service groups</h2><p class="muted text-sm settings-section-note">Required infrastructure remains enabled.</p></div>
+        </div>
+        {% set services_map = values.services %}
+        <div class="choice-grid settings-choice-grid">
+          {% for name in service_toggles %}
+          <label class="choice-option">
+            <input type="checkbox" name="svc_{{ name }}" {% if services_map[name] %}checked{% endif %}>
+            <span>{{ name|replace('_', ' ')|title }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section id="settings-notifications" class="content-band settings-section" aria-labelledby="settings-notifications-heading">
+        <div class="section-head"><h2 id="settings-notifications-heading">Notifications</h2></div>
+        <div class="field-grid settings-field-grid">
+          <label class="form-field span-8" for="setting-ntfy-url"><span>ntfy topic URL</span><input id="setting-ntfy-url" name="deploy_ntfy_url" type="url" value="{{ values.deploy_ntfy_url }}"></label>
+          <label class="form-field span-4" for="setting-smtp-mode"><span>Email transport</span><select id="setting-smtp-mode" name="smtp_mode"><option value="auto" {% if values.smtp_mode == 'auto' %}selected{% endif %}>Managed mailserver</option><option value="external" {% if values.smtp_mode == 'external' %}selected{% endif %}>External SMTP</option><option value="disabled" {% if values.smtp_mode == 'disabled' %}selected{% endif %}>Disabled</option></select></label>
+          <label class="form-field span-5" for="setting-smtp-host"><span>SMTP host</span><input id="setting-smtp-host" name="smtp_host" value="{{ values.smtp_host }}"></label>
+          <label class="form-field span-2" for="setting-smtp-port"><span>Port</span><input id="setting-smtp-port" name="smtp_port" type="number" min="1" max="65535" value="{{ values.smtp_port }}" required></label>
+          <label class="form-field span-5" for="setting-smtp-from"><span>From address</span><input id="setting-smtp-from" name="smtp_from_address" type="email" value="{{ values.smtp_from_address }}" placeholder="noreply@{{ values.domain }}"></label>
+          <label class="form-field span-6" for="setting-smtp-user"><span>SMTP username</span><input id="setting-smtp-user" name="smtp_username" value="{{ values.smtp_username }}" autocomplete="username"></label>
+          <label class="form-field span-6" for="setting-smtp-secret"><span>Password secret</span><input id="setting-smtp-secret" name="smtp_password_secret" value="{{ values.smtp_password_secret }}" pattern="[A-Z][A-Z0-9_]*" spellcheck="false"></label>
+          <div class="choice-grid settings-choice-grid span-12">
+            <label class="choice-option"><input type="checkbox" name="smtp_starttls" {% if values.smtp_starttls %}checked{% endif %}><span>STARTTLS</span></label>
+          </div>
+        </div>
+      </section>
+
+      <section id="settings-ssh" class="content-band settings-section" aria-labelledby="settings-ssh-heading">
+        <div class="section-head"><h2 id="settings-ssh-heading">Guest SSH identity</h2></div>
+        <div class="field-grid settings-field-grid">
+          <label class="form-field span-4" for="setting-ssh-auth"><span>Authentication</span><select id="setting-ssh-auth" name="ssh_auth"><option value="key" {% if values.ssh_auth == 'key' %}selected{% endif %}>SSH key</option><option value="password" {% if values.ssh_auth == 'password' %}selected{% endif %}>Password</option></select></label>
+          <label class="form-field span-8" for="setting-ssh-key"><span>Key file</span><input id="setting-ssh-key" name="ssh_key_file" value="{{ values.ssh_key_file }}"></label>
+        </div>
+      </section>
+
+      <section id="settings-proxmox" class="content-band settings-section" aria-labelledby="settings-proxmox-heading">
+        <div class="section-head"><h2 id="settings-proxmox-heading">Proxmox</h2></div>
+        <div class="field-grid settings-field-grid">
+          <label class="form-field span-6" for="setting-proxmox-url"><span>API URL</span><input id="setting-proxmox-url" name="proxmox_api_url" value="{{ values.proxmox_api_url }}"></label>
+          <label class="form-field span-6" for="setting-proxmox-control-host"><span>SSH control host</span><input id="setting-proxmox-control-host" name="proxmox_control_host" value="{{ values.proxmox_control_host }}" placeholder="Derived from API URL"></label>
+          <label class="form-field span-3" for="setting-proxmox-ssh-user"><span>SSH user</span><input id="setting-proxmox-ssh-user" name="proxmox_ssh_user" value="{{ values.proxmox_ssh_user }}" required></label>
+          <label class="form-field span-2" for="setting-proxmox-ssh-port"><span>SSH port</span><input id="setting-proxmox-ssh-port" name="proxmox_ssh_port" type="number" min="1" max="65535" value="{{ values.proxmox_ssh_port }}" required></label>
+          <label class="form-field span-7" for="setting-proxmox-ssh-key"><span>SSH key file</span><input id="setting-proxmox-ssh-key" name="proxmox_ssh_key_file" value="{{ values.proxmox_ssh_key_file }}"></label>
+          <label class="form-field span-4" for="setting-proxmox-connect-timeout"><span>Connect timeout</span><input id="setting-proxmox-connect-timeout" name="proxmox_ssh_connect_timeout" type="number" min="1" max="300" value="{{ values.proxmox_ssh_connect_timeout }}" required></label>
+          <label class="form-field span-4" for="setting-proxmox-command-timeout"><span>Command timeout</span><input id="setting-proxmox-command-timeout" name="proxmox_ssh_command_timeout" type="number" min="5" max="7200" value="{{ values.proxmox_ssh_command_timeout }}" required></label>
+          <label class="form-field span-4" for="setting-proxmox-retries"><span>Retries</span><input id="setting-proxmox-retries" name="proxmox_ssh_retries" type="number" min="1" max="10" value="{{ values.proxmox_ssh_retries }}" required></label>
+          <label class="form-field span-3" for="setting-proxmox-node"><span>Node</span><input id="setting-proxmox-node" name="proxmox_node" value="{{ values.proxmox_node }}" required></label>
+          <label class="form-field span-3" for="setting-proxmox-storage"><span>Guest datastore</span><input id="setting-proxmox-storage" name="proxmox_storage" value="{{ values.proxmox_storage }}" required></label>
+          <label class="form-field span-3" for="setting-proxmox-template-datastore"><span>Template datastore</span><input id="setting-proxmox-template-datastore" name="proxmox_template_datastore" value="{{ values.proxmox_template_datastore }}" required></label>
+          <label class="form-field span-12" for="setting-proxmox-template-url"><span>LXC template URL</span><input id="setting-proxmox-template-url" name="proxmox_template_url" type="url" value="{{ values.proxmox_template_url }}" required></label>
+          <label class="form-field span-12" for="setting-proxmox-template-checksum"><span>LXC template SHA-256</span><input id="setting-proxmox-template-checksum" name="proxmox_template_checksum" value="{{ values.proxmox_template_checksum }}" minlength="64" maxlength="64" spellcheck="false" required></label>
+          <label class="form-field span-12" for="setting-proxmox-ca-file"><span>Custom CA file</span><input id="setting-proxmox-ca-file" name="proxmox_tls_ca_file" value="{{ values.proxmox_tls_ca_file }}" placeholder="Fetched securely from Proxmox when empty"></label>
+          <div class="choice-grid settings-choice-grid span-12">
+            <label class="choice-option"><input type="checkbox" name="proxmox_provision_machines" {% if values.proxmox_provision_machines %}checked{% endif %}><span>Provision managed nodes</span></label>
+          </div>
+        </div>
+      </section>
+
+      <section id="settings-network" class="content-band settings-section" aria-labelledby="settings-network-heading">
+        <div class="section-head"><h2 id="settings-network-heading">Network</h2></div>
+        <div class="field-grid settings-field-grid">
+          <label class="form-field span-6" for="setting-dns-provider"><span>DNS provider</span><input id="setting-dns-provider" name="dns_provider" value="{{ values.dns_provider }}" required></label>
+          <label class="form-field span-6" for="setting-public-ip"><span>Public DNS IP</span><input id="setting-public-ip" name="dns_public_ip" value="{{ values.dns_public_ip }}"></label>
+          <label class="form-field span-6" for="setting-container-cidr"><span>Container network pool</span><input id="setting-container-cidr" name="container_ipv4_cidr" value="{{ values.container_ipv4_cidr }}" required></label>
+          <label class="form-field span-6" for="setting-container-prefix"><span>Bridge subnet prefix</span><input id="setting-container-prefix" name="container_network_prefix" type="number" min="24" max="29" value="{{ values.container_network_prefix }}" required></label>
+          <div class="choice-grid settings-choice-grid span-12">
+            <label class="choice-option"><input type="checkbox" name="expose_internet" {% if values.expose_internet %}checked{% endif %}><span>Enable public routes</span></label>
+            <label class="choice-option"><input type="checkbox" name="dns_proxy" {% if values.dns_proxy %}checked{% endif %}><span>Cloudflare proxy</span></label>
+          </div>
+        </div>
+      </section>
+
+      <div class="settings-action-bar">
+        <button type="submit" formaction="/settings/generate" class="btn btn-ghost">Regenerate current configuration</button>
+        <button type="submit" class="btn btn-primary">Save and generate</button>
+      </div>
+    </form>
+
+  </div>
+</div>
+{% endblock %}

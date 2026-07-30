@@ -1,0 +1,79 @@
+---
+- name: Install node-exporter
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+    update_cache: true
+  become: true
+
+- name: Install Grafana repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - gpg
+    state: present
+  become: true
+
+- name: Install Grafana repository signing key
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg-full.key
+    dest: /etc/apt/keyrings/grafana.asc
+    mode: "0644"
+  become: true
+
+- name: Configure stable Grafana package repository
+  ansible.builtin.apt_repository:
+    repo: deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main
+    filename: grafana
+    state: present
+    update_cache: true
+  become: true
+
+- name: Install Alloy
+  ansible.builtin.apt:
+    name: alloy
+    state: present
+  become: true
+
+- name: Enable node-exporter service
+  ansible.builtin.systemd:
+    name: prometheus-node-exporter
+    enabled: true
+    state: started
+  become: true
+
+- name: Grant Alloy access to the system journal
+  ansible.builtin.user:
+    name: alloy
+    groups:
+      - adm
+      - systemd-journal
+    append: true
+  become: true
+  notify: restart alloy
+
+- name: Secure Alloy configuration directory
+  ansible.builtin.file:
+    path: /etc/alloy
+    state: directory
+    owner: root
+    group: alloy
+    mode: "0750"
+  become: true
+
+- name: Deploy Alloy config
+  ansible.builtin.template:
+    src: config.alloy.j2
+    dest: /etc/alloy/config.alloy
+    owner: root
+    group: alloy
+    mode: "0640"
+  become: true
+  notify: restart alloy
+
+- name: Ensure Alloy is running
+  ansible.builtin.systemd:
+    name: alloy
+    enabled: true
+    state: started
+  become: true

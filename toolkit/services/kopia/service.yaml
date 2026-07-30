@@ -1,0 +1,148 @@
+name: kopia
+label: Kopia
+description: Encrypted backups
+icon: 💾
+category: management
+placement: control
+priority: 10
+enabled_when:
+- path: backups.enabled
+  equals: true
+restart_policy: careful
+depends_on: []
+memory_tier: light
+memory_floor_mb: 2048
+host_sources:
+  KOPIA_CONFIG_SOURCE:
+    path: data/kopia/config
+  KOPIA_CACHE_SOURCE:
+    path: data/kopia/cache
+  KOPIA_LOGS_SOURCE:
+    path: data/kopia/logs
+  KOPIA_DUMPS_SOURCE:
+    path: data/kopia/dumps
+  KOPIA_REPOSITORY_SOURCE:
+    path: data/kopia/repository
+  KOPIA_TLS_CERT_SOURCE:
+    path: generated/kopia/tls/server.crt
+  KOPIA_TLS_PRIVATE_SOURCE:
+    path: generated/kopia/tls/server.key
+  KOPIA_AGENT_CONFIG_SOURCE:
+    path: data/kopia-agent/config
+  KOPIA_AGENT_CACHE_SOURCE:
+    path: data/kopia-agent/cache
+  KOPIA_AGENT_LOGS_SOURCE:
+    path: data/kopia-agent/logs
+generated_artifacts:
+- path: generated/kopia/tls/server.crt
+- path: generated/kopia/tls/server.key
+  sensitive: true
+host_integrations:
+- id: backup-storage
+  label: Backup storage target
+  kinds: [plain, fleet]
+  ansible_role: backup_storage
+  controller_lifecycle: true
+  fields:
+  - key: path
+    label: Repository path
+    description: Absolute path used for the encrypted Kopia repository.
+    type: path
+    required: true
+    placeholder: /srv/backups
+stateful: true
+runtimes:
+  kopia-agent:
+    placements: ['@non-primary']
+    compose_profile: monitoring-agent
+    memory_floor_mb: 1024
+network_listeners:
+- id: managed-backup-agent
+  port: 51515
+  sources: ['@runtime:kopia-agent']
+variables:
+  KOPIA_SERVER_HOST: '{service.kopia.address}'
+data_specs:
+- name: kopia-config
+  source_env: KOPIA_CONFIG_SOURCE
+  target: /app/config
+  size_estimate_gb: 1
+  snapshot: true
+- name: kopia-cache
+  source_env: KOPIA_CACHE_SOURCE
+  target: /app/cache
+  size_estimate_gb: 20
+  snapshot: false
+- name: kopia-logs
+  source_env: KOPIA_LOGS_SOURCE
+  target: /app/logs
+  size_estimate_gb: 2
+  snapshot: false
+- name: backup-repository
+  source_env: KOPIA_REPOSITORY_SOURCE
+  target: /repository
+  size_estimate_gb: 500
+  snapshot: false
+- name: agent-config
+  source_env: KOPIA_AGENT_CONFIG_SOURCE
+  runtime_service: kopia-agent
+  target: /app/config
+  size_estimate_gb: 1
+  snapshot: true
+- name: agent-cache
+  source_env: KOPIA_AGENT_CACHE_SOURCE
+  runtime_service: kopia-agent
+  target: /app/cache
+  size_estimate_gb: 20
+  snapshot: false
+- name: agent-logs
+  source_env: KOPIA_AGENT_LOGS_SOURCE
+  runtime_service: kopia-agent
+  target: /app/logs
+  size_estimate_gb: 1
+  snapshot: false
+routes:
+- subdomain: backup
+  upstream: kopia:51515
+  published_port: 51515
+  exposure: private
+  auth:
+    mode: forward_auth
+operator_bookmark:
+  section: Quick actions
+  priority: 80
+  description: Encrypted backup management
+management:
+  panels:
+  - id: backup-access
+    title: Backup access
+    description: Repository passwords and node-agent credentials remain encrypted.
+    items:
+    - label: Backup UI
+      value: https://backup.{domain}
+      href: https://backup.{domain}
+      copyable: true
+    - label: Internal repository server
+      value: https://{address}:51515
+      copyable: true
+required_secrets:
+- name: KOPIA_ADMIN_PASSWORD
+  tier: generated
+  length: 24
+  description: Administrator password
+  rotation: reconcile
+- name: KOPIA_REPOSITORY_PASSWORD
+  tier: generated
+  length: 32
+  description: Backup repository encryption password
+  rotation: persistent
+- name: KOPIA_AGENT_PASSWORD
+  tier: generated
+  length: 32
+  description: TLS repository-server credential used by node-local snapshot agents
+  rotation: reconcile
+credentials:
+- name: Kopia
+  url: '{proto}://backup.{domain}'
+  password_env: KOPIA_ADMIN_PASSWORD
+  tags: [kopia, backups, admin]

@@ -1,0 +1,43 @@
+services:
+  fmd-server:
+    restart: unless-stopped
+    profiles:
+    - cloud
+    - svc-fmd-server
+    image: registry.gitlab.com/fmd-foss/fmd-server:0.16.0-alpine@sha256:fec3cce3329468d806ddd1e33e48dff6eafe6005ef4168163abb3afc48d53330
+    container_name: fmd-server
+    init: true
+    user: 1000:1000
+    read_only: true
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      FMD_PORTINSECURE: '8080'
+      FMD_REGISTRATIONTOKEN: ${FMD_REGISTRATION_TOKEN}
+      FMD_METRICSADDRPORT: 0.0.0.0:9100
+      FMD_REMOTEIPHEADER: X-Real-IP
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8084:8080
+    - ${PRIVATE_IP:-127.0.0.1}:9101:9100
+    volumes:
+    - ${FMD_DATA_SOURCE:-./data/fmd}:/var/lib/fmd-server/db
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -qO- http://127.0.0.1:8080/api/v1/version >/dev/null || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128

@@ -1,0 +1,34 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+discovery.docker "containers" {
+  host             = sys.env("ALLOY_DOCKER_HOST")
+  refresh_interval = "5s"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+    replacement   = "$1"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = sys.env("ALLOY_DOCKER_HOST")
+  targets       = discovery.docker.containers.targets
+  labels        = { job = "docker", host = sys.env("ALLOY_NODE_ROLE") }
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = sys.env("ALLOY_LOKI_URL")
+  }
+}

@@ -1,0 +1,10 @@
+name: notifications
+label: Notifications
+placement: control
+priority: 50
+description: Push notification services
+service_group: homelab-admin
+compose_profiles:
+- notifications
+depends_on:
+- management

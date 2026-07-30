@@ -1,0 +1,50 @@
+---
+# Install the Komodo Periphery integration on every managed guest except the
+# Core node.  The role remains implementation detail of this service folder;
+# core Ansible only dispatches the generated post-deploy task list.
+- name: Load Komodo secrets from controller
+  delegate_to: localhost
+  connection: local
+  become: false
+  vars:
+    ansible_become: false
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - "-c"
+      - |
+        import importlib
+        import json
+        from pathlib import Path
+        from toolkit.core.secrets.secrets import load_secrets_plaintext
+        from toolkit.core.config.storage import secrets_path
+        root = Path({{ homelab_controller_root | tojson }})
+        sec = load_secrets_plaintext(secrets_path(root))
+        bootstrap = importlib.import_module("toolkit.services.komodo-core.bootstrap")
+        print(json.dumps({
+            "onboarding_key": bootstrap.derive_komodo_onboarding_key(sec.get("KOMODO_ONBOARDING_SEED", "")),
+        }))
+  environment:
+    PYTHONPATH: "{{ homelab_controller_root }}"
+    SOPS_AGE_KEY_FILE: "{{ homelab_controller_root }}/keys/age.key"
+  register: komodo_secrets_raw
+  changed_when: false
+  no_log: true
+  when: homelab_node_id != service_nodes['komodo-core']
+
+- name: Parse Komodo secrets JSON
+  ansible.builtin.set_fact:
+    komodo_onboarding_key: "{{ (komodo_secrets_raw.stdout | from_json).onboarding_key | default('') }}"
+  no_log: true
+  when: homelab_node_id != service_nodes['komodo-core']
+
+- name: Install Komodo Periphery agent
+  ansible.builtin.include_role:
+    name: komodo_periphery
+  vars:
+    komodo_core_address: "https://{{ service_route_hosts['komodo-core'] }}"
+    komodo_connect_as: "{{ homelab_node_id }}"
+  when:
+    - homelab_node_id != service_nodes['komodo-core']
+    - komodo_onboarding_key | default('') | length > 0
+  no_log: true

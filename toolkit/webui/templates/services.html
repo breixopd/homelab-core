@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block page_actions %}
+<a href="/settings" class="btn btn-ghost btn-sm">Configure services</a>
+{% endblock %}
+
+{% block content %}
+{% set inventory = namespace(total=0) %}
+{% for category in categories %}{% set inventory.total = inventory.total + category.services|length %}{% endfor %}
+
+<section class="content-band service-catalog-band" aria-labelledby="service-catalog-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="service-catalog-heading">Service catalog</h2>
+      <p class="muted text-sm service-section-note">Desired routes and placement for {{ inventory.total }} services</p>
+    </div>
+  </div>
+
+  <div class="table-toolbar">
+    <div class="table-filter-cluster">
+      <label class="sr-only" for="service-filter">Filter services</label>
+      <input id="service-filter" class="table-filter" type="search" placeholder="Filter services"
+             autocomplete="off" aria-controls="service-catalog-body"
+             data-table-filter="service-catalog-body">
+      <div class="table-options" role="group" aria-label="Filter services by category">
+        <button type="button" class="table-option active" data-table-option="service-catalog-body" data-filter-value="all" aria-pressed="true">All</button>
+        {% for category in categories %}
+        <button type="button" class="table-option" data-table-option="service-catalog-body" data-filter-value="{{ category.name }}" aria-pressed="false">{{ category.name|title }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="table-toolbar-meta">
+      <span class="table-count" data-filter-count="service-catalog-body" aria-live="polite">{{ inventory.total }} shown</span>
+      <button type="button" class="btn btn-ghost btn-sm" data-table-expand="service-catalog-body">Show all</button>
+    </div>
+  </div>
+
+  <div class="responsive-table service-catalog-wrap">
+    <table class="data-table service-catalog" aria-labelledby="service-catalog-heading">
+      <thead>
+        <tr>
+          <th scope="col">Service</th>
+          <th scope="col">Category</th>
+          <th scope="col">Description</th>
+          <th scope="col">Routes</th>
+          <th scope="col">Node</th>
+        </tr>
+      </thead>
+      <tbody id="service-catalog-body" data-filter-default="all" data-filter-limit="12">
+        {% for category in categories %}
+        {% for service in category.services %}
+        <tr data-filter-row data-filter-value="{{ category.name }}">
+          <td data-label="Service"><div class="service-name-cell"><strong>{{ service.label }}</strong><code>{{ service.name }}</code>{% if service.is_manageable %}<a href="/services/{{ service.name }}" class="btn btn-ghost btn-xs icon-button service-manage-link" title="Manage {{ service.label }}"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#settings"></use></svg><span class="sr-only">Manage {{ service.label }}</span></a>{% endif %}</div></td>
+          <td data-label="Category">{{ category.name }}</td>
+          <td data-label="Description">{{ service.description }}</td>
+          <td data-label="Routes">
+            {% for route in service.routes %}
+            <div class="service-route-row">
+              <a class="service-endpoint" href="{{ route.url }}" target="_blank" rel="noopener">
+                <span class="mono">{{ route.url.replace('https://', '') }}</span>
+                <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#external-link"></use></svg>
+              </a>
+              <span class="badge exposure-{{ route.exposure }}">{{ route.exposure }}</span>
+              <span class="badge">{{ route.auth_mode|replace('_', ' ') }}</span>
+              <span class="muted text-xs">{{ route.scope }}</span>
+            </div>
+            {% else %}
+            <span class="muted">Not routed</span>
+            {% endfor %}
+          </td>
+          <td data-label="Node"><code>{{ service.node }}</code></td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+        <tr data-filter-empty hidden>
+          <td colspan="5" class="people-empty">No services match this filter.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="content-band service-runtime-band" aria-labelledby="service-runtime-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="service-runtime-heading">Observed runtime</h2>
+      <p class="muted text-sm service-section-note">Container state reported by the managed nodes</p>
+    </div>
+    <button class="btn btn-ghost btn-sm"
+            hx-get="/partials/services/containers"
+            hx-target="#containers-panel"
+            hx-indicator="#spinner"
+            hx-swap="innerHTML">Refresh</button>
+  </div>
+  <div id="containers-panel"
+       hx-get="/partials/services/containers"
+       hx-trigger="load, every 20s"
+       hx-swap="innerHTML">
+    <p class="inline-status">Loading container inventory</p>
+  </div>
+</section>
+{% endblock %}

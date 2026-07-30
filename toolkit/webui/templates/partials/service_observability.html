@@ -1,0 +1,59 @@
+<strong id="service-reporting-status" hx-swap-oob="true">{{ 'Reporting' if service.status_available else 'Unavailable' }}</strong>
+
+{% if service.metrics %}
+<section class="content-band" aria-labelledby="service-metrics-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="service-metrics-heading">Metrics</h2>
+      <p class="muted text-sm service-manage-note">Live container and service-specific measurements.</p>
+    </div>
+    <span class="muted text-sm">Updates every 30 seconds</span>
+  </div>
+  <div class="service-metric-grid">
+    {% for metric in service.metrics %}
+    <div class="service-metric">
+      <span>{{ metric.label }}</span>
+      {% if metric.value is not none %}
+      <strong>{{ '%.*f'|format(metric.precision, metric.value) }}{% if metric.unit == 'percent' %}%{% elif metric.unit == 'seconds' %} s{% elif metric.unit == 'bytes' %} B{% elif metric.unit == 'megabytes' %} MB{% elif metric.unit == 'mbps' %} Mbps{% endif %}</strong>
+      {% else %}<strong class="muted">Unavailable</strong>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% if service.metric_series %}
+  <div class="service-history-grid" aria-label="One-hour service metric history">
+    {% for series in service.metric_series %}
+    <div class="service-history"
+         data-service-history
+         data-series="{{ series.points|tojson|forceescape }}"
+         data-unit="{{ series.unit }}">
+      <div class="service-history-head">
+        <span>{{ series.label }}</span>
+        <span class="muted">1 hour</span>
+      </div>
+      <div class="service-history-summary">
+        <span>Average <strong>{{ series.average }}{% if series.unit == 'percent' %}%{% else %} MB{% endif %}</strong></span>
+        <span>Peak <strong>{{ series.peak }}{% if series.unit == 'percent' %}%{% else %} MB{% endif %}</strong></span>
+      </div>
+      <canvas width="480" height="128" role="img" aria-label="{{ series.label }} over the last hour"></canvas>
+      <p class="sr-only">Average {{ series.average }}{% if series.unit == 'percent' %} percent{% else %} megabytes{% endif %}; peak {{ series.peak }}{% if series.unit == 'percent' %} percent{% else %} megabytes{% endif %}.</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{% for resource in service.resources %}
+<section class="content-band" aria-labelledby="service-resource-{{ resource.key }}">
+  <div class="section-head">
+    <div><h2 id="service-resource-{{ resource.key }}">{{ resource.label }}</h2>{% if resource.description %}<p class="muted text-sm service-manage-note">{{ resource.description }}</p>{% endif %}</div>
+  </div>
+  {% if resource.rows %}
+  <div class="responsive-table"><table class="service-resource-table"><thead><tr>{% for column in resource.columns %}<th scope="col">{{ column.label }}</th>{% endfor %}</tr></thead><tbody>{% for row in resource.rows %}<tr>{% for column in resource.columns %}<td data-label="{{ column.label }}">{{ row[column.key] or '-' }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
+  {% else %}<div class="empty-state compact"><strong>{{ 'No resources configured' if resource.available else 'Resource status unavailable' }}</strong></div>{% endif %}
+</section>
+{% endfor %}
+
+{% if not service.metrics and not service.resources %}
+<section class="content-band"><div class="empty-state compact"><strong>No service-specific observability is declared.</strong><p class="muted text-sm">This service still participates in platform-wide health checks.</p></div></section>
+{% endif %}

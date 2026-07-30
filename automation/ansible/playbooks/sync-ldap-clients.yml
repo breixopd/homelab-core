@@ -1,0 +1,31 @@
+---
+# Apply manifest-owned directory integrations on guest LXCs and external fleet
+# nodes. Invoked by the directory synchronization command.
+
+- name: Apply directory integrations on guest LXCs
+  hosts: guest_hosts
+  serial: 1
+  become: true
+  vars:
+    homelab_controller_root: "{{ playbook_dir }}/../../.."
+  tasks:
+    - name: Apply manifest-selected service sync task file
+      ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+      loop: "{{ service_sync_task_files | default([]) }}"
+      loop_control:
+        loop_var: service_task_file
+        label: "{{ service_task_file }}"
+
+- name: Apply directory integrations on fleet nodes
+  hosts: external_hosts
+  serial: 1
+  become: true
+  vars:
+    homelab_controller_root: "{{ playbook_dir }}/../../.."
+  tasks:
+    - name: Apply manifest-selected service sync task file
+      ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+      loop: "{{ service_sync_task_files | default([]) }}"
+      loop_control:
+        loop_var: service_task_file
+        label: "{{ service_task_file }}"

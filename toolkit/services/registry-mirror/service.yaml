@@ -1,0 +1,23 @@
+name: registry-mirror
+label: Registry mirror
+description: Docker Hub pull cache
+icon: 🐳
+category: management
+placement: control
+priority: 0
+essential: true
+restart_policy: careful
+depends_on: []
+provides: [registry-mirror]
+memory_tier: light
+stateful: true
+data_specs:
+- name: registry-cache
+  volume: docker_mirror_cache
+  target: /docker_mirror_cache
+  size_estimate_gb: 50
+  snapshot: false
+network_listeners:
+- id: managed-docker-cache
+  port: 3128
+  sources: ['@all']

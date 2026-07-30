@@ -1,0 +1,8 @@
+name: email
+label: Email
+placement: control
+priority: 60
+description: "Docker-Mailserver — Postfix+Dovecot+Rspamd+ClamAV with LLDAP bind auth"
+service_group: homelab-admin
+compose_profiles: [email]
+depends_on: [management]

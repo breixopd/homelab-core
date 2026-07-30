@@ -1,0 +1,50 @@
+services:
+  lldap:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-lldap
+    build:
+      context: ./toolkit/services/lldap/image
+    image: ${HOMELAB_LLDAP_IMAGE:?run homelab-toolkit generate}
+    container_name: lldap
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      LLDAP_JWT_SECRET: ${LLDAP_JWT_SECRET}
+      LLDAP_LDAP_USER_PASS: ${LLDAP_ADMIN_PASSWORD}
+      LLDAP_LDAP_BASE_DN: ${LLDAP_BASE_DN:-dc=home,dc=local}
+      LLDAP_LDAP_USER_DN: admin
+      LLDAP_LDAP_USER_EMAIL: ${AUTHELIA_DEFAULT_EMAIL:-admin@localhost}
+      LLDAP_HTTP_URL: ${LLDAP_HTTP_URL:-https://users.localhost}
+    expose:
+    - 17170
+    - 3890
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:3890:3890
+    - ${PRIVATE_IP:-127.0.0.1}:17170:17170
+    volumes:
+    - ${LLDAP_DATA_SOURCE:-./data/lldap}:/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:17170/health || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64

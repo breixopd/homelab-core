@@ -1,0 +1,55 @@
+services:
+  vaultwarden:
+    restart: unless-stopped
+    profiles:
+    - cloud
+    - svc-vaultwarden
+    image: vaultwarden/server:1.36.0@sha256:d626d04934cd1192ad8ced1adb975099fca78cec33ab467d2d3c923cde7f3b0c
+    container_name: vaultwarden
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      DATABASE_URL: postgresql://${VAULTWARDEN_DB_USER}:${VAULTWARDEN_DB_PASSWORD}@${VAULTWARDEN_DB_HOST}:${VAULTWARDEN_DB_PORT}/${VAULTWARDEN_DB_NAME}
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN:-}
+      DOMAIN: ${PUBLIC_URL_PROTOCOL:-https}://vault.${BASE_DOMAIN:-localhost}
+      SSO_ENABLED: ${VAULTWARDEN_SSO_ENABLED:-true}
+      SSO_ONLY: 'false'
+      WEBSOCKET_ENABLED: 'true'
+      SSO_SCOPES: openid profile email offline_access
+      SSO_PKCE: 'true'
+      SSO_ROLES_ENABLED: 'true'
+      SSO_ROLES_DEFAULT_TO_USER: 'true'
+      SSO_AUTHORITY: ${VAULTWARDEN_SSO_AUTHORITY:-}
+      SSO_CLIENT_ID: vaultwarden
+      SSO_CLIENT_SECRET: ${VAULTWARDEN_SSO_CLIENT_SECRET:-}
+      SIGNUPS_ALLOWED: 'false'
+      INVITATIONS_ALLOWED: 'true'
+      PASSWORD_HINTS_ENABLED: 'false'
+      SIGNUPS_DOMAINS_WHITELIST: ${BASE_DOMAIN}
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8082:80
+    volumes:
+    - ${VAULTWARDEN_DATA_SOURCE:-./data/vaultwarden}:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:80/alive || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 256

@@ -1,0 +1,36 @@
+name: media-library
+label: Media Library
+description: Shared media directory layout and ownership
+icon: 🗂️
+category: media
+placement: media
+priority: 0
+restart_policy: safe
+depends_on: []
+memory_tier: light
+host_sources:
+  MEDIA_LIBRARY_ROOT:
+    path: media
+    variants:
+    - when:
+        setting: media-cache.enabled
+        equals: true
+      path: media/library
+runtime: embedded
+host_paths:
+- path: media
+  uid: 1000
+  gid: 1001
+  mode: '2775'
+  subdirs: [tv, movies, music, downloads]
+  create: true
+  recursive: false
+management:
+  settings:
+  - key: server
+    label: Media servers
+    description: Select the media server implementation deployed for the shared library.
+    type: select
+    default: jellyfin
+    choices: [jellyfin, plex, both]
+    setup: true

@@ -1,0 +1,253 @@
+name: romm
+label: RomM
+description: ROM library management and browser-based game streaming
+icon: 🎮
+category: cloud
+placement: apps
+priority: 35
+restart_policy: careful
+depends_on:
+- postgres
+- redis
+databases:
+- provider: postgres
+  database: romm
+  username: romm
+  host_env: ROMM_DB_HOST
+  port_env: ROMM_DB_PORT
+  database_env: ROMM_DB_NAME
+  username_env: ROMM_DB_USER
+  password_env: ROMM_DB_PASSWORD
+integrations:
+- service: redis
+  host_env: ROMM_REDIS_HOST
+  port_env: ROMM_REDIS_PORT
+memory_tier: medium
+memory_floor_mb: 1024
+cpu_floor: 0.5
+host_sources:
+  ROMM_LIBRARY_SOURCE:
+    path: data/romm/library
+  ROMM_RESOURCES_SOURCE:
+    path: data/romm/resources
+  ROMM_ASSETS_SOURCE:
+    path: data/romm/assets
+  ROMM_CONFIG_SOURCE:
+    path: data/romm/config
+stateful: true
+data_specs:
+- name: romm-library
+  source_env: ROMM_LIBRARY_SOURCE
+  target: /romm/library
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+  host_uid: 1000
+  host_gid: 1000
+  host_subdirs: [roms]
+- name: romm-resources
+  source_env: ROMM_RESOURCES_SOURCE
+  target: /romm/resources
+  size_estimate_gb: 25
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: romm-assets
+  source_env: ROMM_ASSETS_SOURCE
+  target: /romm/assets
+  size_estimate_gb: 50
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: romm-config
+  source_env: ROMM_CONFIG_SOURCE
+  target: /romm/config
+  size_estimate_gb: 2
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+variables:
+  ROMM_BASE_URL: https://romm.{config.domain}
+  ROMM_BASE_PATH: /romm
+  ROMM_DB_DRIVER: postgresql
+  ROMM_REDIS_DB: '5'
+  ROMM_PORT: '8080'
+  ROMM_SCAN_WORKERS: '1'
+  ROMM_ENABLE_RESCAN_ON_FILESYSTEM_CHANGE: 'false'
+  ROMM_ENABLE_SCHEDULED_RESCAN: 'false'
+  ROMM_HASHEOUS_API_ENABLED: '{setting.hasheous-enabled}'
+  ROMM_HLTB_API_ENABLED: '{setting.hltb-enabled}'
+  ROMM_TGDB_API_ENABLED: '{setting.tgdb-enabled}'
+  ROMM_PLAYMATCH_API_ENABLED: '{setting.playmatch-enabled}'
+  ROMM_FLASHPOINT_API_ENABLED: '{setting.flashpoint-enabled}'
+  ROMM_DISABLE_DOWNLOAD_ENDPOINT_AUTH: 'false'
+  ROMM_DISABLE_CSRF_PROTECTION: 'false'
+  ROMM_DISABLE_USERPASS_LOGIN: 'false'
+  ROMM_DISABLE_SETUP_WIZARD: 'true'
+oidc:
+  client_id: romm
+  secret_env_var: ROMM_OIDC_CLIENT_SECRET
+  redirect_uris:
+  - https://romm.{domain}/api/oauth/openid
+  claims_policy: homelab_default
+  scopes: [openid, profile, email, groups]
+  authorization_policy: two_factor
+  require_pkce: false
+  token_endpoint_auth_method: client_secret_basic
+  response_types: [code]
+  grant_types: [authorization_code]
+routes:
+- subdomain: romm
+  upstream: romm:8080
+  published_port: 8090
+  exposure: public
+  auth:
+    # The edge owns browser access; RomM's native API and OIDC callback are
+    # explicitly split below so mobile clients and first-login callbacks work.
+    mode: split
+    passthrough_paths: [/api/oauth/openid]
+    # Probe the callback without creating an OAuth request or triggering a
+    # stateful GET. RomM correctly rejects HEAD with 405; the edge must still
+    # bypass forward auth for this native callback path.
+    probe_method: HEAD
+    probe_statuses: [405]
+  request_body_max_mb: 100
+- subdomain: romm
+  upstream: romm:8080
+  published_port: 8090
+  exposure: public
+  auth:
+    mode: native
+  match:
+    kind: prefix
+    paths: [/api/]
+health:
+  public_probe_path: /api/heartbeat
+  starting_policy: pending
+identity:
+  access_groups: [homelab-media, homelab-admin]
+  invite:
+    group: homelab-media
+    priority: 45
+    blurb: ROM library, metadata, and browser game streaming
+    sign_in: Sign in with RomM or choose Sign in with Authelia.
+  provisioning:
+  - id: romm_oidc_first_login
+    mode: first_login
+    priority: 50
+    message: 'RomM: OIDC users are provisioned on first sign-in when they have the media group'
+    disabled_message: 'RomM OIDC: cloud service disabled'
+operator_bookmark:
+  section: Quick actions
+  priority: 95
+  description: ROM library, metadata, and browser game streaming
+required_secrets:
+- name: ROMM_DB_PASSWORD
+  tier: generated
+  length: 32
+  description: RomM PostgreSQL role password
+  rotation: reconcile
+- name: ROMM_AUTH_SECRET_KEY
+  tier: generated
+  length: 64
+  description: RomM session and token signing key
+  rotation: restart
+- name: ROMM_OIDC_CLIENT_SECRET
+  tier: generated
+  length: 48
+  description: RomM OIDC client secret for Authelia
+  rotation: restart
+- name: IGDB_CLIENT_ID
+  tier: user
+  description: Optional IGDB client ID
+  rotation: persistent
+- name: IGDB_CLIENT_SECRET
+  tier: user
+  description: Optional IGDB client secret
+  rotation: persistent
+- name: SCREENSCRAPER_USER
+  tier: user
+  description: Optional ScreenScraper username
+  rotation: persistent
+- name: SCREENSCRAPER_PASSWORD
+  tier: user
+  description: Optional ScreenScraper password
+  rotation: persistent
+- name: STEAMGRIDDB_API_KEY
+  tier: user
+  description: Optional SteamGridDB API key
+  rotation: persistent
+- name: RETROACHIEVEMENTS_API_KEY
+  tier: user
+  description: Optional RetroAchievements API key
+  rotation: persistent
+management:
+  panels:
+  - id: metadata-overview
+    title: Metadata providers
+    description: Keyless providers are enabled by default. Providers requiring personal credentials remain opt-in.
+    items:
+    - label: Keyless defaults
+      value: Hasheous, HowLongToBeat, TheGamesDB
+    - label: Optional credentials
+      value: IGDB, ScreenScraper, SteamGridDB, RetroAchievements
+    - label: Provider guide
+      value: RomM metadata provider documentation
+      href: https://docs.romm.app/latest/getting-started/metadata-providers/
+  secrets:
+  - name: IGDB_CLIENT_ID
+    label: IGDB client ID
+    description: Twitch developer application client ID.
+  - name: IGDB_CLIENT_SECRET
+    label: IGDB client secret
+    description: Twitch developer application client secret.
+  - name: SCREENSCRAPER_USER
+    label: ScreenScraper username
+    description: Optional ScreenScraper account username.
+  - name: SCREENSCRAPER_PASSWORD
+    label: ScreenScraper password
+    description: Optional ScreenScraper account password.
+  - name: STEAMGRIDDB_API_KEY
+    label: SteamGridDB API key
+    description: Optional key for additional artwork search.
+  - name: RETROACHIEVEMENTS_API_KEY
+    label: RetroAchievements API key
+    description: Optional key for achievement metadata.
+  settings:
+  - key: hasheous-enabled
+    label: Hasheous
+    description: Free hash matching with proxied game metadata; recommended keyless starter.
+    type: boolean
+    default: true
+  - key: hltb-enabled
+    label: HowLongToBeat
+    description: Free completion-time metadata.
+    type: boolean
+    default: true
+  - key: tgdb-enabled
+    label: TheGamesDB
+    description: Free community game metadata.
+    type: boolean
+    default: true
+  - key: playmatch-enabled
+    label: PlayMatch
+    description: Community hash matching; manual matches can submit ROM metadata suggestions.
+    type: boolean
+    default: false
+  - key: flashpoint-enabled
+    label: Flashpoint
+    description: Metadata for Flash and browser games.
+    type: boolean
+    default: false
+  metrics:
+  - key: heartbeat
+    label: Heartbeat
+    source: status
+    field: heartbeat
+    unit: none
+  - key: metadata_providers_enabled
+    label: Metadata providers
+    source: status
+    field: metadata_providers_enabled
+    unit: count

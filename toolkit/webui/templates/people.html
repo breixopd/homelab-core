@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block page_actions %}
+  {% if directory and directory.invites_enabled %}
+  <button class="btn btn-primary people-invite-button" type="button"
+          data-disclosure-toggle="invite-person"
+          aria-controls="invite-person"
+          aria-expanded="false">
+    <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#user-plus"></use></svg>
+    Invite person
+  </button>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+{% if directory_unavailable %}
+<div class="status-bar warn" role="status">Directory users are temporarily unavailable</div>
+<section class="content-band people-directory-unavailable" aria-labelledby="directory-unavailable-heading">
+  <div class="empty-state">
+    <h2 id="directory-unavailable-heading">Directory connection unavailable</h2>
+    <p>Identity changes are disabled until the directory connection recovers.</p>
+    <a class="btn btn-ghost btn-sm" href="/people">Retry</a>
+  </div>
+</section>
+{% else %}
+{% if directory.invites_enabled %}
+<section id="invite-person" class="content-band people-invite" hidden aria-labelledby="invite-person-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="invite-person-heading">Invite person</h2>
+      <p class="muted text-sm people-section-note">Create an identity in {{ directory.domain }}</p>
+    </div>
+  </div>
+  <form class="field-grid people-invite-form"
+        hx-post="/people/jobs/invite"
+        hx-target="#identity-job-panel"
+        hx-indicator="#spinner"
+        hx-swap="innerHTML">
+    <div class="people-field span-6">
+      <label for="invite-email">Email</label>
+      <input id="invite-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+    </div>
+
+    <div class="people-field span-6">
+      <label for="invite-display-name">Display name</label>
+      <input id="invite-display-name" name="display_name" type="text" autocomplete="name" maxlength="128" required>
+    </div>
+
+    <fieldset class="people-group-fieldset span-12">
+      <legend>Access groups</legend>
+      <div class="choice-grid people-choice-grid">
+        {% for group in directory.group_options %}
+        <label class="choice-option">
+          <input type="checkbox" name="groups" value="{{ group.name }}"
+                 aria-describedby="invite-group-description-{{ group.name }}"{% if group.is_default %} checked{% endif %}>
+          <span>{{ group.label }}</span>
+          <span class="sr-only" id="invite-group-description-{{ group.name }}">{{ group.description }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <div class="action-bar span-12 people-form-actions">
+      <button class="btn btn-primary" type="submit">
+        <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#mail-plus"></use></svg>
+        Send invitation
+      </button>
+    </div>
+  </form>
+</section>
+{% else %}
+<div class="status-bar warn" role="status">{{ directory.invite_disabled_reason }}</div>
+{% endif %}
+
+<section class="content-band people-directory" aria-labelledby="directory-identities-heading">
+  <div class="section-head people-directory-head">
+    <div>
+      <h2 id="directory-identities-heading">Directory identities</h2>
+      <p class="muted text-sm people-section-note">{{ directory.users|length }} identities in {{ directory.domain }}</p>
+    </div>
+  </div>
+
+  <div class="table-wrap people-table-wrap">
+    <table class="data-table people-table" aria-labelledby="directory-identities-heading">
+      <thead>
+        <tr>
+          <th scope="col">Person</th>
+          <th scope="col">Email</th>
+          <th scope="col">Managed groups</th>
+          <th scope="col">Status</th>
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in directory.users %}
+        <tr data-user-id="{{ user.id }}"{% if user.is_protected %} class="people-row-protected"{% endif %}>
+          <td data-label="Person">
+            <strong class="people-name">{{ user.display_name }}</strong>
+            <code class="people-id">{{ user.id }}</code>
+          </td>
+          <td data-label="Email">{{ user.email }}</td>
+          <td data-label="Managed groups">
+            <div class="people-groups">
+              {% for group in user.groups %}<span class="badge neutral">{{ group }}</span>{% endfor %}
+            </div>
+          </td>
+          <td data-label="Status">
+            {% if user.is_protected %}
+            <span class="badge warn">
+              <svg class="badge-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#shield"></use></svg>
+              Protected
+            </span>
+            {% else %}
+            <span class="badge ok">Managed</span>
+            {% endif %}
+          </td>
+          <td data-label="Actions" class="people-actions-cell">
+            {% if not user.is_protected %}
+            <div class="row-actions people-row-actions">
+              <button class="btn btn-ghost btn-sm" type="button"
+                      data-row-panel="access-{{ user.id }}"
+                      aria-controls="access-{{ user.id }}"
+                      aria-expanded="false">Edit access</button>
+
+              <form hx-post="/people/jobs/{{ user.id }}/reprovision"
+                    hx-target="#identity-job-panel"
+                    hx-indicator="#spinner"
+                    hx-swap="innerHTML">
+                <button class="btn btn-ghost btn-sm" type="submit" title="Reissue activation">
+                  <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#refresh-cw"></use></svg>
+                  <span class="sr-only">Reissue activation</span>
+                </button>
+              </form>
+
+              <button class="btn btn-ghost btn-sm people-delete-toggle" type="button"
+                      data-row-panel="delete-{{ user.id }}"
+                      aria-controls="delete-{{ user.id }}"
+                      aria-expanded="false">
+                <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#trash"></use></svg>
+                <span class="sr-only">Delete directory identity</span>
+              </button>
+            </div>
+            {% else %}
+            <span class="muted text-sm">No changes available</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% if not user.is_protected %}
+        <tr id="access-{{ user.id }}" class="people-detail-row" hidden>
+          <td colspan="5">
+            <form class="people-detail-form"
+                  aria-label="Access groups for {{ user.id }}"
+                  hx-post="/people/jobs/{{ user.id }}/groups"
+                  hx-target="#identity-job-panel"
+                  hx-indicator="#spinner"
+                  hx-swap="innerHTML">
+              <fieldset class="people-group-fieldset">
+                <legend>Managed groups for {{ user.display_name }}</legend>
+                <div class="choice-grid people-choice-grid">
+                  {% for group in directory.group_options %}
+                  <label class="choice-option">
+                    <input type="checkbox" name="groups" value="{{ group.name }}"
+                           aria-describedby="{{ user.id }}-group-description-{{ group.name }}"{% if group.name in user.groups %} checked{% endif %}>
+                    <span>{{ group.label }}</span>
+                    <span class="sr-only" id="{{ user.id }}-group-description-{{ group.name }}">{{ group.description }}</span>
+                  </label>
+                  {% endfor %}
+                </div>
+              </fieldset>
+              <button class="btn btn-primary btn-sm" type="submit">Save access</button>
+            </form>
+          </td>
+        </tr>
+        <tr id="delete-{{ user.id }}" class="people-detail-row people-detail-danger" hidden>
+          <td colspan="5">
+            <form class="people-detail-form people-delete-form"
+                  aria-label="Delete directory identity {{ user.id }}"
+                  hx-post="/people/jobs/{{ user.id }}/delete-directory"
+                  hx-target="#identity-job-panel"
+                  hx-indicator="#spinner"
+                  hx-swap="innerHTML">
+              <p class="alert alert-warning">This does not revoke downstream sessions or delete vault data.</p>
+              <label for="delete-confirmation-{{ user.id }}">Enter <code>{{ user.id }}</code> to confirm</label>
+              <input id="delete-confirmation-{{ user.id }}" name="confirmation" type="text" autocomplete="off" required>
+              <button class="btn btn-danger btn-sm" type="submit">
+                <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#trash"></use></svg>
+                Delete identity
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endif %}
+        {% else %}
+        <tr><td colspan="5" class="people-empty">No directory identities found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div id="identity-error" class="people-identity-error" role="alert" aria-live="assertive" aria-atomic="true"></div>
+<section id="identity-job-panel" class="people-job-panel" aria-live="polite" aria-atomic="true"></section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/deploy.js?v={{ static_revision }}"></script>
+{% endblock %}

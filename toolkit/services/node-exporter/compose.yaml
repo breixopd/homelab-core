@@ -1,0 +1,79 @@
+services:
+  node-exporter:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-node-exporter
+    image: docker.io/prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    container_name: node-exporter
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command:
+    - --path.rootfs=/host
+    volumes:
+    - /:/host:ro,rslave
+    expose:
+    - 9100
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:9100:9100
+    pid: host
+    healthcheck:
+      test:
+      - CMD
+      - /bin/wget
+      - -q
+      - --spider
+      - http://localhost:9100/metrics
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+  node-exporter-agent:
+    restart: unless-stopped
+    profiles:
+    - monitoring-agent
+    - svc-node-exporter-agent
+    image: docker.io/prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    container_name: node-exporter-agent
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command:
+    - --path.rootfs=/host
+    volumes:
+    - /:/host:ro,rslave
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:9100:9100
+    pid: host
+    healthcheck:
+      test:
+      - CMD
+      - /bin/wget
+      - -q
+      - --spider
+      - http://localhost:9100/metrics
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64

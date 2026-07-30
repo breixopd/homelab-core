@@ -1,0 +1,62 @@
+services:
+  wazuh-dashboard:
+    restart: unless-stopped
+    networks:
+      plugin-wazuh-dashboard:
+        aliases:
+        - wazuh.dashboard
+    profiles:
+    - security-wazuh-ui
+    - svc-wazuh-dashboard
+    image: wazuh/wazuh-dashboard:4.14.6@sha256:261d270587933778f9ca61ec0334adf3b9a25e30d41d71c937890a60dab6eb04
+    container_name: wazuh-dashboard
+    hostname: wazuh.dashboard
+    extra_hosts:
+    - wazuh-manager:host-gateway
+    read_only: false
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      INDEXER_URL: https://wazuh.indexer:9200
+      INDEXER_USERNAME: admin
+      INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD}
+      WAZUH_API_URL: https://wazuh-manager:55000
+      DASHBOARD_USERNAME: kibanaserver
+      DASHBOARD_PASSWORD: ${WAZUH_DASHBOARD_PASSWORD}
+      API_USERNAME: wazuh-wui
+      API_PASSWORD: ${WAZUH_API_PASSWORD}
+    expose:
+    - 5601
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:5601:5601
+    volumes:
+    - wazuh-dashboard-config:/usr/share/wazuh-dashboard/data/wazuh/config
+    - wazuh-dashboard-custom:/usr/share/wazuh-dashboard/plugins/wazuh/public/assets/custom
+    - ${INSTALL_ROOT}/config/wazuh/opensearch_dashboards.yml:/usr/share/wazuh-dashboard/config/opensearch_dashboards.yml:ro
+    - ${WAZUH_CERTS_SOURCE:-./data/wazuh/certs}/wazuh.dashboard.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem:ro
+    - ${WAZUH_CERTS_SOURCE:-./data/wazuh/certs}/wazuh.dashboard-key.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem:ro
+    - ${WAZUH_CERTS_SOURCE:-./data/wazuh/certs}/root-ca.pem:/usr/share/wazuh-dashboard/certs/root-ca.pem:ro
+    depends_on:
+      wazuh-indexer-certs-init:
+        condition: service_completed_successfully
+      wazuh-indexer:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sk -o /dev/null -w '%{http_code}' https://localhost:5601/app/login | grep -qE '200|302|401' || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 512

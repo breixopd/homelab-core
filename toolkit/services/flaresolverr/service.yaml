@@ -1,0 +1,11 @@
+name: flaresolverr
+label: FlareSolverr
+description: CF challenge bypass
+icon: 🛡️
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on: []
+memory_tier: light
+memory_floor_mb: 1024

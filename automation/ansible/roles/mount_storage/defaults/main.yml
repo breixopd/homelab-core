@@ -1,0 +1,17 @@
+# Role: mount-storage
+# Desciption: Generic role to mount external block storage/shares (NFS, CIFS, etc)
+
+# Usage in playbook:
+# - role: mount-storage
+#   vars:
+#     mount_path: /mnt/backups
+#     mount_src: //u12345.your-storagebox.de/backup
+#     mount_fstype: cifs
+#     mount_opts: "iocharset=utf8,rw,credentials=/etc/backups-credentials.txt,uid=1000,gid=1000"
+
+mount_path: /mnt/external
+mount_src: ""
+mount_fstype: nfs
+mount_opts: defaults
+mount_owner: root
+mount_group: root

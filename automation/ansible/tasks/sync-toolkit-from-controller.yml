@@ -1,0 +1,50 @@
+---
+# Sync toolkit tree with rsync + optional tarball fallback (deploy-server-toolkit).
+- name: Sync toolkit from Ansible controller
+  ansible.builtin.include_tasks: _rsync-push.yml
+  vars:
+    sync_src: "{{ homelab_controller_root }}/toolkit/"
+    sync_dest: "{{ repo_dest | default('/opt/homelab') }}/toolkit/"
+    sync_label: toolkit
+    sync_required: false
+    sync_retries: "{{ toolkit_sync_retries | default(2) }}"
+    sync_retry_delay: "{{ toolkit_sync_retry_delay | default(10) }}"
+    sync_rsync_opts:
+      - "--exclude=__pycache__"
+      - "--exclude=*.pyc"
+      - "--exclude=.pytest_cache"
+      - "--timeout=120"
+
+- name: Record toolkit rsync result
+  ansible.builtin.set_fact:
+    toolkit_sync_ok: "{{ rsync_push_result is defined and rsync_push_result.rc == 0 }}"
+
+- name: Sync toolkit via tarball fallback
+  delegate_to: localhost
+  connection: local
+  vars:
+    ansible_become: false
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - "-m"
+      - "toolkit.core.deploy.guest_sync"
+      - "--root"
+      - "{{ homelab_controller_root }}"
+      - "--vm-ip"
+      - "{{ ansible_host }}"
+      - "--repo-dest"
+      - "{{ repo_dest | default('/opt/homelab') }}"
+  environment:
+    PYTHONPATH: "{{ homelab_controller_root }}"
+  register: toolkit_tarball
+  when: not toolkit_sync_ok | bool
+  changed_when: true
+  failed_when: toolkit_tarball.rc | default(1) != 0
+
+- name: Require toolkit sync via rsync or tarball
+  ansible.builtin.fail:
+    msg: "Toolkit sync failed (rsync and tarball fallback)"
+  when:
+    - not toolkit_sync_ok | bool
+    - toolkit_tarball is skipped or (toolkit_tarball.rc | default(1)) != 0

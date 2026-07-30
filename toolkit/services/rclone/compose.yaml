@@ -1,0 +1,44 @@
+services:
+  rclone:
+    restart: unless-stopped
+    profiles:
+    - media-cache
+    - svc-rclone
+    image: rclone/rclone:1.74.4@sha256:c61954aaa32328a5486715dd063a81c7879f5195ad3505cd362deddd509dc4a1
+    container_name: rclone
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - SYS_ADMIN
+    devices:
+    - /dev/fuse
+    security_opt:
+    - apparmor:unconfined
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command: 'mount ${RCLONE_REMOTE:-media-union}: /library --config /config/rclone.conf --vfs-cache-mode full --vfs-cache-max-size
+      ${RCLONE_CACHE_MAX_SIZE:-500G} --vfs-cache-max-age ${COLD_AFTER_DAYS:-15}d --vfs-read-ahead 128M --buffer-size
+      64M --dir-cache-time 5m --cache-dir /cache --allow-other --allow-non-empty --log-level INFO'
+    environment:
+      TZ: ${TZ:-UTC}
+    volumes:
+    - ${RCLONE_CONFIG_SOURCE:-./data/rclone/config}:/config:ro
+    - ${MEDIA_LIBRARY_ROOT:-./media}:/library:shared
+    - ${INSTALL_ROOT}/media/cache:/cache
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - mountpoint -q /library || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 1024m
+    cpus: 1.0
+    pids_limit: 128

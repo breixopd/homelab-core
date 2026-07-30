@@ -1,0 +1,97 @@
+services:
+  qbittorrent:
+    restart: unless-stopped
+    profiles:
+    - media-no-vpn
+    - svc-qbittorrent
+    image: lscr.io/linuxserver/qbittorrent:5.2.3@sha256:352371a7242e8b4aa10958ca02076d1023758070519b89a10251475fb9f1a35a
+    container_name: qbittorrent
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    tmpfs:
+    - /tmp
+    - /run:exec
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ:-UTC}
+      WEBUI_PORT: 8080
+      TORRENTING_PORT: ${QBITTORRENT_PORT_BIND:-6881}
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8080:8080
+    - ${PRIVATE_IP:-127.0.0.1}:${QBITTORRENT_PORT_BIND:-6881}:${QBITTORRENT_PORT_BIND:-6881}
+    - ${PRIVATE_IP:-127.0.0.1}:${QBITTORRENT_PORT_BIND:-6881}:${QBITTORRENT_PORT_BIND:-6881}/udp
+    volumes:
+    - ${QBITTORRENT_CONFIG_SOURCE:-./data/qbittorrent/config}:/config
+    - ${INSTALL_ROOT}/media:/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q --spider http://127.0.0.1:8080/ || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 512
+  qbittorrent-vpn:
+    profiles:
+    - media-vpn
+    - svc-gluetun
+    image: lscr.io/linuxserver/qbittorrent:5.2.3@sha256:352371a7242e8b4aa10958ca02076d1023758070519b89a10251475fb9f1a35a
+    container_name: qbittorrent-vpn
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    tmpfs:
+    - /tmp
+    - /run:exec
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ:-UTC}
+      WEBUI_PORT: 8080
+      TORRENTING_PORT: ${QBITTORRENT_PORT_BIND:-6881}
+    volumes:
+    - ${QBITTORRENT_CONFIG_SOURCE:-./data/qbittorrent/config}:/config
+    - ${INSTALL_ROOT}/media:/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q --spider http://127.0.0.1:8080/ || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 512

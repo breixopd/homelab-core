@@ -1,0 +1,38 @@
+services:
+  postgres-exporter:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-postgres-exporter
+    image: prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+    container_name: postgres-exporter
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    env_file:
+    - ${INSTALL_ROOT}/generated/.env.postgres-exporter
+    expose:
+    - 9187
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:9187:9187
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O /dev/null http://localhost:9187/metrics || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64

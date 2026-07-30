@@ -1,0 +1,10 @@
+{% if alerts %}
+  {% for alert in alerts %}
+  <div class="alert alert-{{ alert.severity }}">
+    <span>{{ alert.message }}</span>
+    {% if alert.href %}<a href="{{ alert.href }}" class="alert-link">Open</a>{% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="alert alert-ok">No current issues</div>
+{% endif %}

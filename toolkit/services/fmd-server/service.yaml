@@ -1,0 +1,146 @@
+name: fmd-server
+label: Find My Device
+description: Encrypted device location and remote-control service
+icon: 📍
+category: cloud
+placement: apps
+priority: 30
+restart_policy: careful
+depends_on: []
+memory_tier: light
+host_sources:
+  FMD_DATA_SOURCE:
+    path: data/fmd
+stateful: true
+routes:
+- subdomain: fmd
+  upstream: fmd-server:8080
+  published_port: 8084
+  exposure: public
+  auth:
+    mode: split
+    passthrough_paths:
+    - /version
+    - /version/
+    - /api/v1/command
+    - /api/v1/command/
+    - /api/v1/location
+    - /api/v1/location/
+    - /api/v1/locations
+    - /api/v1/locations/
+    - /api/v1/locations/delete
+    - /api/v1/locations/delete/
+    - /api/v1/locationDataSize
+    - /api/v1/locationDataSize/
+    - /api/v1/picture
+    - /api/v1/picture/
+    - /api/v1/pictures
+    - /api/v1/pictures/
+    - /api/v1/pictures/delete
+    - /api/v1/pictures/delete/
+    - /api/v1/pictureSize
+    - /api/v1/pictureSize/
+    - /api/v1/key
+    - /api/v1/key/
+    - /api/v1/pubKey
+    - /api/v1/pubKey/
+    - /api/v1/device
+    - /api/v1/device/
+    - /api/v1/password
+    - /api/v1/password/
+    - /api/v1/push
+    - /api/v1/push/
+    - /api/v1/salt
+    - /api/v1/salt/
+    - /api/v1/requestAccess
+    - /api/v1/requestAccess/
+    - /api/v1/tileServerUrl
+    - /api/v1/tileServerUrl/
+    - /api/v1/version
+    - /api/v1/version/
+  request_body_max_mb: 15
+health:
+  public_probe_path: /api/v1/version
+identity:
+  access_groups: [homelab-admin]
+operator_bookmark:
+  section: Quick actions
+  priority: 100
+  description: Device location and remote commands
+data_specs:
+- name: fmd-database
+  source_env: FMD_DATA_SOURCE
+  target: /var/lib/fmd-server/db
+  size_estimate_gb: 5
+  snapshot: false
+  host_uid: 1000
+  host_gid: 1000
+backup_exports:
+- artifact: fmd-server.sqlite.gz
+  strategy: sqlite
+  data_spec: fmd-database
+  database_path: fmd.sqlite
+required_secrets:
+- name: FMD_REGISTRATION_TOKEN
+  tier: generated
+  length: 48
+  description: Token required when registering a new device
+  rotation: restart
+credentials:
+- name: FMD Device Registration
+  url: https://fmd.{domain}
+  password_env: FMD_REGISTRATION_TOKEN
+  tags: [fmd, device, registration]
+  notes: Use this token when adding a device to the self-hosted FMD server.
+prometheus:
+- id: server
+  container_port: 9100
+  host_port: 9101
+  path: /metrics
+management:
+  panels:
+  - id: device-server
+    title: Device server
+    description: Use this server address when connecting the FindMyDevice client.
+    items:
+    - label: Server URL
+      value: https://fmd.{domain}
+      href: https://fmd.{domain}
+      copyable: true
+    - label: Version endpoint
+      value: https://fmd.{domain}/api/v1/version
+      href: https://fmd.{domain}/api/v1/version
+      copyable: true
+    - label: Account data
+      value: End-to-end encrypted by the client
+  metrics:
+  - key: accounts
+    label: Accounts
+    source: prometheus
+    query: fmd_accounts
+    unit: count
+  - key: active_sessions
+    label: Active sessions
+    source: prometheus
+    query: fmd_active_sessions
+    unit: count
+  - key: locations
+    label: Stored locations
+    source: prometheus
+    query: fmd_locations
+    unit: count
+  - key: pictures
+    label: Stored pictures
+    source: prometheus
+    query: fmd_pictures
+    unit: count
+  - key: pending_commands
+    label: Pending commands
+    source: prometheus
+    query: fmd_pending_commands
+    unit: count
+  - key: failed_login_accounts
+    label: Failed-login accounts
+    source: prometheus
+    query: fmd_failed_login_accounts
+    unit: count

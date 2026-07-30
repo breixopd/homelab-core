@@ -1,0 +1,3 @@
+---
+- name: Apply Wazuh manager recovery hook
+  ansible.builtin.include_tasks: "{{ homelab_controller_root }}/toolkit/services/wazuh-indexer/ansible/manager.yml"

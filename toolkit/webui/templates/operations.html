@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% macro host_form(panel_id, action, host=none) %}
+<form method="post" action="{{ action }}" class="field-grid managed-host-form" data-host-form>
+  <input type="hidden" name="revision" value="{{ operations.hosts.revision }}">
+
+  {% if host is none %}
+  <aside class="host-onboarding-note span-12" role="note" aria-label="Host connection requirements">
+    <div>
+      <strong>Connect first, then bootstrap</strong>
+      <p>Use an address the controller can reach now. Mesh networking is installed during reconciliation, so no Headscale address is needed here.</p>
+    </div>
+    <div>
+      <strong>SSH uses a key, not a stored password</strong>
+      <p>Authorize the controller key on this host and set its private path in gitignored <code>config.local.yaml</code> as <code>ssh.key_file</code>.</p>
+    </div>
+  </aside>
+  {% endif %}
+
+  <fieldset class="host-kind-field span-12">
+    <legend>Host type</legend>
+    <div class="segmented-control">
+      <label><input type="radio" name="kind" value="fleet" {% if host is none or host.kind == 'fleet' %}checked{% endif %}><span>Fleet</span></label>
+      <label><input type="radio" name="kind" value="plain" {% if host is not none and host.kind == 'plain' %}checked{% endif %}><span>External</span></label>
+    </div>
+  </fieldset>
+
+  <label class="form-field span-4" for="{{ panel_id }}-name">
+    <span>Name</span>
+    <input id="{{ panel_id }}-name" name="name" value="{{ host.name if host else '' }}" required
+           pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,62}" {% if host %}readonly{% endif %}>
+  </label>
+  <label class="form-field span-4" for="{{ panel_id }}-ip">
+    <span>Reachable management IPv4</span>
+    <input id="{{ panel_id }}-ip" name="ip" value="{{ host.ip if host else '' }}" inputmode="decimal" required>
+  </label>
+  <label class="form-field span-2" for="{{ panel_id }}-ssh-user">
+    <span>SSH user</span>
+    <input id="{{ panel_id }}-ssh-user" name="ssh_user" value="{{ host.ssh_user if host else 'root' }}" required>
+  </label>
+  <label class="form-field span-2" for="{{ panel_id }}-ssh-port">
+    <span>SSH port</span>
+    <input id="{{ panel_id }}-ssh-port" name="ssh_port" type="number" min="1" max="65535" value="{{ host.ssh_port if host else 22 }}" required>
+  </label>
+
+  <fieldset class="form-section span-12">
+    <legend>Managed services</legend>
+    <div class="host-service-grid">
+      {% for choice in operations.hosts.service_choices %}
+      {% set selected = choice.name in host.services if host else choice.default_for_fleet %}
+      <label class="choice-option" {% if choice.fleet_only %}data-fleet-only-choice{% endif %}>
+        <input type="checkbox" name="services" value="{{ choice.name }}" {% if selected %}checked{% endif %}
+               data-service-choice="{{ choice.name }}">
+        <span>{{ choice.label }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  {% for choice in operations.hosts.service_choices if choice.fields %}
+  <fieldset class="form-section span-12 host-integration-fields" data-host-integration="{{ choice.name }}">
+    <legend>{{ choice.label }}</legend>
+    <div class="field-grid">
+      {% for field in choice.fields %}
+      {% set current = host.integrations.get(choice.name, {}).get(field.key, field.default) if host else field.default %}
+      {% if field.type == 'boolean' %}
+      <label class="choice-option span-12" for="{{ panel_id }}-{{ choice.name }}-{{ field.key }}">
+        <input id="{{ panel_id }}-{{ choice.name }}-{{ field.key }}" type="checkbox"
+               name="integration.{{ choice.name }}.{{ field.key }}" value="true" {% if current %}checked{% endif %}>
+        <span>{{ field.label }}</span>
+      </label>
+      {% else %}
+      <label class="form-field span-6" for="{{ panel_id }}-{{ choice.name }}-{{ field.key }}">
+        <span>{{ field.label }}</span>
+        <input id="{{ panel_id }}-{{ choice.name }}-{{ field.key }}"
+               name="integration.{{ choice.name }}.{{ field.key }}"
+               type="{{ 'number' if field.type in ['integer', 'number'] else 'text' }}"
+               value="{{ current if current is not none else '' }}" placeholder="{{ field.placeholder }}"
+               {% if field.required %}data-required-when-enabled{% endif %}>
+        {% if field.description %}<small>{{ field.description }}</small>{% endif %}
+      </label>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </fieldset>
+  {% endfor %}
+
+  <label class="form-field span-4" data-fleet-only-field for="{{ panel_id }}-cluster">
+    <span>Komodo group</span>
+    <input id="{{ panel_id }}-cluster" name="cluster_group" value="{{ host.cluster_group if host else '' }}">
+  </label>
+  <label class="form-field span-4" data-fleet-only-field for="{{ panel_id }}-email">
+    <span>Directory email</span>
+    <input id="{{ panel_id }}-email" name="lldap_email" type="email" value="{{ host.lldap_email if host else '' }}">
+  </label>
+  <label class="form-field span-4" data-fleet-only-field for="{{ panel_id }}-tags">
+    <span>Mesh tags</span>
+    <input id="{{ panel_id }}-tags" name="headscale_tags" value="{{ host.headscale_tags|join(', ') if host else '' }}" placeholder="tag:edge">
+  </label>
+
+  <div class="action-bar span-12">
+    <button type="button" class="btn btn-ghost" data-disclosure-close="{{ panel_id }}">Cancel</button>
+    <button type="submit" class="btn btn-primary">{{ 'Save and reconcile' if host else 'Add and bootstrap' }}</button>
+  </div>
+</form>
+{% endmacro %}
+
+{% block page_actions %}
+<button class="btn btn-primary" type="button" data-disclosure-toggle="add-host-panel"
+        aria-controls="add-host-panel" aria-expanded="false">
+  <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#server-cog"></use></svg>
+  Add host
+</button>
+{% endblock %}
+
+{% block content %}
+{% if request.query_params.get('error') %}<div class="alert alert-error" role="alert">{{ request.query_params.get('error') }}</div>{% endif %}
+
+<section class="service-manage-summary" aria-label="Operations summary">
+  <div><span>Maintenance</span><strong>{% if operations.maintenance.ok is none %}Never run{% elif operations.maintenance.ok %}Healthy{% else %}Attention{% endif %}</strong></div>
+  <div><span>Backups</span><strong>{{ 'Enabled' if operations.backups.enabled else 'Disabled' }}</strong></div>
+  <div><span>Restore points</span><strong>{{ operations.dumps|length }}</strong></div>
+  <div><span>Managed hosts</span><strong>{{ operations.hosts.hosts|length }}</strong></div>
+</section>
+
+<section id="add-host-panel" class="content-band managed-host-panel" hidden aria-labelledby="add-host-heading">
+  <div class="section-head"><div><h2 id="add-host-heading">Add managed host</h2><p class="muted text-sm">Register a reachable machine, then install its selected integrations in dependency order.</p></div></div>
+  {{ host_form('add-host-panel', '/operations/hosts') }}
+</section>
+
+<section class="content-band" aria-labelledby="maintenance-heading">
+  <div class="section-head">
+    <div><h2 id="maintenance-heading">Maintenance</h2><p class="muted text-sm">{{ operations.maintenance.schedule_label }}{% if operations.maintenance.last_run_at %} · Last run {{ operations.maintenance.last_run_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p></div>
+    <form method="post" action="/operations/maintenance"><button type="submit" class="btn btn-primary btn-sm">Run maintenance</button></form>
+  </div>
+  {% if operations.maintenance.ok is not none %}<div class="inline-status"><span class="badge {{ 'ok' if operations.maintenance.ok else 'critical' }}">{{ 'Passed' if operations.maintenance.ok else 'Failed' }}</span><span>{{ operations.maintenance.action_count }} actions</span><span>{{ operations.maintenance.error_count }} errors</span></div>{% endif %}
+</section>
+
+<section class="content-band managed-host-directory" aria-labelledby="hosts-heading">
+  <div class="section-head"><div><h2 id="hosts-heading">Managed hosts</h2><p class="muted text-sm">{{ operations.hosts.hosts|length }} configured</p></div></div>
+  {% if operations.hosts.hosts %}
+  <div class="responsive-table"><table class="data-table operations-table managed-host-table"><thead><tr><th>Host</th><th>Address</th><th>Services</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>
+    {% for host in operations.hosts.hosts %}
+    <tr>
+      <td data-label="Host"><div><strong>{{ host.name }}</strong><div class="muted text-xs">{{ host.kind|title }} · {{ host.ssh_user }}:{{ host.ssh_port }}</div></div></td>
+      <td data-label="Address"><code>{{ host.ip }}</code></td>
+      <td data-label="Services"><span class="host-services">{{ host.services|join(', ') if host.services else 'Controller integrations only' }}</span></td>
+      <td data-label="Status"><div class="host-status"><span class="badge {{ 'ok' if host.reconciled else 'warning' }}">{{ 'Reconciled' if host.reconciled else 'Pending' }}</span>{% if host.last_reconcile_at %}<div class="muted text-xs">{{ host.last_reconcile_at.strftime('%Y-%m-%d %H:%M') }}</div>{% endif %}</div></td>
+      <td data-label="Actions"><div class="row-actions">
+        <form method="post" action="/operations/hosts/{{ host.name }}/reconcile" data-confirm="Reconcile {{ host.name }} now?">
+          <button type="submit" class="btn btn-ghost btn-xs" title="Reconcile {{ host.name }}"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#refresh-cw"></use></svg><span class="sr-only">Reconcile {{ host.name }}</span></button>
+        </form>
+        <button type="button" class="btn btn-ghost btn-xs" data-disclosure-toggle="edit-host-{{ loop.index }}" aria-controls="edit-host-{{ loop.index }}" aria-expanded="false" title="Edit {{ host.name }}"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#pencil"></use></svg><span class="sr-only">Edit {{ host.name }}</span></button>
+        <form method="post" action="/operations/hosts/{{ host.name }}/remove" data-confirm="Remove {{ host.name }} and clean up its managed integrations?">
+          <input type="hidden" name="fingerprint" value="{{ host.fingerprint }}">
+          <button type="submit" class="btn btn-ghost btn-xs host-remove" title="Remove {{ host.name }}"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#trash"></use></svg><span class="sr-only">Remove {{ host.name }}</span></button>
+        </form>
+      </div></td>
+    </tr>
+    {% endfor %}
+  </tbody></table></div>
+  {% for host in operations.hosts.hosts %}
+  <div id="edit-host-{{ loop.index }}" class="managed-host-panel host-edit-panel" hidden>
+    <div class="section-head"><h3>Edit {{ host.name }}</h3></div>
+    {{ host_form('edit-host-' ~ loop.index, '/operations/hosts/' ~ host.name ~ '/edit', host) }}
+  </div>
+  {% endfor %}
+  {% else %}<div class="empty-state"><strong>No managed hosts configured</strong></div>{% endif %}
+</section>
+
+<section class="content-band" aria-labelledby="backups-heading">
+  <div class="section-head">
+    <div><h2 id="backups-heading">Backups and restore drills</h2><p class="muted text-sm">{{ operations.backups.target|title }} target{% if operations.backups.storage_host %} · {{ operations.backups.storage_host }}{% endif %}</p></div>
+    <div class="row-actions">
+      <span class="badge {{ 'ok' if operations.backups.ok else ('critical' if operations.backups.enabled else 'neutral') }}">{{ 'Healthy' if operations.backups.ok else ('Attention' if operations.backups.enabled else 'Disabled') }}</span>
+      <form method="post" action="/operations/backups/drill" data-confirm="Restore and verify bounded content from the latest snapshots?">
+        <button type="submit" class="btn btn-ghost btn-sm" {% if not operations.backups.enabled %}disabled{% endif %}>
+          <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#archive-restore"></use></svg>
+          Verify snapshots
+        </button>
+      </form>
+    </div>
+  </div>
+  {% if operations.backups.error %}<div class="alert alert-error" role="alert">{{ operations.backups.error }}</div>{% endif %}
+  {% if operations.backups.drill.ok is not none %}<div class="inline-status"><span class="badge {{ 'ok' if operations.backups.drill.ok else 'critical' }}">{{ 'Content verified' if operations.backups.drill.ok else 'Content drill failed' }}</span><span>{{ operations.backups.drill.node_count }} nodes</span><span>{{ operations.backups.drill.artifact_count }} logical artifacts</span>{% if operations.backups.drill.last_run_at %}<span class="muted">{{ operations.backups.drill.last_run_at.strftime('%Y-%m-%d %H:%M') }}</span>{% endif %}</div>{% endif %}
+  {% if operations.backups.nodes %}
+  <div class="responsive-table"><table class="data-table operations-table"><thead><tr><th>Node</th><th>Freshness</th><th>Recent snapshots</th><th>Latest size</th></tr></thead><tbody>{% for node in operations.backups.nodes %}<tr><td data-label="Node"><strong>{{ node.role|title }}</strong></td><td data-label="Freshness"><span class="badge {{ 'ok' if node.ok else 'critical' }}">{{ node.status|title }}</span>{% if node.age_hours is not none %} <span class="muted">{{ '%.1f'|format(node.age_hours) }}h</span>{% endif %}</td><td data-label="Recent snapshots">{{ node.snapshot_count }}</td><td data-label="Latest size">{{ (node.size_bytes / 1048576)|round(1) }} MiB</td></tr>{% endfor %}</tbody></table></div>
+  {% endif %}
+  {% if operations.dumps %}
+  <div class="responsive-table"><table class="data-table operations-table"><thead><tr><th>Restore point</th><th>Size</th><th>Validation</th></tr></thead><tbody>{% for dump in operations.dumps %}<tr><td data-label="Restore point"><code>{{ dump.name }}</code></td><td data-label="Size">{{ dump.size }}</td><td data-label="Validation"><form method="post" action="/operations/dumps/{{ dump.dump_id }}/drill" data-confirm="Run an isolated restore drill for this database snapshot?"><button type="submit" class="btn btn-ghost btn-xs">Run drill</button></form></td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<div class="empty-state compact"><strong>No restore points discovered</strong></div>{% endif %}
+</section>
+
+<section class="content-band" aria-labelledby="updates-heading">
+  <div class="section-head">
+    <div><h2 id="updates-heading">Updates</h2><p class="muted text-sm">{{ operations.updates.reason }}{% if operations.updates.checked_at %} · Checked {{ operations.updates.checked_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p></div>
+    <div class="row-actions">
+      {% if operations.updates.active_revision %}<span class="badge ok" title="{{ operations.updates.active_revision }}">Pinned release</span>{% endif %}
+      {% if not operations.updates.recovery_required %}<form method="post" action="/operations/updates/refresh">
+        <button type="submit" class="btn btn-ghost btn-sm" title="Check registries for compatible updates"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#refresh-cw"></use></svg>Check</button>
+      </form>{% endif %}
+      {% if operations.updates.recovery_required %}
+      <form method="post" action="/operations/updates/recover" data-confirm="Reconcile and verify the previous release before allowing further updates?">
+        <button type="submit" class="btn btn-danger btn-sm"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#rotate-ccw"></use></svg>Recover release</button>
+      </form>
+      {% endif %}
+      {% if operations.updates.rollback_available and operations.updates.active_revision %}
+      <form method="post" action="/operations/updates/rollback" data-confirm="Restore the previous verified release?">
+        <input type="hidden" name="revision" value="{{ operations.updates.active_revision }}">
+        <button type="submit" class="btn btn-ghost btn-sm"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#rotate-ccw"></use></svg>Rollback</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% if operations.updates.recovery_required %}<div class="alert alert-error" role="alert">The previous release is selected, but its automatic recovery did not verify. Run release recovery before making any more update changes.</div>
+  {% elif operations.updates.candidates %}
+  <form method="post" action="/operations/updates/apply">
+    <input type="hidden" name="revision" value="{{ operations.updates.revision }}">
+    <div class="responsive-table"><table class="data-table operations-table"><thead><tr><th class="select-cell"><span class="sr-only">Select</span></th><th>Service</th><th>Current</th><th>Target</th><th>Release notes</th></tr></thead><tbody>
+      {% for candidate in operations.updates.candidates %}
+      <tr>
+        <td class="select-cell"><input type="checkbox" name="services" value="{{ candidate.service }}" aria-label="Select {{ candidate.service }}"></td>
+        <td data-label="Service"><strong>{{ candidate.service }}</strong></td>
+        <td data-label="Current"><code>{{ candidate.current }}</code></td>
+        <td data-label="Target"><code>{{ candidate.target }}</code></td>
+        <td data-label="Release notes">{% if candidate.changelog_url %}<a href="{{ candidate.changelog_url }}" target="_blank" rel="noopener noreferrer">View</a>{% else %}<span class="muted">Not published</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody></table></div>
+    <div class="action-bar"><button type="submit" class="btn btn-primary"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#package-check"></use></svg>Apply selected</button></div>
+  </form>
+  {% elif not operations.updates.available %}<div class="alert alert-error" role="alert">Run a fresh update check before applying changes.</div>
+  {% else %}<div class="empty-state compact"><strong>No updates awaiting review</strong></div>{% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}<script src="/static/js/operations.js?v={{ static_revision }}"></script>{% endblock %}

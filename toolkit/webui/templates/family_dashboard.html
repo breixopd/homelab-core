@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% if setup_in_progress %}
+<div class="surface panel">
+  <h2>Homelab setup in progress</h2>
+  <p class="muted">Your operator is still configuring this homelab. Check back once services are ready.</p>
+</div>
+{% else %}
+<p class="muted intro">Quick links to the apps shared with your account.</p>
+
+{% if tier_labels %}
+<p class="muted text-sm">Your access: <strong>{{ tier_labels|join(', ') }}</strong></p>
+{% endif %}
+
+<section class="section">
+  <div class="cat-grid">
+    {% for group in bookmark_groups %}
+    <div class="surface panel">
+      <div class="panel-head"><strong>{{ group.name }}</strong></div>
+      <ul class="svc-list">
+        {% for item in group.items %}
+        <li>
+          <a href="{{ item.href }}" target="_blank" rel="noopener">{{ item.title }}</a>
+          {% if item.description %}<span class="muted text-sm"> — {{ item.description }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

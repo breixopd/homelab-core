@@ -1,0 +1,7 @@
+# SOPS configuration for secret encryption
+# Copy to .sops.yaml at your installation root
+# Replace the age public key with yours (from: age-keygen)
+creation_rules:
+  - path_regex: secrets\.enc\.yaml$
+    age: >-
+      age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

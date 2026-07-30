@@ -1,0 +1,79 @@
+name: seaweedfs
+label: SeaweedFS
+description: S3-compatible storage + web file browser (Filer)
+icon: 📦
+category: cloud
+placement: apps
+priority: 30
+restart_policy: careful
+depends_on: []
+memory_tier: medium
+host_sources:
+  SEAWEEDFS_DATA_SOURCE:
+    path: data/seaweedfs
+  GENERATED_SEAWEEDFS_S3_CONFIG:
+    path: generated/seaweedfs-s3.json
+generated_artifacts:
+- path: generated/seaweedfs-s3.json
+  sensitive: true
+  # The pinned image starts as root and drops the Seaweed process to
+  # 1000:1000. Retaining 0600 with that owner keeps credentials private while
+  # allowing the runtime to read its configuration.
+  host_uid: 1000
+  host_gid: 1000
+stateful: true
+data_specs:
+- name: object-storage
+  source_env: SEAWEEDFS_DATA_SOURCE
+  target: /data
+  size_estimate_gb: 500
+  snapshot: true
+routes:
+- subdomain: s3
+  upstream: seaweedfs:8333
+  published_port: 8333
+  exposure: public
+  auth:
+    mode: native
+- subdomain: files
+  upstream: seaweedfs:8888
+  published_port: 8888
+  exposure: public
+  auth:
+    mode: forward_auth
+operator_bookmark:
+  section: Storage
+  priority: 10
+  description: S3-compatible filer and object browser
+  route_subdomain: files
+management:
+  panels:
+  - id: storage-endpoints
+    title: Storage endpoints
+    description: The S3 API and Filer browser are two interfaces to the same SeaweedFS deployment.
+    items:
+    - label: S3-compatible API
+      value: https://s3.{domain}
+      href: https://s3.{domain}
+      copyable: true
+    - label: File browser
+      value: https://files.{domain}
+      href: https://files.{domain}
+      copyable: true
+    - label: Internal S3 endpoint
+      value: http://{address}:8333
+      copyable: true
+    - label: Internal Filer endpoint
+      value: http://{address}:8888
+      copyable: true
+required_secrets:
+- name: SEAWEEDFS_S3_ACCESS_KEY
+  tier: generated
+  length: 20
+  description: S3 access key
+  rotation: persistent
+- name: SEAWEEDFS_S3_SECRET_KEY
+  tier: generated
+  length: 40
+  description: S3 secret key
+  rotation: persistent

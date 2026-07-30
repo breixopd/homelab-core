@@ -1,0 +1,21 @@
+Welcome to {{ domain }}
+
+Hi {{ display_name }},
+
+You've been invited to the {{ domain }} homelab. One password works for sign-in across your apps.
+
+STEP 1 — CREATE YOUR PASSWORD
+{{ activate_url }}
+(This link is personal and expires in 72 hours.)
+
+YOUR APPS
+{% for tier, cards in sections %}
+{{ tier | upper }}
+{% for card in cards %}
+• {{ card.label }} — {{ card.blurb }}
+  {{ card.url }}
+  {{ card.sign_in }}
+{% endfor %}
+{% endfor %}
+
+Questions? Contact {{ owner_email }}.

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }} · {{ domain }}</title>
+  <link rel="stylesheet" href="/static/css/main.css?v={{ static_revision }}">
+</head>
+<body class="invite-body">
+  <div class="invite-card">
+    {% if success %}
+    <h1>Account activated</h1>
+    <div class="invite-success">Your homelab password is active. You can close this page and sign in to your apps.</div>
+  {% elif error and not invite_valid %}
+    <h1>Invite link problem</h1>
+    <div class="invite-error">{{ error }}</div>
+  {% else %}
+    <h1>Welcome, {{ display_name }}</h1>
+    <p class="invite-sub">Create your homelab password for <strong>{{ email }}</strong>. You'll use it for sign-in across your apps.</p>
+    {% if request.query_params.get('error') %}
+    <div class="invite-error">{{ request.query_params.get('error') }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="invite-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/invite/activate">
+      <input type="hidden" name="activation_csrf" value="{{ activation_csrf }}">
+      <label for="password">Password (10+ characters)</label>
+      <input type="password" id="password" name="password" required minlength="10" maxlength="128" autocomplete="new-password">
+      <label for="password_confirm">Confirm password</label>
+      <input type="password" id="password_confirm" name="password_confirm" required minlength="10" maxlength="128" autocomplete="new-password">
+      <button type="submit" class="btn btn-primary invite-submit">Create password</button>
+    </form>
+  {% endif %}
+
+  {% if sections %}
+  <div class="service-block">
+    <h2>Your apps</h2>
+    {% for section in sections %}
+    <h3 class="invite-section-heading">{{ section.name }}</h3>
+    {% for card in section.cards %}
+    <div class="service-item">
+      <strong>{{ card.label }}</strong> — {{ card.blurb }}<br>
+      <a href="{{ card.url }}" target="_blank" rel="noopener">{{ card.url }}</a><br>
+      <span class="hint">{{ card.sign_in }}</span>
+    </div>
+    {% endfor %}
+    {% endfor %}
+  </div>
+  {% endif %}
+  </div>
+</body>
+</html>

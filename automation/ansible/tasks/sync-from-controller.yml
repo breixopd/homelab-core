@@ -1,0 +1,528 @@
+---
+# Sync authoritative files from the Ansible controller to repo_dest on the guest.
+# Toolkit rsync (+ tarball fallback) lives in sync-toolkit-from-controller.yml.
+- name: Sync scripts from Ansible controller
+  ansible.builtin.include_tasks: _rsync-push.yml
+  vars:
+    sync_src: "{{ homelab_controller_root }}/scripts/"
+    sync_dest: "{{ repo_dest | default('/opt/homelab') }}/scripts/"
+    sync_label: scripts
+
+- name: Sync automation from Ansible controller
+  ansible.builtin.include_tasks: _rsync-push.yml
+  vars:
+    sync_src: "{{ homelab_controller_root }}/automation/"
+    sync_dest: "{{ repo_dest | default('/opt/homelab') }}/automation/"
+    sync_label: automation
+
+- name: Sync infrastructure from Ansible controller
+  ansible.builtin.include_tasks: _rsync-push.yml
+  vars:
+    sync_src: "{{ homelab_controller_root }}/infrastructure/"
+    sync_dest: "{{ repo_dest | default('/opt/homelab') }}/infrastructure/"
+    sync_label: infrastructure
+
+- name: Sync platform resources from Ansible controller
+  ansible.builtin.include_tasks: _rsync-push.yml
+  vars:
+    sync_src: "{{ homelab_controller_root }}/stacks/"
+    sync_dest: "{{ repo_dest | default('/opt/homelab') }}/stacks/"
+    sync_label: stacks
+
+- name: Build service-owned config rsync exclusions
+  ansible.builtin.set_fact:
+    service_config_rsync_opts: []
+
+- name: Add non-local and disabled config paths to rsync exclusions
+  ansible.builtin.set_fact:
+    service_config_rsync_opts: >-
+      {{ service_config_rsync_opts + [
+        '--exclude=/' ~ (item.path | regex_replace('^config/', ''))
+      ] }}
+  loop: "{{ service_config_sources | default([]) }}"
+  when:
+    - homelab_node_id != control_node
+    - not (item.enabled | bool) or item.node != homelab_node_id
+
+- name: Sync config tree from Ansible controller
+  ansible.builtin.include_tasks: _rsync-push.yml
+  vars:
+    sync_src: "{{ homelab_controller_root }}/config/"
+    sync_dest: "{{ repo_dest | default('/opt/homelab') }}/config/"
+    sync_label: config
+    sync_rsync_opts: "{{ service_config_rsync_opts }}"
+
+- name: Remove stale or non-local service-owned config from managed node
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/{{ item.path }}"
+    state: absent
+  loop: "{{ service_config_sources | default([]) }}"
+  when:
+    - homelab_node_id != control_node
+    - not (item.enabled | bool) or item.node != homelab_node_id
+
+- name: Ensure automation SSH directory exists on managed node
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/ssh"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Sync automation public key to managed node
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/ssh/homelab_admin_ed25519.pub"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/ssh/homelab_admin_ed25519.pub"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Sync automation private key to control node
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/ssh/homelab_admin_ed25519"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/ssh/homelab_admin_ed25519"
+    owner: root
+    group: root
+    mode: "0600"
+  when: homelab_node_id == control_node
+  no_log: true
+
+- name: Remove automation private key from workload node
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/ssh/homelab_admin_ed25519"
+    state: absent
+  when: homelab_node_id != control_node
+
+- name: Sync docker-compose.yml from Ansible controller
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/docker-compose.yml"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/docker-compose.yml"
+    mode: "0644"
+  when: not (homelab_multi_node | default(true) | bool) or homelab_node_id == control_node
+
+- name: Sync locked Python project metadata from Ansible controller
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/{{ item }}"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/{{ item }}"
+    mode: "0644"
+  loop:
+    - pyproject.toml
+    - uv.lock
+
+- name: Ensure generated root exists on managed node
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated"
+    state: directory
+    mode: "0755"
+
+- name: Remove generated state for machines removed after the last verified deployment
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}"
+    state: absent
+  loop: "{{ removed_machine_ids | default([]) }}"
+  when: homelab_node_id == control_node
+
+- name: Remove hook bundles for machines removed after the last verified deployment
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/bundles/{{ item }}"
+    state: absent
+  loop: "{{ removed_machine_ids | default([]) }}"
+  when: homelab_node_id == control_node
+
+- name: Reset node-scoped service artifact transfer batch
+  ansible.builtin.set_fact:
+    homelab_authorized_service_artifacts: []
+  no_log: true
+
+- name: Select node-scoped service artifacts for batched transfer
+  ansible.builtin.set_fact:
+    homelab_authorized_service_artifacts: >-
+      {{ (homelab_authorized_service_artifacts | default([])) + [item] }}
+  loop: "{{ service_generated_artifacts | default([]) }}"
+  when:
+    - item.enabled | bool
+    - homelab_node_id == control_node or homelab_node_id in item.nodes
+  no_log: true
+
+- name: Discover generated entries retained on workload nodes
+  ansible.builtin.find:
+    paths: "{{ repo_dest | default('/opt/homelab') }}/generated"
+    recurse: false
+    hidden: true
+    file_type: any
+  register: homelab_generated_root_entries
+  when: homelab_node_id != control_node
+
+- name: Remove generated entries not owned by the workload node
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ homelab_generated_root_entries.files | default([]) }}"
+  when:
+    - homelab_node_id != control_node
+    - >-
+      item.path | basename not in
+      (
+        [homelab_node_id]
+        + (
+          homelab_authorized_service_artifacts
+          | map(attribute='path')
+          | map('regex_replace', '/.*$', '')
+          | list
+        )
+      )
+
+- name: Ensure generated directories exist for retained node artifacts
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - item == homelab_node_id or homelab_node_id == control_node
+    - machine_specs[item].enabled | default(true) | bool
+
+- name: Sync retained Compose models from controller
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/generated/{{ item }}/compose.yaml"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}/compose.yaml"
+    mode: "0644"
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - machine_specs[item].enabled | default(true) | bool
+    - not (homelab_multi_node | default(true) | bool) or homelab_node_id == control_node or item == homelab_node_id
+
+- name: Sync retained Compose resource limits from controller
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/generated/{{ item }}/compose.limits.yml"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}/compose.limits.yml"
+    mode: "0644"
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - machine_specs[item].enabled | default(true) | bool
+    - not (homelab_multi_node | default(true) | bool) or homelab_node_id == control_node or item == homelab_node_id
+
+- name: Discover stale generated secret snapshots
+  ansible.builtin.find:
+    paths: "{{ repo_dest | default('/opt/homelab') }}/generated"
+    recurse: true
+    hidden: true
+    file_type: file
+    patterns:
+      - ".env.*"
+      - ".hooks.env.*"
+  register: homelab_stale_generated_secret_snapshots
+  no_log: true
+
+- name: Remove stale generated secret snapshots
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ homelab_stale_generated_secret_snapshots.files | default([]) }}"
+  no_log: true
+
+- name: Ensure service artifact parent directories exist
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item.path | dirname }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ service_generated_artifacts | default([]) }}"
+  when:
+    - item.enabled | bool
+    - homelab_node_id == control_node or homelab_node_id in item.nodes
+
+- name: Transfer node-scoped service artifacts in one protected archive
+  when: homelab_authorized_service_artifacts | default([]) | length > 0
+  block:
+    - name: Allocate temporary service artifact archive on controller
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .tar.gz
+      register: homelab_service_artifact_archive
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_become: false
+        ansible_connection: local
+      no_log: true
+
+    - name: Build node-authorized service artifact archive on controller
+      ansible.builtin.command:
+        argv: >-
+          {{
+            [
+              'tar',
+              '--create',
+              '--gzip',
+              '--file', homelab_service_artifact_archive.path,
+              '--owner=0',
+              '--group=0',
+              '--numeric-owner',
+              '--directory', homelab_controller_root
+            ]
+            + (
+              homelab_authorized_service_artifacts
+              | map(attribute='path')
+              | map('regex_replace', '^', 'generated/')
+              | list
+            )
+          }}
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_become: false
+        ansible_connection: local
+      changed_when: false
+      no_log: false
+
+    - name: Extract node-authorized service artifacts on managed node
+      ansible.builtin.unarchive:
+        src: "{{ homelab_service_artifact_archive.path }}"
+        dest: "{{ repo_dest | default('/opt/homelab') }}"
+        owner: root
+        group: root
+      no_log: true
+
+    - name: Apply declared service artifact ownership and mode
+      ansible.builtin.file:
+        path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item.path }}"
+        state: "{{ 'link' if item.kind == 'symlink' else 'file' }}"
+        owner: "{{ item.host_uid | default(0) }}"
+        group: "{{ item.host_gid | default(0) }}"
+        mode: "{{ item.mode }}"
+      loop: "{{ homelab_authorized_service_artifacts }}"
+      no_log: "{{ item.sensitive | bool }}"
+      when: item.kind == 'file'
+  always:
+    - name: Remove temporary service artifact archive from controller
+      ansible.builtin.file:
+        path: "{{ homelab_service_artifact_archive.path | default('') }}"
+        state: absent
+      when: homelab_service_artifact_archive.path | default('') | length > 0
+      delegate_to: localhost
+      become: false
+      vars:
+        ansible_become: false
+        ansible_connection: local
+      no_log: true
+
+- name: Remove stale or non-local generated service artifacts
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item.path }}"
+    state: absent
+  loop: "{{ service_generated_artifacts | default([]) }}"
+  when:
+    - not (item.enabled | bool) or (homelab_node_id != control_node and homelab_node_id not in item.nodes)
+  no_log: "{{ item.sensitive | bool }}"
+
+- name: Remove full Compose model from non-controller guests
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/docker-compose.yml"
+    state: absent
+  when:
+    - homelab_multi_node | default(true) | bool
+    - homelab_node_id != control_node
+
+- name: Remove Compose models for other guest roles
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}/compose.yaml"
+    state: absent
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - homelab_multi_node | default(true) | bool
+    - homelab_node_id != control_node
+    - item != homelab_node_id
+
+- name: Remove disabled-node Compose models from the control node
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}/compose.yaml"
+    state: absent
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - homelab_node_id == control_node
+    - not (machine_specs[item].enabled | default(true) | bool)
+
+- name: Sync config.yaml from Ansible controller
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/config.yaml"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/config.yaml"
+    mode: "0644"
+
+- name: Sync encrypted recovery secret store to the control node
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/secrets.enc.yaml"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/secrets.enc.yaml"
+    mode: "0600"
+    owner: root
+    group: root
+  when: homelab_node_id == control_node
+  no_log: true
+
+- name: Ensure age identity directory exists on the control node
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/keys"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: homelab_node_id == control_node
+
+- name: Sync age identity to the control node
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/keys/age.key"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/keys/age.key"
+    mode: "0600"
+    owner: root
+    group: root
+  when: homelab_node_id == control_node
+  no_log: true
+
+- name: Remove the controller secret store from workload nodes
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/secrets.enc.yaml"
+    state: absent
+  when: homelab_node_id != control_node
+
+- name: Remove controller age identities from workload nodes
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ repo_dest | default('/opt/homelab') }}/keys/age.key"
+    - /root/homelab-age.key
+    - /root/.config/sops/age/keys.txt
+  when: homelab_node_id != control_node
+  no_log: true
+
+- name: Remove stale hook bundles from workload nodes
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/bundles"
+    state: absent
+  when: homelab_node_id != control_node
+
+- name: Ensure retained hook bundle directories exist after cleanup
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/bundles/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - homelab_node_id == control_node
+    - machine_specs[item].enabled | default(true) | bool
+
+- name: Sync retained Compose environments from controller
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/generated/{{ item }}/.env"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}/.env"
+    mode: "0600"
+    owner: root
+    group: root
+  no_log: true
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - machine_specs[item].enabled | default(true) | bool
+    - not (homelab_multi_node | default(true) | bool) or homelab_node_id == control_node or item == homelab_node_id
+
+- name: Sync role-scoped hook secrets from controller
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/generated/bundles/{{ homelab_node_id }}/.hooks.env"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ homelab_node_id }}/.hooks.env"
+    mode: "0600"
+    owner: root
+    group: root
+  no_log: true
+
+- name: Sync recovery hook bundles to the control node
+  ansible.builtin.copy:
+    src: "{{ homelab_controller_root }}/generated/bundles/{{ item }}/.hooks.env"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/generated/bundles/{{ item }}/.hooks.env"
+    mode: "0600"
+    owner: root
+    group: root
+  no_log: true
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - homelab_node_id == control_node
+    - machine_specs[item].enabled | default(true) | bool
+
+- name: Remove non-local runtime environments from workload nodes
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}/.env"
+    state: absent
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - homelab_multi_node | default(true) | bool
+    - homelab_node_id != control_node
+    - item != homelab_node_id
+
+- name: Remove non-local hook secrets from workload nodes
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}/.hooks.env"
+    state: absent
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - homelab_multi_node | default(true) | bool
+    - homelab_node_id != control_node
+    - item != homelab_node_id
+
+- name: Remove disabled-node runtime environments from the control node
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/{{ item }}/.env"
+    state: absent
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - homelab_node_id == control_node
+    - not (machine_specs[item].enabled | default(true) | bool)
+
+- name: Remove disabled-node hook secrets from the control node
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/generated/bundles/{{ item }}/.hooks.env"
+    state: absent
+  loop: "{{ machine_specs.keys() | list }}"
+  when:
+    - homelab_node_id == control_node
+    - not (machine_specs[item].enabled | default(true) | bool)
+
+# The deploy playbook uses rsync/copy for speed, while the standalone
+# machines sync command uses the tarball helper. Keep both paths on the same
+# parity contract by stamping the exact controller revision after every
+# authoritative sync.
+- name: Read controller revision for guest parity stamp
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - >-
+        from pathlib import Path;
+        from toolkit.core.deploy.repo_sync import controller_commit_sha;
+        print(controller_commit_sha(Path(__import__('sys').argv[1])) or '')
+      - "{{ homelab_controller_root }}"
+  environment:
+    PYTHONPATH: "{{ homelab_controller_root }}"
+  delegate_to: localhost
+  connection: local
+  become: false
+  vars:
+    ansible_become: false
+  register: controller_revision
+  changed_when: false
+  check_mode: false
+
+- name: Stamp synced controller revision
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/.homelab-state"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write synced controller revision
+  ansible.builtin.copy:
+    content: "{{ controller_revision.stdout | trim }}\n"
+    dest: "{{ repo_dest | default('/opt/homelab') }}/.homelab-state/commit-sha"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - controller_revision.rc == 0
+    - controller_revision.stdout | trim | length > 0

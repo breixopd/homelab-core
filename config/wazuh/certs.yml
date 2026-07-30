@@ -1,0 +1,10 @@
+nodes:
+  # Wazuh indexer — ip must be a hostname the cert tool accepts (use network alias wazuh.indexer)
+  indexer:
+    - name: wazuh.indexer
+      ip: wazuh.indexer
+
+  # Wazuh dashboard
+  dashboard:
+    - name: wazuh.dashboard
+      ip: wazuh.dashboard

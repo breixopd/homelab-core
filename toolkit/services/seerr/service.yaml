@@ -1,0 +1,43 @@
+name: seerr
+label: Seerr
+description: Media requests
+icon: 🎯
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on: [sonarr, radarr, jellyfin]
+memory_tier: light
+memory_floor_mb: 768
+host_sources:
+  SEERR_CONFIG_SOURCE:
+    path: data/seerr/config
+stateful: true
+data_specs:
+- name: seerr-config
+  source_env: SEERR_CONFIG_SOURCE
+  target: /app/config
+  size_estimate_gb: 5
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+  host_subdirs: [logs]
+routes:
+- subdomain: requests
+  upstream: seerr:5055
+  published_port: 5055
+  exposure: public
+  auth:
+    mode: forward_auth
+identity:
+  invite:
+    group: homelab-media
+    priority: 30
+    blurb: Request new movies and shows
+    sign_in: Sign in with Authelia when prompted.
+required_secrets:
+- name: SEERR_API_KEY
+  tier: generated
+  length: 32
+  description: API key bootstrapped after first start
+  rotation: persistent

@@ -1,0 +1,39 @@
+name: roundcube
+label: Roundcube
+description: Webmail frontend (IMAP+SMTP to mailserver)
+icon: 📧
+category: email
+placement: control
+priority: 60
+restart_policy: safe
+depends_on:
+- mailserver
+memory_tier: light
+health:
+  starting_policy: pending
+host_sources:
+  ROUNDCUBE_DATA_SOURCE:
+    path: data/roundcube
+stateful: true
+data_specs:
+- name: roundcube-data
+  source_env: ROUNDCUBE_DATA_SOURCE
+  target: /var/roundcube/db
+  size_estimate_gb: 1
+  snapshot: false
+  host_uid: 33
+  host_gid: 33
+backup_exports:
+- artifact: roundcube.sqlite.gz
+  strategy: sqlite
+  data_spec: roundcube-data
+  database_path: sqlite.db
+variables:
+  DOMAIN: '{config.domain}'
+routes:
+- subdomain: mail
+  upstream: roundcube:80
+  published_port: 8088
+  exposure: public
+  auth:
+    mode: forward_auth

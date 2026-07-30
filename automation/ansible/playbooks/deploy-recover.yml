@@ -1,0 +1,78 @@
+---
+# Recover a failed deploy from controller-rendered artifacts, then run hooks and verify.
+- name: Recover homelab stack on managed guest nodes
+  hosts: guest_hosts
+  gather_facts: false
+  become: true
+  serial: 1
+  vars:
+    homelab_controller_root: "{{ playbook_dir }}/../../.."
+  pre_tasks:
+    - name: Wait for guest SSH before recovery
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+        delay: 5
+        sleep: 5
+    - name: Gather facts after guest connection is stable
+      ansible.builtin.setup:
+  tasks:
+    - name: Resolve node ID from inventory
+      ansible.builtin.set_fact:
+        homelab_node: "{{ homelab_node_id }}"
+
+    - name: Sync toolkit from Ansible controller
+      ansible.builtin.include_tasks: ../tasks/sync-toolkit-from-controller.yml
+
+    - name: Sync code from Ansible controller
+      ansible.builtin.include_tasks: ../tasks/sync-from-controller.yml
+
+    - name: Ensure guest toolkit venv
+      ansible.builtin.include_tasks: ../tasks/ensure-guest-toolkit-venv.yml
+
+    - name: Fix data-volume permissions (container UIDs)
+      ansible.builtin.shell: |
+        "{{ repo_dest | default('/opt/homelab') }}/.venv/bin/python3" - <<'PY'
+        from pathlib import Path
+        from toolkit.core.compose.volume_permissions import fix_volume_permissions
+        for line in fix_volume_permissions(Path("{{ repo_dest | default('/opt/homelab') }}"), node="{{ homelab_node }}"):
+            print(line)
+        PY
+      args:
+        chdir: "{{ repo_dest | default('/opt/homelab') }}"
+        executable: /bin/bash
+      environment:
+        PYTHONPATH: "{{ repo_dest | default('/opt/homelab') }}"
+        HOMELAB_ROOT: "{{ repo_dest | default('/opt/homelab') }}"
+      changed_when: true
+
+    - name: Staggered compose up
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export HOMELAB_ROOT="{{ repo_dest | default('/opt/homelab') }}"
+        export HOMELAB_NODE="{{ homelab_node }}"
+        export HOMELAB_RECOVERY=1
+        export PYTHONPATH="{{ repo_dest | default('/opt/homelab') }}"
+        "{{ repo_dest | default('/opt/homelab') }}/.venv/bin/homelab-toolkit" \
+          --root "{{ repo_dest | default('/opt/homelab') }}" \
+          deploy up --node "{{ homelab_node }}"
+      args:
+        chdir: "{{ repo_dest | default('/opt/homelab') }}"
+        executable: /bin/bash
+      changed_when: true
+
+    # Restore the platform network boundary before any service-owned recovery
+    # hook runs. Hooks can then safely reach only the endpoints allowed by the
+    # same policy used during a normal deployment.
+    - name: Restore Docker published-port policy
+      ansible.builtin.include_role:
+        name: docker_firewall
+
+    - name: Apply manifest-selected service recovery tasks
+      ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+      loop: "{{ service_recovery_task_files | default([]) }}"
+      loop_control:
+        loop_var: service_task_file
+        label: "{{ service_task_file }}"
+
+    - name: Reconcile host operational services and timers
+      ansible.builtin.include_tasks: ../tasks/reconcile-operational-units.yml

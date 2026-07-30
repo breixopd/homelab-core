@@ -1,0 +1,13 @@
+name: cloud
+label: "Cloud & Dev"
+placement: apps
+priority: 30
+description: "Cloud apps, mail, and development tools (Gitea)"
+service_group: homelab-cloud
+access_group:
+  name: homelab-cloud
+  label: Cloud
+  description: Files, photos, passwords, and development services
+  default_invite: true
+compose_profiles: [cloud, dev]
+depends_on: [management]

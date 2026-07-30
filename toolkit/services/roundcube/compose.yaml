@@ -1,0 +1,46 @@
+services:
+  roundcube:
+    restart: unless-stopped
+    profiles:
+    - email
+    - svc-roundcube
+    image: roundcube/roundcubemail:1.7.2-apache@sha256:76503fb00caf1cb0ee7731723d5bf31b492383b689d532fa943c70e885913687
+    container_name: roundcube
+    cap_drop:
+    - ALL
+    cap_add:
+    - SETGID
+    - SETUID
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      ROUNDCUBEMAIL_DB_TYPE: sqlite
+      ROUNDCUBEMAIL_DEFAULT_HOST: tls://mailserver
+      ROUNDCUBEMAIL_DEFAULT_PORT: '143'
+      ROUNDCUBEMAIL_SMTP_SERVER: tls://mailserver
+      ROUNDCUBEMAIL_SMTP_PORT: '587'
+      ROUNDCUBEMAIL_SMTP_USER: '%u'
+      ROUNDCUBEMAIL_SMTP_PASS: '%p'
+      ROUNDCUBEMAIL_USERNAME_DOMAIN: ${DOMAIN:-localhost}
+      ROUNDCUBEMAIL_PRODUCT_NAME: Homelab Mail
+      ROUNDCUBEMAIL_SKIN: elastic
+      ROUNDCUBEMAIL_UPLOAD_MAX_FILESIZE: 25M
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8088:80
+    volumes:
+    - ${ROUNDCUBE_DATA_SOURCE:-./data/roundcube}:/var/roundcube/db
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -fsS http://localhost/ | grep -Eqi 'roundcube|login'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 1g
+    cpus: 2.0
+    pids_limit: 512

@@ -1,0 +1,207 @@
+name: homelab-ui
+label: Homelab UI
+description: Homelab web dashboard
+icon: 🏠
+category: management
+placement: control
+priority: 10
+restart_policy: safe
+depends_on:
+- caddy
+- lldap
+- redis
+integrations:
+- service: redis
+  host_env: HOMELAB_REDIS_HOST
+  port_env: HOMELAB_REDIS_PORT
+- service: ntfy
+  required: false
+  enabled_env: HOMELAB_NTFY_ENABLED
+  url_env: HOMELAB_NTFY_URL
+  scheme: http
+memory_tier: light
+image_build:
+  context: .
+  repository_context: true
+  dockerfile: toolkit/Dockerfile
+  env_var: HOMELAB_UI_IMAGE
+  repository: homelab-toolkit
+  smoke_tests:
+  - command: [--help]
+    contains: Usage
+stateful: true
+data_specs:
+- name: repository
+  source_env: INSTALL_ROOT
+  target: /app/repo
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+- name: controller-data
+  volume: controller-data
+  target: /var/lib/homelab-controller
+  size_estimate_gb: 2
+  snapshot: true
+- name: controller-payload-key
+  volume: controller-payload-key
+  target: /run/secrets/homelab-controller
+  size_estimate_gb: 1
+  snapshot: true
+- name: controller-socket
+  volume: controller-socket
+  target: /run/homelab-controller
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+- name: ui-state
+  volume: homelab-ui-state
+  target: /var/lib/homelab-ui
+  size_estimate_gb: 1
+  snapshot: true
+routes:
+- subdomain: homelab
+  upstream: homelab-ui:8080
+  published_port: 8085
+  exposure: public
+  auth:
+    mode: native
+  match:
+    kind: exact
+    paths: [/health]
+- subdomain: homelab
+  upstream: homelab-ui:8080
+  published_port: 8085
+  exposure: public
+  auth:
+    mode: native
+  match:
+    kind: prefix
+    paths: [/invite/]
+- subdomain: homelab
+  upstream: homelab-ui:8080
+  published_port: 8085
+  exposure: public
+  auth:
+    mode: forward_auth
+health:
+  public_probe_path: /health
+operator_bookmark:
+  section: Quick actions
+  priority: 20
+  description: Infrastructure dashboard and management
+required_secrets:
+- name: INVITE_TOKEN_SECRET
+  tier: generated
+  length: 48
+  description: HMAC key for one-time invite activation links
+  rotation: restart
+management:
+  panels:
+  - id: controller-access
+    title: Control plane access
+    description: Operator entry points exposed by the Homelab controller.
+    items:
+    - label: Dashboard
+      value: '{url}'
+      href: '{url}'
+      copyable: true
+    - label: Health endpoint
+      value: '{url}/health'
+      href: '{url}/health'
+      copyable: true
+  settings:
+  - key: auto-recover
+    label: Automatic node recovery
+    description: Run a non-destructive recovery deployment when node-local service failure thresholds are reached.
+    type: boolean
+    default: true
+    requires_redeploy: false
+  - key: recover-cooldown-minutes
+    label: Recovery cooldown
+    description: Minimum time between automatic recovery attempts for the same node.
+    type: number
+    default: 60
+    minimum: 5
+    maximum: 1440
+    step: 5
+    requires_redeploy: false
+  - key: recover-critical-threshold
+    label: Critical failure threshold
+    description: Number of concurrently critical services on one node that triggers recovery.
+    type: number
+    default: 3
+    minimum: 2
+    maximum: 20
+    step: 1
+    requires_redeploy: false
+  - key: recover-terminal-threshold
+    label: Terminal failure threshold
+    description: Number of exhausted service remedies on one node that triggers recovery.
+    type: number
+    default: 3
+    minimum: 1
+    maximum: 20
+    step: 1
+    requires_redeploy: false
+  - key: rightsize-enabled
+    label: Automatic resource tuning
+    description: Allow verified stateless container resource reductions within the configured safety policy.
+    type: boolean
+    default: true
+    requires_redeploy: true
+  - key: rightsize-headroom-percent
+    label: Resource headroom
+    description: Capacity retained above observed p95 memory and CPU usage.
+    type: number
+    default: 130
+    minimum: 110
+    maximum: 300
+    step: 5
+    requires_redeploy: false
+  - key: rightsize-max-step-percent
+    label: Maximum tuning step
+    description: Largest resource reduction allowed during one automatic tuning cycle.
+    type: number
+    default: 25
+    minimum: 5
+    maximum: 25
+    step: 5
+    requires_redeploy: false
+  - key: rightsize-cooldown-hours
+    label: Tuning cooldown
+    description: Minimum time between automatic resource changes for the same service and node.
+    type: number
+    default: 24
+    minimum: 1
+    maximum: 168
+    step: 1
+    requires_redeploy: false
+  - key: rightsize-interval-hours
+    label: Tuning interval
+    description: Hours between autonomous verified resource tuning cycles on the control node.
+    type: number
+    default: 24
+    minimum: 6
+    maximum: 168
+    step: 6
+    requires_redeploy: true
+  - key: rightsize-telemetry-days
+    label: Telemetry window
+    description: Number of recent days used to calculate p95 resource demand.
+    type: number
+    default: 7
+    minimum: 1
+    maximum: 30
+    step: 1
+    requires_redeploy: false
+  - key: rightsize-minimum-samples-per-minute
+    label: Minimum telemetry density
+    description: Minimum average samples per minute required before a resource change is considered.
+    type: number
+    default: 2
+    minimum: 1
+    maximum: 4
+    step: 1
+    requires_redeploy: false

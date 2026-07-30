@@ -1,0 +1,6 @@
+---
+# The native Wazuh manager is a host integration of the Wazuh stack.  Keep
+# its placement next to the service manifest; guest-setup only dispatches the
+# generated hook list.
+- name: Apply Wazuh manager guest hook
+  ansible.builtin.include_tasks: "{{ homelab_controller_root }}/toolkit/services/wazuh-indexer/ansible/manager.yml"

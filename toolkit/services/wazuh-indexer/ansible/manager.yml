@@ -1,0 +1,107 @@
+---
+- name: Install Wazuh manager on its service node
+  ansible.builtin.include_role:
+    name: wazuh_manager
+  when: homelab_node_id == service_nodes['wazuh-indexer']
+
+- name: Validate the Wazuh dashboard API credential policy
+  ansible.builtin.assert:
+    that:
+      - wazuh_api_password | length >= 8
+      - wazuh_api_password | length <= 64
+      - wazuh_api_password is regex('[a-z]')
+      - wazuh_api_password is regex('[A-Z]')
+      - wazuh_api_password is regex('[0-9]')
+      - wazuh_api_password is regex('[.*+?-]')
+      - wazuh_api_password is regex('^[A-Za-z0-9.*+?-]+$')
+    fail_msg: Wazuh API credential does not meet the upstream password policy
+  no_log: true
+  when: homelab_node_id == service_nodes['wazuh-indexer']
+
+- name: Reconcile the Wazuh dashboard API credential through its authenticated API
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import base64, json, ssl, sys, urllib.error, urllib.request
+
+        base_url = "https://127.0.0.1:55000"
+        context = ssl._create_unverified_context()
+        desired, previous = json.loads(sys.stdin.read())
+
+        def request(path, *, method="GET", token="", body=None, password=None):
+            payload = None if body is None else json.dumps(body).encode()
+            req = urllib.request.Request(base_url + path, method=method, data=payload)
+            if password is not None:
+                encoded = base64.b64encode(("wazuh-wui:" + password).encode()).decode()
+                req.add_header("Authorization", "Basic " + encoded)
+            if token:
+                req.add_header("Authorization", "Bearer " + token)
+            if body is not None:
+                req.add_header("Content-Type", "application/json")
+            with urllib.request.urlopen(req, context=context, timeout=15) as response:
+                return response.read().decode()
+
+        candidates = tuple(dict.fromkeys(value for value in (desired, previous, "wazuh-wui") if value))
+        authenticated_password = ""
+        token = ""
+        for candidate in candidates:
+            try:
+                token = request(
+                    "/security/user/authenticate?raw=true",
+                    method="POST",
+                    password=candidate,
+                )
+                authenticated_password = candidate
+                break
+            except (OSError, urllib.error.HTTPError):
+                continue
+        if not token:
+            raise SystemExit("no authorized Wazuh API credential is available for reconciliation")
+        if authenticated_password == desired:
+            print("unchanged")
+            raise SystemExit(0)
+
+        users = json.loads(request("/security/users", token=token))
+        items = (users.get("data") or {}).get("affected_items") or []
+        user = next((item for item in items if item.get("username") == "wazuh-wui"), None)
+        if not user or "id" not in user:
+            raise SystemExit("wazuh-wui API user is missing")
+        result = json.loads(
+            request(
+                f"/security/users/{user['id']}",
+                method="PUT",
+                token=token,
+                body={"password": desired},
+            )
+        )
+        data = result.get("data") or {}
+        if data.get("failed_items") or not data.get("affected_items"):
+            raise SystemExit("Wazuh API rejected the credential reconciliation")
+        print("updated")
+    stdin: "{{ [wazuh_api_password, wazuh_api_previous_password | default('')] | to_json }}"
+    stdin_add_newline: false
+  register: wazuh_api_credential_reconcile
+  changed_when: "'updated' in wazuh_api_credential_reconcile.stdout"
+  no_log: true
+  when: homelab_node_id == service_nodes['wazuh-indexer']
+
+- name: Verify the reconciled Wazuh dashboard API credential
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import base64, ssl, sys, urllib.request
+        password = sys.stdin.read().rstrip("\n")
+        request = urllib.request.Request("https://127.0.0.1:55000/security/user/authenticate?raw=true", method="POST")
+        token = base64.b64encode(("wazuh-wui:" + password).encode()).decode()
+        request.add_header("Authorization", "Basic " + token)
+        with urllib.request.urlopen(request, context=ssl._create_unverified_context(), timeout=10) as response:
+            raise SystemExit(0 if response.status == 200 else 1)
+    stdin: "{{ wazuh_api_password }}"
+    stdin_add_newline: false
+  changed_when: false
+  no_log: true
+  when: homelab_node_id == service_nodes['wazuh-indexer']

@@ -1,0 +1,20 @@
+---
+# SSH port for Fail2ban and UFW rules
+ssh_port: 22
+
+# Fail2ban baseline
+fail2ban_bantime: 3600
+fail2ban_findtime: 600
+fail2ban_maxretry: 5
+
+# Enable each application jail only on the machine that owns that service.
+fail2ban_caddy_enabled: "{{ homelab_node_id == service_nodes['caddy'] }}"
+fail2ban_authelia_enabled: "{{ homelab_node_id == service_nodes['authelia'] }}"
+fail2ban_caddy_logpath: "/var/lib/docker/containers/*/*-json.log"
+fail2ban_authelia_logpath: "/var/lib/docker/containers/*/*-json.log"
+fail2ban_caddy_maxretry: 5
+fail2ban_caddy_bantime: 3600
+fail2ban_caddy_findtime: 600
+fail2ban_authelia_maxretry: 5
+fail2ban_authelia_bantime: 3600
+fail2ban_authelia_findtime: 600

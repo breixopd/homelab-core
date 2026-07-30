@@ -1,0 +1,3 @@
+---
+- name: Apply LLDAP recovery hook
+  ansible.builtin.include_tasks: "{{ homelab_controller_root }}/toolkit/services/lldap/ansible/sync.yml"

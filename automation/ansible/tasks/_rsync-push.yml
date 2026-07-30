@@ -1,0 +1,26 @@
+---
+# Push a directory from the Ansible controller to the guest via rsync+ssh (avoids synchronize deprecations).
+- name: "Rsync payload to guest | {{ sync_label | default(sync_src) }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    rsync -azO --itemize-changes --out-format='%i %n%L' \
+      {{ sync_rsync_opts | default([]) | join(' ') }} \
+      -e {{ homelab_rsync_ssh_cmd | quote }} \
+      {{ sync_src | quote }} \
+      {{ (ansible_user ~ '@' ~ ansible_host ~ ':' ~ sync_dest) | quote }}
+  args:
+    executable: /bin/bash
+  vars:
+    homelab_rsync_ssh_cmd: >-
+      ssh {% if ansible_ssh_private_key_file is defined -%}
+      -i {{ ansible_ssh_private_key_file }}{%- endif %} {{ ansible_ssh_common_args | default('') }}
+    ansible_become: false
+  delegate_to: localhost
+  connection: local
+  become: false
+  register: rsync_push_result
+  retries: "{{ sync_retries | default(0) }}"
+  delay: "{{ sync_retry_delay | default(5) }}"
+  until: rsync_push_result.rc == 0
+  changed_when: rsync_push_result.rc == 0 and (rsync_push_result.stdout | trim | length > 0)
+  failed_when: (sync_required | default(true) | bool) and rsync_push_result.rc != 0

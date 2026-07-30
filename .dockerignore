@@ -1,0 +1,57 @@
+# VCS, editor, and agent state
+.git
+.github
+.idea
+.vscode
+.superpowers
+docs
+tests
+
+# Local environments and nondeterministic language caches
+.venv
+venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.coverage
+**/.terraform
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+
+# Controller runtime, deployment output, and mutable application data
+.runtime
+.homelab-state
+data
+generated
+backups
+logs
+
+# Credentials and host-specific configuration never enter image context
+config.yaml
+config.local.yaml
+secrets*.yaml
+*.agekey
+*.pem
+*.key
+keys
+ssh
+config/headscale
+config/kopia
+config/kopia-agent
+config/tdarr/logs
+.env
+.env.*
+infrastructure/generated.auto.tfvars
+infrastructure/terraform.tfvars
+automation/ansible/group_vars/all.yml
+automation/ansible/group_vars/generated*.yml
+automation/ansible/inventory/hosts.yml
+automation/ansible/inventory/known_hosts*
+
+# Local build and package output
+dist
+build
+*.egg-info

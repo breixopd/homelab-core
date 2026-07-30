@@ -1,0 +1,10 @@
+# Fail2ban filter for Authelia authentication failures in Docker json-file logs.
+
+[Definition]
+
+failregex = ^\{"log":"time=.* level=error msg=\\"Unsuccessful authentication.* remote_ip=(?P<host>\S+).*","stream":
+            ^\{"log":"time=.* level=error msg=\\"Unsuccessful authentication.*" remote_ip=(?P<host>\S+).*","stream":
+            ^\{"log":"time=.* level=warning msg=\\"Access denied.* remote_ip=(?P<host>\S+).*","stream":
+            ^\{"log":"time=.* level=error msg=\\".*authentication failed.* remote_ip=(?P<host>\S+).*","stream":
+
+ignoreregex =

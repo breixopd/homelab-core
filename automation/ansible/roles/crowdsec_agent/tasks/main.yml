@@ -1,0 +1,181 @@
+---
+# CrowdSec agent — install + enroll to the infra LXC's Local API (LAPI).
+# Pairs with the CrowdSec server (toolkit/services/crowdsec/) on the infra VM.
+
+- name: Ensure apt keyring directory exists
+  ansible.builtin.file:
+    path: "{{ crowdsec_package_key_path | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: Add CrowdSec apt repository key
+  ansible.builtin.get_url:
+    url: "{{ crowdsec_package_key_url }}"
+    dest: "{{ crowdsec_package_key_path }}"
+    checksum: "sha256:{{ crowdsec_package_key_sha256 }}"
+    mode: "0644"
+    force: true
+
+- name: Add CrowdSec apt repository
+  ansible.builtin.deb822_repository:
+    name: crowdsec
+    types: deb
+    uris: https://packagecloud.io/crowdsec/crowdsec/{{ ansible_facts['distribution'] | lower }}/
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    signed_by: "{{ crowdsec_package_key_path }}"
+    state: present
+    enabled: true
+
+- name: Install CrowdSec agent (non-interactive)
+  ansible.builtin.apt:
+    name: "crowdsec={{ crowdsec_package_version }}"
+    state: present
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  register: crowdsec_install
+
+- name: Install default scenario collections
+  ansible.builtin.command:
+    cmd: "cscli collections install {{ item }}"
+  loop: "{{ crowdsec_collections }}"
+  register: crowdsec_collections_install
+  changed_when: false
+
+- name: Open UFW outbound rule to the infra LAPI port
+  community.general.ufw:
+    rule: allow
+    port: "8080"
+    proto: tcp
+    direction: out
+    dest: "{{ service_ips.get('crowdsec', control_ip) }}"
+  when: ansible_facts['distribution'] | lower in ('debian', 'ubuntu')
+
+- name: Require encrypted or private-mesh LAPI transport
+  ansible.builtin.assert:
+    that:
+      - >-
+        ((crowdsec_lapi_url | urlsplit('scheme')) == 'https') or
+        (((crowdsec_lapi_url | urlsplit('scheme')) == 'http') and
+        ((crowdsec_lapi_url | urlsplit('hostname')) is match(
+        '^(10\\.(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})|192\\.168|172\\.(1[6-9]|2[0-9]|3[0-1])|100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7]))\\.(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\\.(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})$'
+        )))
+    fail_msg: >-
+      CrowdSec enrollment credentials require HTTPS, or plain HTTP to an RFC1918/
+      CGNAT mesh address. Refusing to send the token over a public plaintext URL.
+  no_log: true
+
+- name: Configure the agent to point at the infra LAPI
+  ansible.builtin.lineinfile:
+    path: /etc/crowdsec/config.yaml
+    regexp: "^  url:"
+    line: "  url: {{ crowdsec_lapi_url | quote }}"
+    state: present
+  notify: Restart crowdsec
+
+- name: Apply the LAPI endpoint before enrollment probes
+  ansible.builtin.meta: flush_handlers
+
+- name: Check for existing CrowdSec machine credentials
+  ansible.builtin.stat:
+    path: /etc/crowdsec/local_api_credentials.yaml
+  register: crowdsec_credentials
+
+- name: Require the CrowdSec machine identity to be configured
+  ansible.builtin.assert:
+    that:
+      - crowdsec_machine_name | length >= 3
+      - crowdsec_lapi_token | length >= 32
+    fail_msg: "CrowdSec agent enrollment requires a stable machine name and a token with at least 32 characters"
+  no_log: true
+
+- name: Probe existing CrowdSec machine credentials
+  ansible.builtin.command:
+    cmd: cscli lapi status
+  register: crowdsec_lapi_probe
+  changed_when: false
+  failed_when: false
+  when: crowdsec_credentials.stat.exists
+  no_log: true
+
+- name: Classify confirmed CrowdSec credential rejection
+  ansible.builtin.set_fact:
+    crowdsec_credentials_rejected: >-
+      {{ crowdsec_credentials.stat.exists and
+      (crowdsec_lapi_probe.rc | default(0)) != 0 and
+      (((crowdsec_lapi_probe.stdout | default('')) ~ ' ' ~
+      (crowdsec_lapi_probe.stderr | default(''))) is search(
+      '(?i)(401|403|unauthori[sz]ed|authentication failed|invalid (machine|credential)|machine .*not found)')) }}
+  no_log: true
+
+- name: Enroll when CrowdSec machine credentials are missing or rejected
+  # A failed status probe is not proof that credentials are invalid: transient
+  # LAPI/network failures preserve the known credential file. Re-enrollment is
+  # limited to explicit authentication rejection returned by the LAPI.
+  when: not crowdsec_credentials.stat.exists or crowdsec_credentials_rejected | bool
+  block:
+    - name: Allocate a private candidate credential directory
+      ansible.builtin.tempfile:
+        state: directory
+        path: /etc/crowdsec
+        prefix: .homelab-lapi-
+      register: crowdsec_candidate_credentials
+      no_log: true
+
+    - name: Register the agent with the LAPI using the private auto-registration token
+      ansible.builtin.shell:
+        cmd: >-
+          cscli lapi register
+          --url {{ crowdsec_lapi_url | quote }}
+          --machine {{ crowdsec_machine_name | quote }}
+          --token "$CROWDSEC_LAPI_TOKEN"
+          --file {{ (crowdsec_candidate_credentials.path ~ '/credentials.yaml') | quote }}
+      environment:
+        # Keep the enrollment secret out of Ansible's command argv and shell
+        # task rendering. no_log also suppresses the environment in callbacks.
+        CROWDSEC_LAPI_TOKEN: "{{ crowdsec_lapi_token }}"
+      register: crowdsec_register
+      no_log: true
+      changed_when: true
+
+    - name: Promote validated CrowdSec machine credentials
+      ansible.builtin.copy:
+        src: "{{ crowdsec_candidate_credentials.path }}/credentials.yaml"
+        dest: /etc/crowdsec/local_api_credentials.yaml
+        owner: root
+        group: root
+        mode: "0600"
+        remote_src: true
+      notify: Restart crowdsec
+      no_log: true
+  always:
+    - name: Remove candidate CrowdSec machine credentials
+      ansible.builtin.file:
+        path: "{{ crowdsec_candidate_credentials.path }}"
+        state: absent
+      when: crowdsec_candidate_credentials.path is defined
+      no_log: true
+
+- name: Enforce owner-only machine credential permissions
+  ansible.builtin.file:
+    path: /etc/crowdsec/local_api_credentials.yaml
+    owner: root
+    group: root
+    mode: "0600"
+    state: file
+
+- name: Apply refreshed CrowdSec machine credentials
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure CrowdSec service is enabled + started
+  ansible.builtin.systemd:
+    name: crowdsec
+    state: started
+    enabled: true
+
+- name: Verify CrowdSec agent can reach the configured LAPI
+  ansible.builtin.command:
+    cmd: "cscli lapi status"
+  register: crowdsec_lapi_status
+  changed_when: false
+  failed_when: crowdsec_lapi_status.rc != 0

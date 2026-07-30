@@ -1,0 +1,16 @@
+name: postgres-exporter
+label: PG Exporter
+description: DB metrics
+icon: 🔧
+category: management
+placement: control
+priority: 10
+depends_on: ['postgres']
+generated_artifacts:
+- path: generated/.env.postgres-exporter
+  sensitive: true
+prometheus:
+- id: exporter
+  job: postgres
+  container_port: 9187
+  host_port: 9187

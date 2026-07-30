@@ -1,0 +1,41 @@
+services:
+  recyclarr:
+    restart: unless-stopped
+    profiles:
+    - media
+    - svc-recyclarr
+    image: ghcr.io/recyclarr/recyclarr:8.6.0@sha256:3c38ceeb54438dd8327e4e65c9b48ba601a6d20fff833342d93c9b0bc4b1930b
+    container_name: recyclarr
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp:uid=1000,gid=1000,mode=1777
+    - /data:uid=1000,gid=1000,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    user: ${PUID}:${PGID}
+    environment:
+      TZ: ${TZ:-UTC}
+      RECYCLARR_DATA_DIR: /data
+      RECYCLARR_CREATE_CONFIG: 'true'
+      CRON_SCHEDULE: 0 3 * * *
+      SONARR_BASE_URL: http://sonarr:8989
+      SONARR_API_KEY: ${SONARR_API_KEY}
+      RADARR_BASE_URL: http://radarr:7878
+      RADARR_API_KEY: ${RADARR_API_KEY}
+    volumes:
+    - ${RECYCLARR_CONFIG_SOURCE:-./generated/recyclarr}:/config
+    healthcheck:
+      test:
+      - CMD
+      - recyclarr
+      - --version
+      interval: 60s
+      timeout: 15s
+      retries: 3
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128

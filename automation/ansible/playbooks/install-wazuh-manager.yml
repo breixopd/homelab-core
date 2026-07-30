@@ -1,0 +1,15 @@
+---
+# Generic wrapper for the service-owned manager phase. The owning manifest
+# hook retains node placement and is the only file that knows its role name.
+- name: Apply manifest-owned service manager hooks
+  hosts: guest_hosts
+  become: true
+  vars:
+    homelab_controller_root: "{{ playbook_dir }}/../../.."
+  tasks:
+    - name: Apply manifest-selected service manager task file
+      ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+      loop: "{{ service_manager_task_files | default([]) }}"
+      loop_control:
+        loop_var: service_task_file
+        label: "{{ service_task_file }}"

@@ -1,0 +1,52 @@
+services:
+  prometheus:
+    restart: unless-stopped
+    networks:
+      prometheus-egress:
+        ipv4_address: ${PROMETHEUS_EGRESS_IP:-172.31.249.2}
+    profiles:
+    - management
+    - svc-prometheus
+    build:
+      context: ./toolkit/services/prometheus/image
+    image: ${HOMELAB_PROMETHEUS_IMAGE:?run homelab-toolkit generate}
+    container_name: prometheus
+    cap_drop:
+    - ALL
+    cap_add:
+    - DAC_OVERRIDE
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    # The lifecycle endpoint is used by the post-deploy reconciliation hook to
+    # reload generated scrape configuration without restarting the TSDB.
+    - --web.enable-lifecycle
+    - --storage.tsdb.retention.time=30d
+    expose:
+    - 9090
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:9090:9090
+    volumes:
+    - ${PROMETHEUS_DATA_SOURCE:-./data/prometheus}:/prometheus
+    - ${PROMETHEUS_CONFIG_SOURCE:-./generated/prometheus.yml}:/etc/prometheus/prometheus.yml:ro
+    healthcheck:
+      test:
+      - CMD
+      - /bin/busybox
+      - wget
+      - -q
+      - --spider
+      - http://localhost:9090/-/healthy
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    mem_limit: 1024m
+    cpus: 1.0
+    pids_limit: 256

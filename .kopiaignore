@@ -1,0 +1,15 @@
+.git
+.venv
+.homelab-state/operations
+data/kopia/repository
+data/kopia/cache
+data/kopia/logs
+data/kopia-agent/cache
+data/postgres
+data/immich-postgres
+data/dev-postgres
+data/komodo/mongo
+data/plex/transcode
+data/transcodes
+media/cache
+generated/bundles

@@ -1,0 +1,38 @@
+name: redis
+label: Redis
+description: Shared cache
+icon: ⚡
+category: management
+placement: control
+priority: 5
+essential: true
+internal_aliases: [redis]
+restart_policy: never
+depends_on: []
+memory_tier: light
+host_sources:
+  REDIS_DATA_SOURCE:
+    path: data/redis
+generated_artifacts:
+- path: generated/redis.conf
+  sensitive: true
+- path: generated/redis-healthcheck.sh
+  executable: true
+stateful: true
+service_endpoint:
+  container_port: 6379
+  published_port: 6379
+data_specs:
+- name: redis-data
+  source_env: REDIS_DATA_SOURCE
+  target: /data
+  size_estimate_gb: 5
+  snapshot: true
+  host_uid: 999
+  host_gid: 1000
+required_secrets:
+- name: REDIS_PASSWORD
+  tier: generated
+  length: 32
+  description: Shared Redis authentication password
+  rotation: reconcile

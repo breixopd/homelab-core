@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block page_actions %}
+<button class="btn btn-primary" type="button"
+        data-disclosure-toggle="add-project-form"
+        aria-controls="add-project-form"
+        aria-expanded="false">
+  <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#folder-plus"></use></svg>
+  Add project
+</button>
+{% endblock %}
+
+{% block content %}
+{% if flash %}
+<div class="alert {{ 'alert-ok' if flash_ok else 'alert-error' }}" role="status">{{ flash }}</div>
+{% endif %}
+
+<section id="add-project-form" class="content-band project-create" hidden aria-labelledby="add-project-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="add-project-heading">Register project</h2>
+      <p class="muted text-sm project-section-note">Declare a managed container, route, and access policy.</p>
+    </div>
+  </div>
+  <form method="post" action="/projects/add" class="field-grid project-form">
+    <input type="hidden" name="revision" value="{{ revision }}">
+
+    <label class="form-field span-6" for="project-subdomain">
+      <span>Subdomain</span>
+      <input id="project-subdomain" type="text" name="subdomain" placeholder="blog" required
+             maxlength="55"
+             pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+             title="Lowercase letters, numbers, and hyphens">
+      <small>Served at <code>subdomain.{{ domain }}</code></small>
+    </label>
+    <label class="form-field span-6" for="project-name">
+      <span>Display name</span>
+      <input id="project-name" type="text" name="name" placeholder="My blog">
+    </label>
+    <label class="form-field span-6" for="project-description">
+      <span>Description</span>
+      <input id="project-description" type="text" name="description" placeholder="What this project does">
+    </label>
+    <label class="form-field span-3" for="project-exposure">
+      <span>Exposure</span>
+      <select id="project-exposure" name="exposure">
+        <option value="private">Private mesh and LAN</option>
+        <option value="public">Public internet</option>
+      </select>
+    </label>
+    <label class="form-field span-3" for="project-auth-mode">
+      <span>Authentication</span>
+      <select id="project-auth-mode" name="auth_mode">
+        <option value="forward_auth">Authelia SSO</option>
+        <option value="native">Application auth</option>
+      </select>
+    </label>
+    <label class="form-field span-6" for="project-portal">
+      <span>Family portal</span>
+      <select id="project-portal" name="show_on_portal">
+        <option value="true">Show project</option>
+        <option value="false">Hide project</option>
+      </select>
+    </label>
+
+    <fieldset class="form-section span-12">
+      <legend>Container</legend>
+      <div class="field-grid project-deployment-fields">
+        <label class="form-field span-6" for="project-image">
+          <span>Docker image</span>
+          <input id="project-image" type="text" name="image"
+                 placeholder="ghcr.io/example/app@sha256:..." required>
+          <small>Immutable image reference pinned by SHA-256 digest</small>
+        </label>
+        <label class="form-field span-3" for="project-port">
+          <span>Container port</span>
+          <input id="project-port" type="number" name="port" value="80" min="1" max="65535">
+        </label>
+        <label class="form-field span-3" for="project-placement">
+          <span>Placement</span>
+          <select id="project-placement" name="placement">
+            {% for option in available_placements %}
+            <option value="{{ option.selector }}">
+              {{ option.selector }} → {{ option.node }} ({{ option.kind }})
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="form-field span-6" for="project-health-endpoint">
+          <span>Health endpoint</span>
+          <input id="project-health-endpoint" type="text" name="health_endpoint" placeholder="/health">
+          <small>Optional HTTP path used for active monitoring</small>
+        </label>
+        <label class="form-field span-3" for="project-database">
+          <span>Database</span>
+          <select id="project-database" name="database_service">
+            <option value="">None</option>
+            {% for database in available_databases %}
+            <option value="{{ database.service }}">
+              {{ database.label }} · {{ database.node }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="form-field span-3" for="project-read-only">
+          <span>Root filesystem</span>
+          <select id="project-read-only" name="read_only">
+            <option value="true">Read only</option>
+            <option value="false">Writable</option>
+          </select>
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="action-bar span-12">
+      <button type="button" class="btn btn-ghost"
+              data-disclosure-close="add-project-form">Cancel</button>
+      <button type="submit" class="btn btn-primary">Register project</button>
+    </div>
+  </form>
+</section>
+
+<section class="content-band project-directory" aria-labelledby="registered-projects-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="registered-projects-heading">Registered projects</h2>
+      <p class="muted text-sm project-section-note">{{ projects | length }} managed routes</p>
+    </div>
+  </div>
+
+  {% if projects %}
+  <div class="responsive-table project-table-wrap">
+    <table class="data-table project-table" aria-labelledby="registered-projects-heading">
+      <thead>
+        <tr>
+          <th scope="col">Route</th>
+          <th scope="col">Name</th>
+          <th scope="col">Upstream</th>
+          <th scope="col">Placement</th>
+          <th scope="col">Access</th>
+          <th scope="col">Portal</th>
+          <th scope="col">Runtime</th>
+          <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for proj in projects %}
+        {% set runtime = project_runtime.get(proj.subdomain) %}
+        <tr>
+          <td>
+            <a class="mono" href="https://{{ proj.subdomain }}.{{ domain }}" target="_blank" rel="noopener">
+              {{ proj.subdomain }}.{{ domain }}
+            </a>
+          </td>
+          <td>{{ proj.name or proj.subdomain }}</td>
+          <td>
+            <code>{{ proj.upstream }}</code>
+            {% if proj.database_service %}
+            <div class="muted text-xs">DB: {{ proj.database_service }}</div>
+            {% endif %}
+          </td>
+          <td><code>{{ proj.placement }}</code> → <code>{{ proj.node }}</code></td>
+          <td>
+            <span class="badge exposure-{{ proj.exposure }}">{{ proj.exposure }}</span>
+            <span class="badge {{ 'ok' if proj.auth_mode == 'forward_auth' else 'neutral' }}">
+              {{ 'Authelia SSO' if proj.auth_mode == 'forward_auth' else 'Application auth' }}
+            </span>
+          </td>
+          <td>{{ 'Shown' if proj.show_on_portal else 'Hidden' }}</td>
+          <td>
+            {% if runtime %}
+            <span class="badge {{ 'ok' if runtime.state == 'running' else 'warn' }}">{{ runtime.state }}</span>
+            {% if runtime.health and runtime.health != 'none' %}
+            <span class="badge health-{{ runtime.health }}">{{ runtime.health }}</span>
+            {% endif %}
+            {% else %}
+            <span class="badge neutral">Not deployed</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="row-actions project-actions">
+              {% if runtime and runtime.state == 'running' %}
+              <form method="post" action="/projects/action/{{ proj.subdomain }}/restart">
+                <button type="submit" class="btn btn-ghost btn-xs" title="Restart {{ proj.name }}">
+                  <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#refresh-cw"></use></svg>
+                  <span class="sr-only">Restart {{ proj.name }}</span>
+                </button>
+              </form>
+              <form method="post" action="/projects/action/{{ proj.subdomain }}/stop">
+                <button type="submit" class="btn btn-ghost btn-xs" title="Stop {{ proj.name }}">
+                  <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#square"></use></svg>
+                  <span class="sr-only">Stop {{ proj.name }}</span>
+                </button>
+              </form>
+              {% else %}
+              <form method="post" action="/projects/action/{{ proj.subdomain }}/start">
+                <button type="submit" class="btn btn-ghost btn-xs" title="Start {{ proj.name }}">
+                  <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#play"></use></svg>
+                  <span class="sr-only">Start {{ proj.name }}</span>
+                </button>
+              </form>
+              {% endif %}
+              <form method="post" action="/projects/remove/{{ proj.subdomain }}"
+                    class="project-remove-form"
+                    hx-confirm="Remove this project and reconcile the deployment?">
+                <input type="hidden" name="revision" value="{{ revision }}">
+                <button type="submit" class="btn btn-ghost btn-xs project-remove-button" title="Remove {{ proj.name }}">
+                  <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#trash"></use></svg>
+                  <span class="sr-only">Remove {{ proj.name or proj.subdomain }}</span>
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    No projects are registered. Use <strong>Add project</strong> to create the first managed route.
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

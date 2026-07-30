@@ -1,0 +1,128 @@
+name: vaultwarden
+label: Vaultwarden
+description: Password manager
+icon: 🔐
+category: cloud
+placement: apps
+priority: 30
+essential: true
+restart_policy: careful
+runtime_variables:
+- VAULTWARDEN_ADMIN_TOKEN
+depends_on:
+- postgres
+databases:
+- provider: postgres
+  database: vaultwarden
+  username: vaultwarden
+  host_env: VAULTWARDEN_DB_HOST
+  port_env: VAULTWARDEN_DB_PORT
+  database_env: VAULTWARDEN_DB_NAME
+  username_env: VAULTWARDEN_DB_USER
+  password_env: VAULTWARDEN_DB_PASSWORD
+memory_tier: medium
+host_sources:
+  VAULTWARDEN_DATA_SOURCE:
+    path: data/vaultwarden
+stateful: true
+data_specs:
+- name: vaultwarden-data
+  source_env: VAULTWARDEN_DATA_SOURCE
+  target: /data
+  size_estimate_gb: 10
+  snapshot: true
+variables:
+  PUBLIC_URL_PROTOCOL: '{derived.public_url_protocol}'
+  VAULTWARDEN_SSO_ENABLED: 'true'
+  VAULTWARDEN_SSO_CLIENT_ID: vaultwarden
+  VAULTWARDEN_SSO_AUTHORITY: https://auth.{config.domain}
+oidc:
+  client_id: vaultwarden
+  secret_env_var: VAULTWARDEN_SSO_CLIENT_SECRET
+  redirect_uris:
+  - https://vault.{domain}/identity/connect/oidc-signin
+  claims_policy: vaultwarden
+  scopes: [openid, profile, email, offline_access, vaultwarden]
+  authorization_policy: two_factor
+  require_pkce: true
+  pkce_challenge_method: S256
+  token_endpoint_auth_method: client_secret_basic
+  response_types: [code]
+  grant_types: [authorization_code, refresh_token]
+required_secrets:
+- name: VAULTWARDEN_SSO_CLIENT_SECRET
+  tier: generated
+  length: 48
+  description: OIDC client secret for Authelia integration
+  rotation: restart
+- name: VAULTWARDEN_ADMIN_TOKEN
+  tier: generated
+  length: 48
+  description: Administrative endpoint token
+  rotation: restart
+- name: VAULTWARDEN_MASTER_PASSWORD
+  tier: user
+  length: 16
+  description: Owner-chosen vault master password; required to decrypt the vault and never silently generated
+  rotation: persistent
+- name: BITWARDEN_ENC_KEY
+  tier: user
+  length: 32
+  description: Persisted Bitwarden account encryption key
+- name: BITWARDEN_MAC_KEY
+  tier: user
+  length: 32
+  description: Persisted Bitwarden account MAC key
+- name: CF_VAULT_WAF_ATTEST
+  tier: user
+  length: 32
+  description: Attestation that Cloudflare WAF protects the vault host
+- name: VAULTWARDEN_DB_PASSWORD
+  tier: generated
+  length: 32
+  description: PostgreSQL database password
+  rotation: reconcile
+routes:
+- subdomain: vault
+  upstream: vaultwarden:80
+  published_port: 8082
+  exposure: public
+  auth:
+    mode: oidc
+  deny:
+  - kind: exact
+    paths: [/admin]
+  - kind: prefix
+    paths: [/admin/]
+  response_headers:
+  - name: Content-Security-Policy
+    value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data:; connect-src 'self' https: wss:; font-src 'self' data:; frame-src 'none';"
+health:
+  public_probe_path: /alive
+management:
+  panels:
+  - id: account-access
+    title: Account access
+    description: The vault master password decrypts your vault and is never displayed or silently regenerated.
+    items:
+    - label: Web vault
+      value: https://vault.{domain}
+      href: https://vault.{domain}
+      copyable: true
+    - label: Account email
+      value: '{email}'
+      copyable: true
+    - label: Sign-in method
+      value: Email plus your chosen vault master password
+identity:
+  invite:
+    group: homelab-cloud
+    priority: 30
+    path: /#/signup
+    blurb: Private password manager
+    sign_in: Create an account with this email and choose a separate vault master password.
+  provisioning:
+  - id: vaultwarden_invite
+    mode: plugin
+    priority: 10
+    disabled_message: 'Vaultwarden: cloud service disabled'

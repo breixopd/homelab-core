@@ -1,0 +1,45 @@
+services:
+  gluetun:
+    restart: unless-stopped
+    profiles:
+    - media-vpn
+    - svc-gluetun
+    image: qmcgaw/gluetun:v3.41.1@sha256:1a5bf4b4820a879cdf8d93d7ef0d2d963af56670c9ebff8981860b6804ebc8ab
+    container_name: gluetun
+    cap_add:
+    - NET_ADMIN
+    security_opt:
+    - no-new-privileges:true
+    devices:
+    - /dev/net/tun:/dev/net/tun
+    tmpfs:
+    - /tmp
+    - /etc/openvpn:exec,mode=0777
+    env_file:
+    - ${INSTALL_ROOT}/generated/.env.vpn
+    environment:
+      TZ: ${TZ:-UTC}
+    expose:
+    - 8080
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8080:8080
+    - ${PRIVATE_IP:-127.0.0.1}:${QBITTORRENT_PORT_BIND:-6881}:${QBITTORRENT_PORT_BIND:-6881}
+    - ${PRIVATE_IP:-127.0.0.1}:${QBITTORRENT_PORT_BIND:-6881}:${QBITTORRENT_PORT_BIND:-6881}/udp
+    volumes:
+    - ${GLUETUN_DATA_SOURCE:-./data/gluetun}:/gluetun
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O /dev/null http://localhost:9999 || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 256

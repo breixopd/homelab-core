@@ -1,0 +1,11 @@
+---
+# Docker-Mailserver owns the private SMTP listener.  Masking the distribution
+# Postfix unit is a host prerequisite and belongs to this service's plugin.
+- name: Stop host Postfix before Docker-Mailserver binds SMTP
+  ansible.builtin.systemd:
+    name: postfix
+    state: stopped
+    enabled: false
+    masked: true
+  failed_when: false
+  when: homelab_node_id == service_nodes['mailserver']

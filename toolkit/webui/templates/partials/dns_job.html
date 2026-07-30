@@ -1,0 +1,7 @@
+<div class="surface panel deploy-job" data-job-id="{{ job_id }}" data-stream-url="/dns/stream/{{ job_id }}">
+  <div class="panel-head">
+    <strong>{{ job_label or 'DNS operation' }}</strong>
+    <span class="badge running">running</span>
+  </div>
+  <pre id="log-{{ job_id }}" class="log-viewer"></pre>
+</div>

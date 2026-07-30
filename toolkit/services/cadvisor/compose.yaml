@@ -1,0 +1,81 @@
+services:
+  cadvisor:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-cadvisor
+    image: gcr.io/cadvisor/cadvisor:v0.55.1@sha256:3de2bd5203120b866d74a9b283b2ffb8ec382fbf9dc321814700c6ea6f44ec57
+    container_name: cadvisor
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command:
+    - --housekeeping_interval=30s
+    - --docker_only=true
+    - --store_container_labels=false
+    - --whitelisted_container_labels=com.docker.compose.service
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:ro
+    - /sys:/sys:ro
+    - /var/lib/docker:/var/lib/docker:ro
+    expose:
+    - 8080
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8089:8080
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q --spider http://localhost:8080/healthz || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+  cadvisor-agent:
+    restart: unless-stopped
+    profiles:
+    - monitoring-agent
+    - svc-cadvisor-agent
+    image: gcr.io/cadvisor/cadvisor:v0.55.1@sha256:3de2bd5203120b866d74a9b283b2ffb8ec382fbf9dc321814700c6ea6f44ec57
+    container_name: cadvisor-agent
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command:
+    - --housekeeping_interval=30s
+    - --docker_only=true
+    - --store_container_labels=false
+    - --whitelisted_container_labels=com.docker.compose.service
+    volumes:
+    - /:/rootfs:ro
+    - /var/run:/var/run:ro
+    - /sys:/sys:ro
+    - /var/lib/docker:/var/lib/docker:ro
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8088:8080
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q --spider http://localhost:8080/healthz || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64

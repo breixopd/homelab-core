@@ -1,0 +1,68 @@
+name: prowlarr
+label: Prowlarr
+description: Indexer manager
+icon: 🔍
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on: [flaresolverr]
+memory_tier: light
+memory_floor_mb: 256
+host_sources:
+  PROWLARR_CONFIG_SOURCE:
+    path: data/prowlarr/config
+stateful: true
+data_specs:
+- name: prowlarr-config
+  source_env: PROWLARR_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 2
+  snapshot: true
+  # linuxserver/prowlarr ignores PUID/PGID with the hardened read-only root
+  # filesystem and runs its built-in abc user.
+  host_uid: 911
+  host_gid: 1001
+routes:
+- upstream: prowlarr:9696
+  published_port: 9696
+  exposure: private
+  auth:
+    mode: forward_auth
+identity:
+  access_groups: [homelab-admin]
+operator_bookmark:
+  section: Media administration
+  priority: 40
+  description: Indexer and application integration
+management:
+  panels:
+  - id: indexer-access
+    title: Indexer management
+    description: Manage search indexers in Prowlarr; Sonarr and Radarr connections are reconciled automatically.
+    items:
+    - label: Web interface
+      value: https://prowlarr.{domain}
+      href: https://prowlarr.{domain}
+    - label: Internal API
+      value: http://prowlarr:9696/api/v1
+      copyable: true
+    - label: API credential
+      value: Managed internally and never displayed here
+  settings:
+  - key: indexers
+    label: Public indexers
+    description: Exact comma-separated Prowlarr definition names. Unlisted public indexers are removed; private indexers are preserved.
+    type: text
+    default: knaben,yts
+required_secrets:
+- name: PROWLARR_API_KEY
+  tier: generated
+  length: 32
+  description: API key bootstrapped after first start
+  rotation: persistent
+credentials:
+- name: Prowlarr API
+  url: '{proto}://prowlarr.{domain}'
+  password_env: PROWLARR_API_KEY
+  tags: [prowlarr, media, api-key]

@@ -1,0 +1,8 @@
+<div class="webui-error-fragment" role="alert" aria-live="polite">
+  <span class="webui-error-mark" aria-hidden="true"><svg><use href="/static/icons/sprite.svg#circle-alert"></use></svg></span>
+  <div>
+    <strong>{{ message }}</strong>
+    <p class="muted">{{ status_code }} · {{ status_label }}</p>
+    <a class="btn btn-ghost btn-sm" href="{{ retry_url }}">Try again</a>
+  </div>
+</div>

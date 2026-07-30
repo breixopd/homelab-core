@@ -1,0 +1,22 @@
+kind: lxc
+provider: proxmox
+enabled: true
+managed: true
+hostname: infra-01
+address: 10.10.10.10
+vmid: 800
+description: Control plane, ingress, identity, observability, and shared data services
+labels: [control, ingress, observability]
+cores: 4
+memory_mb: 12288
+root_disk_gb: 64
+root_datastore: zfs-mirror
+data_disks: []
+private_bridge: vmbr1
+public_bridge: vmbr0
+gateway: 10.10.10.1
+cidr: 24
+startup_order: 10
+nesting: true
+keyctl: true
+fuse: false

@@ -1,0 +1,10 @@
+# Fail2ban filter for Caddy access denials (401/403) in Docker json-file logs.
+# Matches Caddy structured access logs emitted to stderr by the caddy container.
+
+[Definition]
+
+failregex = ^\{"log":"\{.*"logger":"http\.log\.access".*"remote_ip":"(?P<host>[^"]+)".*"status":(?:401|403)[,}].*$
+            ^\{"log":".*http\.log\.access.*\"status\":(?:401|403).*"remote_ip\":\"(?P<host>[^"]+)\".*$
+            ^\{"log":".*\" (?P<status>401|403) .*\" 0\\n","stream":"(?:stdout|stderr)"
+
+ignoreregex =

@@ -1,0 +1,116 @@
+{
+  "id": null,
+  "uid": "homelab-overview",
+  "title": "Homelab Overview",
+  "tags": ["homelab", "overview"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Prometheus Targets Up",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "count(up == 1)",
+          "legendFormat": "up",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Prometheus Targets Down",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"value": null, "color": "green"},
+              {"value": 1, "color": "red"}
+            ]
+          }
+        }
+      },
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "count(up == 0) or vector(0)",
+          "legendFormat": "down",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Running Containers",
+      "type": "stat",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "count(container_last_seen)",
+          "legendFormat": "containers",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Log Lines (rate)",
+      "type": "stat",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [
+        {
+          "expr": "sum(rate({job=~\".+\"}[5m]))",
+          "legendFormat": "lines/s",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Fleet CPU % (avg)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Fleet Memory %",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Dashboard collection",
+      "type": "text",
+      "gridPos": {"x": 0, "y": 12, "w": 24, "h": 6},
+      "options": {
+        "mode": "markdown",
+        "content": "## Provisioned dashboards\n\n| Dashboard | Focus |\n| --- | --- |\n| **Homelab Overview** | Fleet health summary (this page) |\n| **Node Exporter** | Per-host CPU, memory, disk, network |\n| **Containers** | Docker/cAdvisor container metrics |\n| **Postgres** | Database performance |\n| **Redis** | Cache hit rates and memory |\n| **Logs** | Loki log exploration |\n| **Media Cache** | Rclone cache throughput |\n\nDatasources: **Prometheus**, **Loki**, **Redis (Infra/Dev)** — file-provisioned under `config/grafana/provisioning/`."
+      }
+    }
+  ]
+}

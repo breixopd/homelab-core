@@ -1,0 +1,73 @@
+name: wazuh-dashboard
+label: Wazuh Dashboard
+description: SIEM web UI
+icon: 🛡️
+category: security
+placement: control
+priority: 15
+guest_task_order: 110
+recovery_task_order: 110
+essential: true
+restart_policy: careful
+depends_on:
+- wazuh-indexer
+memory_tier: medium
+memory_floor_mb: 1024
+health:
+  starting_policy: pending
+stateful: true
+data_specs:
+- name: dashboard-config
+  volume: wazuh-dashboard-config
+  target: /usr/share/wazuh-dashboard/data/wazuh/config
+  size_estimate_gb: 1
+  snapshot: true
+- name: dashboard-custom-assets
+  volume: wazuh-dashboard-custom
+  target: /usr/share/wazuh-dashboard/plugins/wazuh/public/assets/custom
+  size_estimate_gb: 1
+  snapshot: true
+routes:
+- subdomain: siem
+  upstream: wazuh-dashboard:5601
+  published_port: 5601
+  exposure: private
+  auth:
+    mode: forward_auth
+guidance:
+- id: verify-host-agent
+  phase: post_deploy
+  category: Optional
+  title: Verify the Proxmox security agent
+  instructions: >-
+    The security playbook installs the Wazuh agent on the Proxmox host. Confirm
+    the host is registered and reporting in {url} after deployment.
+  route_url: true
+operator_bookmark:
+  section: Quick actions
+  priority: 40
+  description: Security analytics and endpoint events
+management:
+  panels:
+  - id: security-operations
+    title: Security operations
+    description: Agent inventory and security events are available in the private dashboard.
+    items:
+    - label: Dashboard
+      value: https://siem.{domain}
+      href: https://siem.{domain}
+      copyable: true
+    - label: Managed-host agents
+      value: Add or edit hosts in Homelab UI; agent enrollment and reporting are verified automatically
+required_secrets:
+- name: WAZUH_DASHBOARD_PASSWORD
+  tier: generated
+  length: 32
+  description: Dashboard service password
+  rotation: persistent
+host_integrations:
+- id: wazuh-agent
+  label: Wazuh security agent
+  kinds: [plain, fleet]
+  default_for: [plain, fleet]
+  ansible_role: security_agent

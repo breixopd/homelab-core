@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta name="csrf-token" content="{{ request.session.get('csrf_token', '') }}">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ page_title }} · Homelab{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script src="/static/js/htmx-2.0.10.min.js?v={{ static_revision }}" defer></script>
+  <link rel="stylesheet" href="/static/css/main.css?v={{ static_revision }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div id="spinner" role="status" aria-live="polite" aria-label="Request in progress">
+    <span class="spinner-track" aria-hidden="true"></span>
+    <span>Working</span>
+  </div>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">HL</span>
+        <div>
+          <div class="brand-title">Homelab</div>
+          <div class="brand-sub">{% if is_admin %}Operations console{% else %}Family portal{% endif %}</div>
+        </div>
+      </div>
+      <nav class="nav" aria-label="Main navigation">
+        {% if is_admin %}
+        <div class="nav-section-label">Operate</div>
+        <a href="/" class="nav-link{% if active == 'dashboard' %} active{% endif %}"{% if active == 'dashboard' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#layout-dashboard"></use></svg><span>Overview</span>
+        </a>
+        <a href="/services" class="nav-link{% if active == 'services' %} active{% endif %}"{% if active == 'services' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#server"></use></svg><span>Services</span>
+        </a>
+        <a href="/machines" class="nav-link{% if active == 'machines' %} active{% endif %}"{% if active == 'machines' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#hard-drive"></use></svg><span>Machines</span>
+        </a>
+        <a href="/deploy" class="nav-link{% if active == 'deploy' %} active{% endif %}"{% if active == 'deploy' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#rocket"></use></svg><span>Deployments</span>
+        </a>
+        <a href="/jobs" class="nav-link{% if active == 'jobs' %} active{% endif %}"{% if active == 'jobs' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#history"></use></svg><span>Jobs</span>
+        </a>
+        <a href="/operations" class="nav-link{% if active == 'operations' %} active{% endif %}"{% if active == 'operations' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#settings"></use></svg><span>Operations</span>
+        </a>
+
+        <div class="nav-section-label">Manage</div>
+        <a href="/people" class="nav-link{% if active == 'people' %} active{% endif %}"{% if active == 'people' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#users-round"></use></svg><span>People</span>
+        </a>
+        <a href="/projects" class="nav-link{% if active == 'projects' %} active{% endif %}"{% if active == 'projects' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#monitor"></use></svg><span>Projects</span>
+        </a>
+
+        <div class="nav-section-label">Configure</div>
+        <a href="/settings" class="nav-link{% if active in ('settings', 'setup') %} active{% endif %}"{% if active in ('settings', 'setup') %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#settings"></use></svg><span>Settings</span>
+        </a>
+        <a href="/secrets" class="nav-link{% if active == 'secrets' %} active{% endif %}"{% if active == 'secrets' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#key"></use></svg><span>Secrets</span>
+        </a>
+        <a href="/dns" class="nav-link{% if active == 'dns' %} active{% endif %}"{% if active == 'dns' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#network"></use></svg><span>Network</span>
+        </a>
+        {% else %}
+        <a href="/" class="nav-link{% if active == 'dashboard' %} active{% endif %}"{% if active == 'dashboard' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#layout-dashboard"></use></svg><span>Home</span>
+        </a>
+        <a href="/services" class="nav-link{% if active == 'services' %} active{% endif %}"{% if active == 'services' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#server"></use></svg><span>My apps</span>
+        </a>
+        <a href="/account" class="nav-link{% if active == 'account' %} active{% endif %}"{% if active == 'account' %} aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#users-round"></use></svg><span>My account</span>
+        </a>
+        {% endif %}
+      </nav>
+      <div class="sidebar-foot">
+        {% if is_admin %}<div class="root-path" title="{{ homelab_root }}">{{ homelab_root }}</div>{% endif %}
+        {% if user_label %}
+        <form method="post" action="/logout">
+          <button type="submit" class="btn btn-ghost btn-sm sidebar-signout">Sign out <span class="muted">{{ user_label }}</span></button>
+        </form>
+        {% endif %}
+      </div>
+    </aside>
+    <button type="button" class="sidebar-overlay" data-nav-dismiss aria-label="Close navigation"></button>
+    <main class="workspace" id="main-content" tabindex="-1">
+      <header class="workspace-header">
+        <button type="button" class="btn btn-ghost icon-button sidebar-toggle" data-nav-toggle aria-controls="sidebar" aria-expanded="false" title="Open navigation">
+          <svg class="button-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#menu"></use></svg>
+          <span class="sr-only">Open navigation</span>
+        </button>
+        <h1>{% block page_heading %}{{ page_title }}{% endblock %}</h1>
+        <div class="page-toolbar">{% block page_actions %}{% endblock %}</div>
+      </header>
+      <div class="workspace-body">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+  <script src="/static/js/app.js?v={{ static_revision }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

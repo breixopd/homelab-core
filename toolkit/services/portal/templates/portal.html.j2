@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{ domain }} — private service directory and homelab control surface">
+  <meta name="theme-color" content="#0c0f0e">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>{{ domain }} · Service directory</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0c0f0e;
+      --surface: #131715;
+      --surface-raised: #191e1b;
+      --surface-soft: #101311;
+      --border: #29312d;
+      --border-strong: #3a4740;
+      --text: #f2f4f1;
+      --muted: #9aa49e;
+      --quiet: #737d77;
+      --accent: #82cbb0;
+      --accent-strong: #a8e0ca;
+      --accent-soft: rgba(130, 203, 176, 0.11);
+      --ok: #79c99e;
+      --warn: #d7b56d;
+      --bad: #d9857f;
+      --shadow: 0 24px 70px rgba(2, 8, 5, 0.28);
+      --radius: 0.75rem;
+      --radius-sm: 0.45rem;
+      --container: 82rem;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      background:
+        radial-gradient(circle at 82% -10%, rgba(130, 203, 176, 0.08), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Avenir Next", Avenir, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      content: "";
+      opacity: 0.22;
+      background-image: radial-gradient(rgba(210, 225, 217, 0.18) 0.45px, transparent 0.45px);
+      background-size: 4px 4px;
+    }
+    a { color: inherit; }
+    button, input { font: inherit; }
+    [hidden] { display: none !important; }
+
+    .skip-link {
+      position: fixed;
+      top: 0.75rem;
+      left: 0.75rem;
+      z-index: 10;
+      padding: 0.65rem 0.9rem;
+      border-radius: var(--radius-sm);
+      background: var(--text);
+      color: var(--bg);
+      transform: translateY(-150%);
+      transition: transform 180ms ease;
+    }
+    .skip-link:focus { transform: translateY(0); }
+
+    .shell {
+      width: min(100% - 2rem, var(--container));
+      margin-inline: auto;
+      padding: 1.25rem 0 5rem;
+    }
+    .masthead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      min-height: 3.25rem;
+      margin-bottom: 3.75rem;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .brand-mark {
+      display: grid;
+      width: 2rem;
+      height: 2rem;
+      place-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: 0.55rem;
+      background: var(--surface-raised);
+      color: var(--accent);
+      font: 700 0.85rem/1 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.04);
+    }
+    .brand-copy { display: grid; line-height: 1.15; }
+    .brand-copy strong { font-size: 0.9rem; font-weight: 650; letter-spacing: -0.01em; }
+    .brand-copy span { margin-top: 0.15rem; color: var(--quiet); font-size: 0.72rem; }
+    .masthead-link {
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-decoration: none;
+      transition: color 180ms ease;
+    }
+    .masthead-link:hover { color: var(--text); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(17rem, 25rem);
+      gap: clamp(2rem, 7vw, 7rem);
+      align-items: end;
+      margin-bottom: 2.25rem;
+    }
+    .eyebrow {
+      margin: 0 0 0.9rem;
+      color: var(--accent);
+      font: 600 0.72rem/1.2 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 13ch;
+      margin: 0;
+      font-size: clamp(2.8rem, 6.6vw, 6.4rem);
+      font-weight: 650;
+      letter-spacing: -0.065em;
+      line-height: 0.94;
+      text-wrap: balance;
+    }
+    .hero-copy {
+      max-width: 58ch;
+      margin: 1.5rem 0 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 1.5vw, 1.15rem);
+      line-height: 1.65;
+      text-wrap: pretty;
+    }
+    .hero-side {
+      border-top: 1px solid var(--border-strong);
+      padding-top: 1rem;
+    }
+    .catalog-number {
+      display: block;
+      font: 500 clamp(3rem, 6vw, 5.4rem)/0.9 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.07em;
+    }
+    .catalog-label {
+      display: block;
+      margin-top: 0.8rem;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    .live-note {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      margin: 1.25rem 0 0;
+      color: var(--quiet);
+      font-size: 0.78rem;
+    }
+    .live-note::before {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 0.25rem var(--accent-soft);
+      content: "";
+    }
+    .live-note[data-state="loading"]::before {
+      background: var(--warn);
+      box-shadow: 0 0 0 0.25rem rgba(215, 181, 109, 0.1);
+      animation: status-pulse 1.4s ease-in-out infinite;
+    }
+    .live-note[data-state="degraded"]::before {
+      background: var(--warn);
+      box-shadow: 0 0 0 0.25rem rgba(215, 181, 109, 0.1);
+    }
+    .live-note[data-state="offline"]::before {
+      background: var(--bad);
+      box-shadow: 0 0 0 0.25rem rgba(217, 133, 127, 0.1);
+    }
+    .live-note[data-state="stale"]::before {
+      background: var(--quiet);
+      box-shadow: none;
+    }
+    @keyframes status-pulse {
+      50% { opacity: 0.42; transform: scale(0.8); }
+    }
+
+    .primary-action {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1.5rem;
+      margin-top: 1.5rem;
+      padding: 0.95rem 1rem 0.95rem 1.1rem;
+      border: 1px solid rgba(130, 203, 176, 0.34);
+      border-radius: var(--radius);
+      background: var(--accent-soft);
+      color: var(--accent-strong);
+      text-decoration: none;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+    .primary-action:hover {
+      border-color: rgba(130, 203, 176, 0.65);
+      background: rgba(130, 203, 176, 0.16);
+      transform: translateY(-2px);
+    }
+    .primary-action:active { transform: translateY(0); }
+    .primary-action span:first-child { font-size: 0.9rem; font-weight: 600; }
+    .action-arrow { font: 500 1.15rem/1 ui-monospace, monospace; }
+
+    .directory-tools {
+      position: sticky;
+      top: 0.75rem;
+      z-index: 3;
+      display: grid;
+      grid-template-columns: minmax(15rem, 1fr) auto;
+      gap: 0.75rem;
+      margin-bottom: 4rem;
+      padding: 0.75rem;
+      border: 1px solid rgba(58, 71, 64, 0.74);
+      border-radius: calc(var(--radius) + 0.2rem);
+      background: rgba(12, 15, 14, 0.86);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+    .search-wrap { position: relative; }
+    .search-icon {
+      position: absolute;
+      top: 50%;
+      left: 0.9rem;
+      color: var(--quiet);
+      transform: translateY(-50%);
+      pointer-events: none;
+    }
+    .search {
+      width: 100%;
+      min-height: 2.75rem;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      outline: none;
+      background: var(--surface);
+      padding: 0.7rem 2.8rem 0.7rem 2.35rem;
+      color: var(--text);
+      transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+    }
+    .search::placeholder { color: var(--quiet); }
+    .search:focus {
+      border-color: rgba(130, 203, 176, 0.55);
+      background: var(--surface-raised);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    .shortcut {
+      position: absolute;
+      top: 50%;
+      right: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 0.3rem;
+      padding: 0.1rem 0.38rem;
+      color: var(--quiet);
+      font: 500 0.68rem/1.35 ui-monospace, monospace;
+      transform: translateY(-50%);
+    }
+    .category-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .category-nav::-webkit-scrollbar { display: none; }
+    .category-nav a {
+      flex: 0 0 auto;
+      border-radius: var(--radius-sm);
+      padding: 0.7rem 0.75rem;
+      color: var(--quiet);
+      font-size: 0.75rem;
+      text-decoration: none;
+      transition: background 180ms ease, color 180ms ease;
+    }
+    .category-nav a:hover { background: var(--surface); color: var(--text); }
+
+    .section { scroll-margin-top: 6rem; }
+    .pinned-section { margin-bottom: 5rem; }
+    .section-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.15rem;
+    }
+    .section-kicker {
+      margin: 0;
+      color: var(--accent);
+      font: 600 0.68rem/1.2 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+    .section-heading h2 {
+      margin: 0.35rem 0 0;
+      font-size: clamp(1.55rem, 2.8vw, 2.25rem);
+      font-weight: 600;
+      letter-spacing: -0.045em;
+      line-height: 1.1;
+    }
+    .section-count, .result-count {
+      color: var(--quiet);
+      font: 500 0.74rem/1.4 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .pinned-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-auto-rows: minmax(6.25rem, auto);
+      gap: 0.75rem;
+    }
+    .pin {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+      text-decoration: none;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+    .pin:first-child {
+      grid-column: span 2;
+      grid-row: span 2;
+      min-height: 13.25rem;
+      padding: 1.35rem;
+      background:
+        radial-gradient(circle at 90% 10%, rgba(130, 203, 176, 0.13), transparent 13rem),
+        var(--surface-raised);
+    }
+    .pin:hover {
+      border-color: var(--border-strong);
+      background-color: var(--surface-raised);
+      transform: translateY(-2px);
+    }
+    .pin:active { transform: translateY(0); }
+    .pin-index {
+      color: var(--quiet);
+      font: 500 0.68rem/1 ui-monospace, monospace;
+    }
+    .pin-title {
+      display: block;
+      margin-top: 1.25rem;
+      font-size: 0.92rem;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+    }
+    .pin:first-child .pin-title { font-size: 1.6rem; letter-spacing: -0.04em; }
+    .pin-description {
+      display: block;
+      max-width: 38ch;
+      margin-top: 0.3rem;
+      color: var(--muted);
+      font-size: 0.77rem;
+      line-height: 1.5;
+      text-wrap: pretty;
+    }
+
+    .catalog-section {
+      display: grid;
+      grid-template-columns: minmax(9rem, 13rem) minmax(0, 1fr);
+      gap: clamp(1.5rem, 4vw, 4rem);
+      padding: 2.25rem 0 3.5rem;
+      border-top: 1px solid var(--border);
+    }
+    .catalog-heading { position: sticky; top: 6.25rem; align-self: start; }
+    .catalog-heading h2 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+    }
+    .catalog-heading p {
+      margin: 0.45rem 0 0;
+      color: var(--quiet);
+      font: 500 0.7rem/1.4 ui-monospace, monospace;
+    }
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+      gap: 0.65rem;
+    }
+    .service-card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: var(--surface);
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+    .service-card-main,
+    a.service-card {
+      display: grid;
+      grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+      gap: 0.85rem;
+      align-items: start;
+      min-height: 8.2rem;
+      padding: 1rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .service-card:hover {
+      border-color: var(--border-strong);
+      background: var(--surface-raised);
+      transform: translateY(-2px);
+    }
+    .service-card-main:active,
+    a.service-card:active { transform: translateY(1px); }
+    .service-card.hidden { display: none; }
+    .service-icon {
+      display: grid;
+      width: 2.5rem;
+      height: 2.5rem;
+      place-items: center;
+      border: 1px solid rgba(130, 203, 176, 0.1);
+      border-radius: 0.65rem;
+      background: var(--accent-soft);
+      font-size: 1rem;
+    }
+    .service-content { min-width: 0; }
+    .service-name {
+      display: block;
+      overflow: hidden;
+      font-size: 0.9rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .service-description {
+      display: -webkit-box;
+      overflow: hidden;
+      margin-top: 0.3rem;
+      color: var(--muted);
+      font-size: 0.74rem;
+      line-height: 1.45;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+    .service-meta {
+      display: flex;
+      min-width: 0;
+      gap: 0.35rem;
+      align-items: center;
+      margin-top: 0.7rem;
+      color: var(--quiet);
+      font: 500 0.64rem/1.3 ui-monospace, "SFMono-Regular", Consolas, monospace;
+    }
+    .service-meta span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .service-meta .separator { flex: 0 0 auto; color: var(--border-strong); }
+    .service-status {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 0.3rem;
+      margin-left: auto;
+      color: var(--quiet);
+    }
+    .service-status::before {
+      width: 0.38rem;
+      height: 0.38rem;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+    }
+    .service-card[data-live-status="online"] .service-status { color: var(--ok); }
+    .service-card[data-live-status="degraded"] .service-status { color: var(--warn); }
+    .service-card[data-live-status="offline"] .service-status { color: var(--bad); }
+    .service-endpoints {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem 0.7rem;
+      align-items: center;
+      padding: 0.65rem 1rem;
+      border-top: 1px solid var(--border);
+      background: var(--surface-soft);
+    }
+    .endpoint-label {
+      color: var(--quiet);
+      font: 600 0.61rem/1.3 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .endpoint-link {
+      display: inline-flex;
+      min-width: 0;
+      align-items: center;
+      gap: 0.3rem;
+      color: var(--muted);
+      font: 500 0.66rem/1.3 ui-monospace, "SFMono-Regular", Consolas, monospace;
+      text-decoration: none;
+    }
+    .endpoint-link:hover { color: var(--accent); }
+    .endpoint-link span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .endpoint-auth { color: var(--quiet); }
+    .card-arrow {
+      color: var(--quiet);
+      font: 500 0.9rem/1 ui-monospace, monospace;
+      transition: color 180ms ease, transform 180ms ease;
+    }
+    .service-card:hover .card-arrow { color: var(--accent); transform: translate(2px, -2px); }
+
+    .empty-state {
+      padding: 3rem 1rem;
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+    .empty-state strong { display: block; font-size: 1rem; font-weight: 600; }
+    .empty-state span { display: block; margin-top: 0.4rem; color: var(--muted); font-size: 0.82rem; }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-top: 2rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--quiet);
+      font-size: 0.75rem;
+    }
+    footer p { margin: 0; }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
+
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; gap: 2.5rem; }
+      .hero-side { max-width: 25rem; }
+      .pinned-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .catalog-section { grid-template-columns: 1fr; gap: 1rem; }
+      .catalog-heading { position: static; }
+    }
+
+    @media (max-width: 640px) {
+      .shell { width: min(100% - 1.25rem, var(--container)); padding-top: 0.75rem; }
+      .masthead { margin-bottom: 3rem; }
+      .masthead-link { display: none; }
+      h1 { font-size: clamp(3rem, 15vw, 4.4rem); }
+      .hero-copy { margin-top: 1.1rem; }
+      .hero-side { padding-top: 0.85rem; }
+      .catalog-number { font-size: 3.5rem; }
+      .directory-tools {
+        top: 0.4rem;
+        grid-template-columns: 1fr;
+        margin-bottom: 3rem;
+        padding: 0.5rem;
+      }
+      .category-nav { padding-bottom: 0.05rem; }
+      .category-nav a { padding: 0.55rem 0.65rem; }
+      .pinned-section { margin-bottom: 3.75rem; }
+      .pinned-grid {
+        display: flex;
+        gap: 0.65rem;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: none;
+      }
+      .pinned-grid::-webkit-scrollbar { display: none; }
+      .pin, .pin:first-child {
+        flex: 0 0 79%;
+        min-height: 9.5rem;
+        padding: 1rem;
+        scroll-snap-align: start;
+      }
+      .pin:first-child .pin-title { font-size: 1.15rem; }
+      .catalog-section { padding: 1.75rem 0 2.75rem; }
+      .service-card-main,
+      a.service-card { min-height: auto; }
+      footer { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#directory">Skip to service directory</a>
+  <div class="shell">
+    <header class="masthead">
+      <a class="brand" href="/">
+        <span class="brand-mark">B/</span>
+        <span class="brand-copy">
+          <strong>{{ domain }}</strong>
+          <span>private service directory</span>
+        </span>
+      </a>
+      <a class="masthead-link" href="{{ homelab_ui_url }}" target="_blank" rel="noopener noreferrer">System operations ↗</a>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">Home infrastructure</p>
+          <h1 id="page-title">Everything, one address.</h1>
+          <p class="hero-copy">
+            A focused directory for the services behind {{ domain }}. Search the catalog,
+            jump to a category, or open the operations dashboard for deeper detail.
+          </p>
+        </div>
+        <aside class="hero-side" aria-label="Service catalog summary">
+          <span class="catalog-number">{{ status_summary.total }}</span>
+          <span class="catalog-label">configured services</span>
+          <p class="live-note" id="live-status" data-state="loading" role="status" aria-live="polite">
+            Checking live service status…
+          </p>
+          <a class="primary-action" href="{{ homelab_ui_url }}" target="_blank" rel="noopener noreferrer">
+            <span>Open Homelab UI</span>
+            <span class="action-arrow" aria-hidden="true">↗</span>
+          </a>
+        </aside>
+      </section>
+
+      <div class="directory-tools">
+        <div class="search-wrap">
+          <span class="search-icon" aria-hidden="true">⌕</span>
+          <input
+            class="search"
+            id="q"
+            type="search"
+            placeholder="Find a service"
+            autocomplete="off"
+            aria-label="Filter services"
+            aria-describedby="result-count"
+          >
+          <span class="shortcut" aria-hidden="true">/</span>
+        </div>
+        <nav class="category-nav" aria-label="Service categories">
+          {% for group in service_groups %}
+          <a href="#{{ group.id }}">{{ group.label }}</a>
+          {% endfor %}
+          {% if projects %}<a href="#projects">Projects</a>{% endif %}
+        </nav>
+      </div>
+
+      {% if quick_links %}
+      <section class="section pinned-section" aria-labelledby="pinned-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Start here</p>
+            <h2 id="pinned-title">Pinned destinations</h2>
+          </div>
+          <span class="section-count">{{ quick_links | length }} shortcuts</span>
+        </div>
+        <div class="pinned-grid">
+          {% for link in quick_links %}
+          <a class="pin" href="{{ link.href }}" target="_blank" rel="noopener noreferrer">
+            <span class="pin-index">{{ "%02d" | format(loop.index) }}</span>
+            <span>
+              <span class="pin-title">{{ link.title }}</span>
+              {% if link.description %}<span class="pin-description">{{ link.description }}</span>{% endif %}
+            </span>
+          </a>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      <div class="section-heading" id="directory">
+        <div>
+          <p class="section-kicker">Directory</p>
+          <h2>All services</h2>
+        </div>
+        <span class="result-count" id="result-count" aria-live="polite">{{ status_summary.total }} services</span>
+      </div>
+
+      {% for group in service_groups %}
+      <section class="section catalog-section" id="{{ group.id }}" data-group="{{ group.id }}">
+        <div class="catalog-heading">
+          <h2>{{ group.label }}</h2>
+          <p>{{ group.services | length }} {% if group.services | length == 1 %}service{% else %}services{% endif %}</p>
+        </div>
+        <div class="service-grid">
+          {% for svc in group.services %}
+          <article
+            class="service-card"
+            data-name="{{ svc.name | lower }}"
+            data-tag="{{ svc.tag | lower }}"
+            data-description="{{ svc.description | lower }}"
+            data-exposure="{{ svc.exposure }}"
+            data-endpoints="{% for endpoint in svc.endpoints %}{{ endpoint.label | lower }} {{ endpoint.url | lower }} {% endfor %}"
+            data-status-service="{{ svc.service }}"
+            data-live-status="checking"
+          >
+            <a
+              class="service-card-main"
+              href="https://{{ svc.url }}"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="service-icon" aria-hidden="true">{{ svc.icon }}</span>
+              <span class="service-content">
+                <span class="service-name">{{ svc.name }}</span>
+                <span class="service-description">{{ svc.description }}</span>
+                <span class="service-meta">
+                  <span>{{ svc.exposure }}</span>
+                  <span class="separator">/</span>
+                  <span>{{ svc.auth | replace('_', ' ') }}</span>
+                  <span class="service-status">checking</span>
+                </span>
+              </span>
+              <span class="card-arrow" aria-hidden="true">↗</span>
+            </a>
+            {% if svc.endpoints %}
+            <div class="service-endpoints" aria-label="{{ svc.name }} additional endpoints">
+              <span class="endpoint-label">
+                {% if svc.endpoints | length == 1 %}Endpoint{% else %}Endpoints{% endif %}
+              </span>
+              {% for endpoint in svc.endpoints %}
+              <a
+                class="endpoint-link"
+                href="https://{{ endpoint.url }}"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span>{{ endpoint.label }}</span>
+                <span class="endpoint-auth">· {{ endpoint.auth | replace('_', ' ') }}</span>
+                <span aria-hidden="true">↗</span>
+              </a>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+
+      {% if projects %}
+      <section class="section catalog-section" id="projects" data-group="projects">
+        <div class="catalog-heading">
+          <h2>Projects</h2>
+          <p>{{ projects | length }} configured</p>
+        </div>
+        <div class="service-grid">
+          {% for proj in projects %}
+          <a
+            class="service-card"
+            href="https://{{ proj.url }}"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-name="{{ proj.name | lower }}"
+            data-tag="project"
+            data-description="project service"
+          >
+            <span class="service-icon" aria-hidden="true">📦</span>
+            <span class="service-content">
+              <span class="service-name">{{ proj.name }}</span>
+              <span class="service-description">{{ proj.url }}</span>
+              <span class="service-meta"><span>project</span></span>
+            </span>
+            <span class="card-arrow" aria-hidden="true">↗</span>
+          </a>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      <div class="empty-state" id="empty-state" hidden>
+        <strong>No services match that search.</strong>
+        <span>Try a service name, category, or access type.</span>
+      </div>
+    </main>
+
+    <footer>
+      <p>Routes are generated from the declared service catalog.</p>
+      <p>
+        <a href="{{ homelab_ui_url }}" target="_blank" rel="noopener noreferrer">Live operations</a> ·
+        <a href="https://auth.{{ domain }}" target="_blank" rel="noopener noreferrer">Account security</a>
+      </p>
+    </footer>
+  </div>
+  <script>
+    (function () {
+      var input = document.getElementById("q");
+      var resultCount = document.getElementById("result-count");
+      var emptyState = document.getElementById("empty-state");
+      var liveStatus = document.getElementById("live-status");
+      var cards = Array.prototype.slice.call(document.querySelectorAll(".service-card"));
+      var sections = Array.prototype.slice.call(document.querySelectorAll(".catalog-section[data-group]"));
+      var statusCards = cards.filter(function (card) {
+        return Boolean(card.getAttribute("data-status-service"));
+      });
+      var lastStatusCheck = 0;
+      var statusRequestInFlight = false;
+      var statusRefreshTimer = 0;
+      var hasLiveResult = false;
+
+      function applyFilter() {
+        var query = (input.value || "").trim().toLowerCase();
+        var visibleTotal = 0;
+
+        cards.forEach(function (card) {
+          var haystack = [
+            card.getAttribute("data-name") || "",
+            card.getAttribute("data-tag") || "",
+            card.getAttribute("data-description") || "",
+            card.getAttribute("data-exposure") || "",
+            card.getAttribute("data-endpoints") || ""
+          ].join(" ");
+          var visible = !query || haystack.indexOf(query) !== -1;
+          card.classList.toggle("hidden", !visible);
+          if (visible) visibleTotal += 1;
+        });
+
+        sections.forEach(function (section) {
+          section.hidden = section.querySelectorAll(".service-card:not(.hidden)").length === 0;
+        });
+        emptyState.hidden = visibleTotal !== 0;
+        resultCount.textContent = query
+          ? visibleTotal + (visibleTotal === 1 ? " match" : " matches")
+          : visibleTotal + (visibleTotal === 1 ? " service" : " services");
+      }
+
+      function setCardStatus(card, status) {
+        var allowed = ["online", "degraded", "offline", "unknown"];
+        var normalized = allowed.indexOf(status) === -1 ? "unknown" : status;
+        var label = normalized === "online" ? "online" :
+          normalized === "degraded" ? "attention" :
+          normalized === "offline" ? "offline" : "unknown";
+        card.setAttribute("data-live-status", normalized);
+        var indicator = card.querySelector(".service-status");
+        if (indicator) indicator.textContent = label;
+      }
+
+      function renderStatus(payload) {
+        var services = payload && payload.services;
+        if (!services || typeof services !== "object" || Array.isArray(services)) {
+          throw new Error("Invalid live status response");
+        }
+        var counts = { online: 0, degraded: 0, offline: 0, unknown: 0 };
+        statusCards.forEach(function (card) {
+          var service = card.getAttribute("data-status-service");
+          var status = Object.prototype.hasOwnProperty.call(services, service)
+            ? services[service] : "unknown";
+          if (!Object.prototype.hasOwnProperty.call(counts, status)) status = "unknown";
+          counts[status] += 1;
+          setCardStatus(card, status);
+        });
+
+        var summary = counts.online + " online";
+        if (counts.degraded) summary += " · " + counts.degraded + " attention";
+        if (counts.offline) summary += " · " + counts.offline + " offline";
+        if (counts.unknown) summary += " · " + counts.unknown + " unknown";
+        if (payload.complete === false) summary += " · partial check";
+        liveStatus.textContent = summary;
+        liveStatus.setAttribute(
+          "data-state",
+          counts.offline ? "offline" : counts.degraded || counts.unknown ? "degraded" : "online"
+        );
+        hasLiveResult = true;
+      }
+
+      function markStatusUnavailable() {
+        liveStatus.textContent = hasLiveResult
+          ? "Live status unavailable · showing the last check"
+          : "Live status is temporarily unavailable";
+        liveStatus.setAttribute("data-state", "stale");
+        if (!hasLiveResult) {
+          statusCards.forEach(function (card) { setCardStatus(card, "unknown"); });
+        }
+      }
+
+      function refreshStatus() {
+        if (statusRequestInFlight || document.hidden) return;
+        window.clearTimeout(statusRefreshTimer);
+        statusRequestInFlight = true;
+        fetch("/api/portal/status", {
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: { "Accept": "application/json" }
+        })
+          .then(function (response) {
+            if (!response.ok) throw new Error("Live status request failed");
+            return response.json();
+          })
+          .then(function (payload) {
+            renderStatus(payload);
+            lastStatusCheck = Date.now();
+          })
+          .catch(markStatusUnavailable)
+          .then(function () {
+            statusRequestInFlight = false;
+            statusRefreshTimer = window.setTimeout(refreshStatus, 30000);
+          });
+      }
+
+      input.addEventListener("input", applyFilter);
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "/" && document.activeElement !== input) {
+          event.preventDefault();
+          input.focus();
+        }
+        if (event.key === "Escape" && document.activeElement === input && input.value) {
+          input.value = "";
+          applyFilter();
+        }
+      });
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden && Date.now() - lastStatusCheck > 15000) refreshStatus();
+      });
+      applyFilter();
+      refreshStatus();
+    })();
+  </script>
+</body>
+</html>

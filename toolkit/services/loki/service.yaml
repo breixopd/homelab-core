@@ -1,0 +1,33 @@
+name: loki
+label: Loki
+description: Log aggregation
+icon: 📜
+category: management
+placement: control
+priority: 5
+essential: true
+internal_aliases: [loki]
+restart_policy: careful
+depends_on: []
+memory_tier: medium
+host_sources:
+  LOKI_DATA_SOURCE:
+    path: data/loki
+image_build:
+  context: image
+  env_var: HOMELAB_LOKI_IMAGE
+  smoke_tests:
+  - command: [-version]
+    contains: loki, version
+stateful: true
+service_endpoint:
+  container_port: 3100
+  published_port: 3100
+data_specs:
+- name: loki-data
+  source_env: LOKI_DATA_SOURCE
+  target: /loki
+  size_estimate_gb: 20
+  snapshot: true
+  host_uid: 10001
+  host_gid: 10001

@@ -1,0 +1,30 @@
+name: recyclarr
+label: Recyclarr
+description: Quality sync
+icon: 🔄
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on: [servarr, sonarr, radarr]
+memory_tier: light
+memory_floor_mb: 256
+host_sources:
+  RECYCLARR_CONFIG_SOURCE:
+    path: generated/recyclarr
+generated_artifacts:
+- path: generated/recyclarr/recyclarr.yml
+  sensitive: true
+- path: generated/recyclarr/settings.yml
+- path: generated/recyclarr/includes/sonarr-local.yml
+- path: generated/recyclarr/includes/radarr-local.yml
+stateful: true
+data_specs:
+- name: recyclarr-state
+  source_env: RECYCLARR_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 1
+  snapshot: false
+  host_uid: 1000
+  host_gid: 1000
+  host_subdirs: [state]

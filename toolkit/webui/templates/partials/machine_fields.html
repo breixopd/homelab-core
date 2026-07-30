@@ -1,0 +1,59 @@
+{% macro machine_fields(prefix, data) %}
+<fieldset class="form-section span-12 machine-form-section">
+  <legend>Identity</legend>
+  <div class="field-grid machine-field-grid">
+    <label class="form-field span-3" for="{{ prefix }}-kind"><span>Kind</span><select id="{{ prefix }}-kind" name="kind" data-machine-kind><option value="lxc" {% if data.kind == 'lxc' %}selected{% endif %}>LXC</option><option value="vm" {% if data.kind == 'vm' %}selected{% endif %}>Virtual machine</option></select></label>
+    <label class="form-field span-3" for="{{ prefix }}-hostname"><span>Hostname</span><input id="{{ prefix }}-hostname" name="hostname" value="{{ data.hostname }}" required></label>
+    <label class="form-field span-3" for="{{ prefix }}-address"><span>IPv4 address</span><input id="{{ prefix }}-address" name="address" value="{{ data.address }}" required></label>
+    <label class="form-field span-3" for="{{ prefix }}-vmid"><span>Proxmox VMID</span><input id="{{ prefix }}-vmid" name="vmid" type="number" min="100" max="999999999" value="{{ data.vmid }}" required></label>
+    <label class="form-field span-8" for="{{ prefix }}-description"><span>Description</span><input id="{{ prefix }}-description" name="description" value="{{ data.description }}" maxlength="500"></label>
+    <label class="form-field span-4" for="{{ prefix }}-labels"><span>Placement labels</span><input id="{{ prefix }}-labels" name="labels" value="{{ data.labels|join(', ') }}"></label>
+    <div class="choice-grid machine-choice-grid span-12">
+      <label class="choice-option"><input type="checkbox" name="enabled" {% if data.enabled %}checked{% endif %}><span>Enabled</span></label>
+      <label class="choice-option"><input type="checkbox" name="managed" {% if data.managed %}checked{% endif %}><span>Provision with Proxmox</span></label>
+    </div>
+  </div>
+</fieldset>
+
+<fieldset class="form-section span-12 machine-form-section">
+  <legend>Capacity</legend>
+  <div class="field-grid machine-field-grid">
+    <label class="form-field span-2" for="{{ prefix }}-cores"><span>CPU cores</span><input id="{{ prefix }}-cores" name="cores" type="number" min="1" max="256" value="{{ data.cores }}" required></label>
+    <label class="form-field span-3" for="{{ prefix }}-memory"><span>Memory MB</span><input id="{{ prefix }}-memory" name="memory_mb" type="number" min="512" value="{{ data.memory_mb }}" required></label>
+    <label class="form-field span-2" for="{{ prefix }}-root-disk"><span>Root disk GB</span><input id="{{ prefix }}-root-disk" name="root_disk_gb" type="number" min="4" value="{{ data.root_disk_gb }}" required></label>
+    <label class="form-field span-5" for="{{ prefix }}-root-store"><span>Root datastore</span><input id="{{ prefix }}-root-store" name="root_datastore" value="{{ data.root_datastore }}"></label>
+    <label class="form-field span-6" for="{{ prefix }}-data-disks"><span>Data disks JSON</span><textarea id="{{ prefix }}-data-disks" name="data_disks" rows="3" spellcheck="false">{{ data.data_disks|tojson }}</textarea></label>
+    <label class="form-field span-6" for="{{ prefix }}-resource-limits"><span>Service limits JSON</span><textarea id="{{ prefix }}-resource-limits" name="resource_limits" rows="3" spellcheck="false">{{ data.resource_limits|tojson }}</textarea></label>
+  </div>
+</fieldset>
+
+<fieldset class="form-section span-12 machine-form-section">
+  <legend>Network and access</legend>
+  <div class="field-grid machine-field-grid">
+    <label class="form-field span-3" for="{{ prefix }}-private-bridge"><span>Private bridge</span><input id="{{ prefix }}-private-bridge" name="private_bridge" value="{{ data.private_bridge }}" required></label>
+    <label class="form-field span-3" for="{{ prefix }}-public-bridge"><span>Public bridge</span><input id="{{ prefix }}-public-bridge" name="public_bridge" value="{{ data.public_bridge }}"></label>
+    <label class="form-field span-3" for="{{ prefix }}-gateway"><span>Gateway</span><input id="{{ prefix }}-gateway" name="gateway" value="{{ data.gateway }}" required></label>
+    <label class="form-field span-1" for="{{ prefix }}-cidr"><span>CIDR</span><input id="{{ prefix }}-cidr" name="cidr" type="number" min="1" max="32" value="{{ data.cidr }}" required></label>
+    <label class="form-field span-2" for="{{ prefix }}-order"><span>Start order</span><input id="{{ prefix }}-order" name="startup_order" type="number" min="0" max="999" value="{{ data.startup_order }}" required></label>
+    <label class="form-field span-3" for="{{ prefix }}-ssh-user"><span>SSH user override</span><input id="{{ prefix }}-ssh-user" name="ssh_user" value="{{ data.ssh_user }}"></label>
+    <label class="form-field span-2" for="{{ prefix }}-ssh-port"><span>SSH port</span><input id="{{ prefix }}-ssh-port" name="ssh_port" type="number" min="1" max="65535" value="{{ data.ssh_port }}" required></label>
+    <label class="form-field span-7" for="{{ prefix }}-template"><span>LXC template resource ID</span><input id="{{ prefix }}-template" name="template_file_id" value="{{ data.template_file_id }}"></label>
+    <div class="choice-grid machine-choice-grid span-12">
+      <label class="choice-option"><input type="checkbox" name="nesting" {% if data.nesting %}checked{% endif %}><span>Container nesting</span></label>
+      <label class="choice-option"><input type="checkbox" name="keyctl" {% if data.keyctl %}checked{% endif %}><span>Kernel keyring</span></label>
+      <label class="choice-option"><input type="checkbox" name="fuse" {% if data.fuse %}checked{% endif %}><span>FUSE</span></label>
+    </div>
+  </div>
+</fieldset>
+
+<fieldset class="form-section span-12 machine-form-section" data-vm-fields {% if data.kind != 'vm' %}hidden{% endif %}>
+  <legend>Virtual machine image</legend>
+  <div class="field-grid machine-field-grid">
+    <label class="form-field span-3" for="{{ prefix }}-admin-user"><span>Admin user</span><input id="{{ prefix }}-admin-user" name="admin_user" value="{{ data.admin_user }}"></label>
+    <label class="form-field span-3" for="{{ prefix }}-image-store"><span>Import datastore</span><input id="{{ prefix }}-image-store" name="cloud_image_datastore" value="{{ data.cloud_image_datastore }}"></label>
+    <label class="form-field span-2" for="{{ prefix }}-image-format"><span>Image format</span><select id="{{ prefix }}-image-format" name="cloud_image_format"><option value="qcow2" {% if data.cloud_image_format == 'qcow2' %}selected{% endif %}>QCOW2</option><option value="raw" {% if data.cloud_image_format == 'raw' %}selected{% endif %}>Raw</option></select></label>
+    <label class="form-field span-12" for="{{ prefix }}-image-url"><span>Cloud image URL</span><input id="{{ prefix }}-image-url" name="cloud_image_url" type="url" value="{{ data.cloud_image_url }}"></label>
+    <label class="form-field span-12" for="{{ prefix }}-image-sha"><span>Cloud image SHA-256</span><input id="{{ prefix }}-image-sha" name="cloud_image_sha256" value="{{ data.cloud_image_sha256 }}" minlength="64" maxlength="64" spellcheck="false"></label>
+  </div>
+</fieldset>
+{% endmacro %}

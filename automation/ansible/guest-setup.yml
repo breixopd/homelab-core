@@ -1,0 +1,133 @@
+---
+# Bootstrap LXC guests: install Docker, deploy stack, configure security, verify.
+#
+# Execution order (dependencies first):
+#   1. bootstrap-lxc — Docker + systemd unit files (not enabled until deploy)
+#   2. external mount (optional)
+#   3. TUN passthrough for the manifest tunnel provider (Proxmox host)
+#   4. setup-docker-registry — mirror before first compose pull on each guest
+#   5. deploy-server-toolkit — repo sync, generate, compose, hooks, DNS
+#   6. configure-storage — media permissions
+#   7. manifest-owned guest integrations (security, directory, mesh, waits)
+#   8. Docker published-port policy
+#   9. final hooks and verification
+#  10. verify-services
+
+- name: Bootstrap managed guests
+  ansible.builtin.import_playbook: playbooks/bootstrap-lxc.yml
+
+- name: Configure LXC features
+  ansible.builtin.import_playbook: playbooks/configure-lxc-features.yml
+
+# Mount external block storage (NFS/CIFS) when configured
+- name: Mount External Block Storage (Generic)
+  hosts: guest_hosts
+  become: true
+  ignore_unreachable: true
+  tasks:
+    - name: Mount backup/external storage
+      ansible.builtin.include_role:
+        name: mount_storage
+      when:
+        - external_mount_enabled | default(false)
+        - mount_src is defined
+        - mount_path is defined
+
+# The optional storage play is deliberately best-effort.  A transient SSH
+# banner timeout must not leave hosts excluded from the required downstream
+# registry, deployment, and verification plays.
+- name: Reconnect guest nodes after optional storage
+  hosts: guest_hosts
+  gather_facts: false
+  tasks:
+    - name: Clear stale unreachable state after optional storage
+      ansible.builtin.meta: clear_host_errors
+
+    - name: Wait for guest SSH after optional storage
+      ansible.builtin.wait_for_connection:
+        timeout: 180
+        delay: 2
+        sleep: 5
+
+- name: Configure guest registry mirrors
+  ansible.builtin.import_playbook: playbooks/setup-docker-registry.yml
+
+- name: Deploy the toolkit and services
+  ansible.builtin.import_playbook: playbooks/deploy-server-toolkit.yml
+
+- name: Configure guest storage
+  ansible.builtin.import_playbook: playbooks/configure-storage.yml
+
+- name: Apply manifest-owned guest integrations to managed nodes
+  hosts: guest_hosts
+  become: true
+  vars:
+    homelab_controller_root: "{{ playbook_dir }}/../.."
+  tasks:
+    - name: Apply manifest-selected service guest task file
+      ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+      loop: "{{ service_guest_task_files | default([]) }}"
+      loop_control:
+        loop_var: service_task_file
+        label: "{{ service_task_file }}"
+
+- name: Enforce Docker published-port policy on all managed nodes
+  hosts: guest_hosts
+  become: true
+  roles:
+    - docker_firewall
+
+- name: Run final post-start hooks after guest configuration
+  hosts: guest_hosts
+  serial: 1
+  become: true
+  vars:
+    repo_dest: /opt/homelab
+    homelab_controller_root: "{{ playbook_dir }}/../.."
+  tasks:
+    - name: Apply manifest-selected final guest task files
+      ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+      loop: "{{ service_guest_final_task_files | default([]) }}"
+      loop_control:
+        loop_var: service_task_file
+        label: "{{ service_task_file }}"
+
+    - name: Run final hooks
+      vars:
+        homelab_node: "{{ homelab_node_id }}"
+      ansible.builtin.shell: |
+        "{{ repo_dest }}/.venv/bin/python3" -m toolkit.cli --root "{{ repo_dest }}" deploy hooks --node "{{ homelab_node }}"
+      args:
+        chdir: "{{ repo_dest }}"
+      environment:
+        PYTHONPATH: "{{ repo_dest }}"
+        HOMELAB_ROOT: "{{ repo_dest }}"
+        HOMELAB_NODE: "{{ homelab_node }}"
+      register: final_hooks
+      changed_when: final_hooks.rc == 0
+      failed_when: final_hooks.rc != 0
+
+    - name: Display final hook results
+      ansible.builtin.debug:
+        msg: "{{ final_hooks.stdout_lines | default(final_hooks.stdout.splitlines()) | default(['(no hook output)']) }}"
+
+    - name: Verify final hooks
+      vars:
+        homelab_node: "{{ homelab_node_id }}"
+      ansible.builtin.shell: |
+        "{{ repo_dest }}/.venv/bin/python3" -m toolkit.cli --root "{{ repo_dest }}" deploy verify --hooks --node "{{ homelab_node }}"
+      args:
+        chdir: "{{ repo_dest }}"
+      environment:
+        PYTHONPATH: "{{ repo_dest }}"
+        HOMELAB_ROOT: "{{ repo_dest }}"
+      register: final_hook_verify
+      changed_when: false
+      failed_when: homelab_verify_hooks_required | default(true) | bool and final_hook_verify.rc != 0
+
+    - name: Display final hook verification
+      ansible.builtin.debug:
+        msg: "{{ final_hook_verify.stdout_lines | default(final_hook_verify.stdout.splitlines()) | default(['(no verify output)']) }}"
+
+- name: Verify deployed services
+  ansible.builtin.import_playbook: playbooks/verify-services.yml

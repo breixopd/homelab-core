@@ -1,0 +1,61 @@
+services:
+  music-sync:
+    restart: unless-stopped
+    profiles:
+    - media
+    - svc-music-sync
+    image: ghcr.io/breixopd/music-sync:v1.1.2@sha256:04bf5917092baa9275f5d3244a4a9d038ba12afe5152add5c9853b7dec7b047e
+    container_name: music-sync
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      # The image runs with a read-only root filesystem.  Keep transient
+      # library caches on the existing /tmp tmpfs; source credentials and
+      # tokens remain explicitly persisted under /config below.
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp/cache
+      SPOTIPY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
+      SPOTIPY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
+      SPOTIPY_REDIRECT_URI: ${SPOTIFY_REDIRECT_URI}
+      SPOTIFY_CACHE_PATH: /config/spotify/spotipy-token.json
+      YTMUSIC_AUTH_FILE: /config/ytmusic/headers_auth.json
+      MUSIC_SYNC_INTERVAL_MINUTES: ${MUSIC_SYNC_INTERVAL_MINUTES}
+      MUSIC_SYNC_PRUNE: ${MUSIC_SYNC_PRUNE:-false}
+      MUSIC_SYNC_SPOTIFY_SAVED_TRACKS: ${MUSIC_SYNC_SPOTIFY_SAVED_TRACKS}
+      MUSIC_SYNC_SPOTIFY_PLAYLISTS: ${MUSIC_SYNC_SPOTIFY_PLAYLISTS}
+      MUSIC_SYNC_YTMUSIC_LIKED: ${MUSIC_SYNC_YTMUSIC_LIKED}
+      MUSIC_SYNC_YTMUSIC_PLAYLISTS: ${MUSIC_SYNC_YTMUSIC_PLAYLISTS}
+      MUSIC_SYNC_WEB_PUBLIC_URL: ${MUSIC_SYNC_WEB_PUBLIC_URL:-}
+      MUSIC_SYNC_WEB_USERNAME: ${MUSIC_SYNC_WEB_USERNAME:?MUSIC_SYNC_WEB_USERNAME is required}
+      MUSIC_SYNC_WEB_PASSWORD: ${MUSIC_SYNC_WEB_PASSWORD:?MUSIC_SYNC_WEB_PASSWORD is required}
+      MUSIC_SYNC_WEB_SECRET: ${MUSIC_SYNC_WEB_SECRET:?MUSIC_SYNC_WEB_SECRET is required}
+      MUSIC_SYNC_TRUSTED_AUTH_HEADER: Remote-User
+      MUSIC_SYNC_TRUSTED_PROXY_CIDRS: ${MUSIC_SYNC_TRUSTED_PROXY_CIDRS:?MUSIC_SYNC_TRUSTED_PROXY_CIDRS is required}
+    volumes:
+    - ${MUSIC_SYNC_CONFIG_SOURCE:-./data/music-sync/config}:/config
+    - ${MEDIA_LIBRARY_ROOT:-./media}/music:/music
+    depends_on:
+      navidrome:
+        condition: service_healthy
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8845:8845
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:8845/health >/dev/null || exit 1
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256

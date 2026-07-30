@@ -1,0 +1,41 @@
+services:
+  immich-postgres:
+    restart: unless-stopped
+    profiles:
+    - cloud
+    - svc-immich-server
+    image: ghcr.io/immich-app/postgres:16-vectorchord0.5.3-pgvector0.8.1@sha256:e4de574912d821390f2099eaa18991e457554cc79695141596d5678d7d0380e7
+    container_name: immich-postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    environment:
+      POSTGRES_USER: ${IMMICH_POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${IMMICH_POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: ${IMMICH_POSTGRES_ADMIN_DATABASE}
+      POSTGRES_INITDB_ARGS: --data-checksums
+      TZ: ${TZ:-UTC}
+    volumes:
+    - ${IMMICH_DB_DATA_SOURCE:-./data/immich-postgres}:/var/lib/postgresql/data
+    shm_size: 128mb
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -h 127.0.0.1 -U ${IMMICH_POSTGRES_ADMIN_USER} -d ${IMMICH_POSTGRES_ADMIN_DATABASE}
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 1536m
+    cpus: 1.5
+    pids_limit: 256

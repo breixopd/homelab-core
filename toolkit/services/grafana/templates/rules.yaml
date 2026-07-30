@@ -1,0 +1,122 @@
+apiVersion: 1
+
+# Baseline infrastructure alert rules (Grafana-managed, Prometheus-backed).
+groups:
+  - orgId: 1
+    name: homelab-core
+    folder: Homelab
+    interval: 1m
+    rules:
+      - uid: homelab-instance-down
+        title: Instance down
+        condition: C
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Target {{ $labels.instance }} ({{ $labels.job }}) is down'
+        noDataState: Alerting
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: up == 0
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: homelab-disk-low
+        title: Disk almost full
+        condition: C
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Disk on {{ $labels.instance }} above 85% ({{ $labels.mountpoint }})'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+                / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"})) * 100
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+
+      - uid: homelab-managed-container-missing
+        title: Managed container missing
+        condition: C
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'A managed container stopped reporting'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (time() - max by (container_label_com_docker_compose_service)
+                (max_over_time(container_last_seen{
+                container_label_com_docker_compose_service!=""}[5m]))) > 120
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+
+      - uid: homelab-mem-high
+        title: Memory pressure
+        condition: C
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Memory on {{ $labels.instance }} above 90%'
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [90] }

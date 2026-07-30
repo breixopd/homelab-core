@@ -1,0 +1,5 @@
+---
+# LLDAP connection settings.
+lldap_base_dn: "{{ lldap_base_dn | default('dc=example,dc=com') }}"
+lldap_bind_password: ""
+ldap_offline_expiration: 7

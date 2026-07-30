@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Homelab</title>
+  <link rel="stylesheet" href="/static/css/main.css?v={{ static_revision }}">
+</head>
+<body class="login-body">
+  <div class="login-card surface">
+    <div class="login-brand">
+      <div class="brand-mark lg">HL</div>
+      <h1>Homelab</h1>
+      <p class="muted">Sign in to continue</p>
+    </div>
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+    <form method="post" action="/login" class="login-form">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Your homelab SSO password">
+      <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+    </form>
+    <p class="hint muted">Same password as SSO and SSH. Behind Authelia? You'll be signed in automatically.</p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,40 @@
+name: portal
+label: Portal
+description: Root domain landing page
+icon: 🏠
+category: management
+placement: control
+priority: 10
+restart_policy: safe
+depends_on: []
+memory_tier: light
+runtime: embedded
+host_sources:
+  PORTAL_CONTENT_SOURCE:
+    path: generated/portal
+generated_artifacts:
+- path: generated/portal/index.html
+- path: generated/portal/favicon.svg
+routes:
+- subdomain: ''
+  upstream: homelab-ui:8080
+  published_port: 8085
+  compose_service: homelab-ui
+  exposure: public
+  auth:
+    mode: forward_auth
+  match:
+    kind: exact
+    paths: [/api/portal/status]
+- subdomain: ''
+  file_server_root: /srv/portal
+  exposure: public
+  auth:
+    mode: forward_auth
+identity:
+  access_groups: [homelab-media, homelab-cloud, homelab-admin]
+  invite:
+    group: homelab-admin
+    priority: 10
+    blurb: Quick links to every managed service
+    sign_in: Open a bookmark and sign in with Authelia when prompted.

@@ -1,0 +1,11 @@
+name: servarr
+label: Servarr Integration
+description: Reconciles media automation services into one working stack
+icon: 🧩
+category: media
+placement: media
+priority: 100
+restart_policy: safe
+depends_on: [prowlarr, sonarr, radarr, bazarr, seerr, qbittorrent]
+memory_tier: light
+runtime: embedded

@@ -1,0 +1,124 @@
+name: grafana
+label: Grafana
+description: Metrics and operations dashboards
+icon: 📊
+category: management
+placement: control
+priority: 20
+restart_policy: careful
+depends_on: [loki, postgres, prometheus]
+provides: [metrics-dashboard]
+integrations:
+- service: mailserver
+  required: false
+  enabled_env: GRAFANA_SMTP_ENABLED
+  address_env: GRAFANA_SMTP_HOST
+- service: ntfy
+  required: false
+  url_env: NTFY_INTERNAL_URL
+  scheme: http
+databases:
+- provider: postgres
+  database: grafana
+  username: grafana
+  host_env: GRAFANA_DB_HOST
+  port_env: GRAFANA_DB_PORT
+  database_env: GRAFANA_DB_NAME
+  username_env: GRAFANA_DB_USER
+  password_env: GRAFANA_DB_PASSWORD
+memory_tier: medium
+host_sources:
+  GRAFANA_DATA_SOURCE:
+    path: data/grafana
+  GRAFANA_ALERTING_SOURCE:
+    path: generated/grafana
+generated_artifacts:
+- path: generated/grafana/contact-points.yaml
+- path: generated/grafana/policies.yaml
+- path: generated/grafana/rules.yaml
+stateful: true
+routes:
+- subdomain: grafana
+  upstream: grafana:3000
+  published_port: 3002
+  exposure: private
+  auth:
+    mode: oidc
+identity:
+  invite:
+    group: homelab-admin
+    priority: 20
+    blurb: Metrics, logs, and operational dashboards
+    sign_in: Sign in with Authelia.
+operator_bookmark:
+  section: Quick actions
+  priority: 30
+  description: Metrics, logs, and operational dashboards
+management:
+  panels:
+  - id: observability
+    title: Observability entry points
+    description: Grafana combines the provisioned Prometheus metrics and Loki logs.
+    items:
+    - label: Dashboards
+      value: https://grafana.{domain}/dashboards
+      href: https://grafana.{domain}/dashboards
+      copyable: true
+    - label: Explore metrics and logs
+      value: https://grafana.{domain}/explore
+      href: https://grafana.{domain}/explore
+      copyable: true
+oidc:
+  client_id: grafana
+  secret_env_var: GRAFANA_OIDC_SECRET
+  redirect_uris:
+  - https://grafana.{domain}/login/generic_oauth
+  scopes: [openid, profile, email, groups]
+  authorization_policy: two_factor
+  require_pkce: true
+  pkce_challenge_method: S256
+  token_endpoint_auth_method: client_secret_basic
+  response_types: [code]
+  grant_types: [authorization_code]
+variables:
+  PUBLIC_URL_PROTOCOL: '{derived.public_url_protocol}'
+  GRAFANA_OIDC_CLIENT_ID: grafana
+  GRAFANA_ADMIN_USER: admin
+  ALERT_EMAIL: '{derived.admin_email}'
+  SMTP_FROM_ADDRESS: noreply@{config.domain}
+  DEV_VM_IP: '{service.dev-postgres.address}'
+data_specs:
+- name: grafana-data
+  source_env: GRAFANA_DATA_SOURCE
+  target: /var/lib/grafana
+  size_estimate_gb: 5
+  snapshot: true
+  host_uid: 472
+  host_gid: 472
+required_secrets:
+- name: GRAFANA_ADMIN_PASSWORD
+  tier: bootstrapped
+  fallback_env: SSO_USER_PASSWORD
+  description: Grafana bootstrap administrator password
+- name: GRAFANA_OIDC_SECRET
+  tier: generated
+  length: 48
+  description: OIDC client secret for Authelia integration
+  rotation: restart
+- name: GRAFANA_DB_PASSWORD
+  tier: generated
+  description: PostgreSQL database password for Grafana
+  rotation: reconcile
+- name: GRAFANA_WEBHOOK_HMAC_SECRET
+  tier: generated
+  length: 48
+  description: HMAC key for authenticated internal auto-heal alerts
+  rotation: restart
+credentials:
+- name: Grafana
+  url: '{proto}://grafana.{domain}'
+  username_env: GRAFANA_ADMIN_USER
+  username: admin
+  password_env: GRAFANA_ADMIN_PASSWORD
+  tags: [grafana, admin, monitoring]
+  notes: Local recovery administrator; routine access uses Authelia OIDC.

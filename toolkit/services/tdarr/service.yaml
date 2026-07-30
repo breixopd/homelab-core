@@ -1,0 +1,125 @@
+name: tdarr
+label: Tdarr
+description: Automated library transcode/remux
+icon: 🔥
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+runtime_variables:
+- TDARR_CPU_WORKERS
+- TDARR_GPU_WORKERS
+- TDARR_HEALTH_CPU_WORKERS
+depends_on: [servarr]
+memory_tier: light
+memory_floor_mb: 1024
+cpu_floor: 0.5
+host_sources:
+  TDARR_SERVER_DATA_SOURCE:
+    path: data/tdarr/server
+  TDARR_CONFIG_SOURCE:
+    path: data/tdarr/configs
+  TDARR_LOGS_SOURCE:
+    path: data/tdarr/logs
+stateful: true
+data_specs:
+- name: tdarr-server-data
+  source_env: TDARR_SERVER_DATA_SOURCE
+  target: /app/server
+  size_estimate_gb: 5
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: tdarr-config
+  source_env: TDARR_CONFIG_SOURCE
+  target: /app/configs
+  size_estimate_gb: 2
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: tdarr-logs
+  source_env: TDARR_LOGS_SOURCE
+  target: /app/logs
+  size_estimate_gb: 5
+  snapshot: false
+  host_uid: 1000
+  host_gid: 1000
+- name: media-library
+  source_env: INSTALL_ROOT
+  source_subpath: media
+  target: /data
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+- name: transcode-cache
+  source_env: INSTALL_ROOT
+  source_subpath: data/transcodes
+  target: /temp
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+variables:
+  TDARR_START_PAUSED: 'false'
+management:
+  panels:
+  - id: transcoding-access
+    title: Transcoding
+    description: Tdarr scans the shared media library and applies the worker limits configured below.
+    items:
+    - label: Web interface
+      value: https://tdarr.{domain}
+      href: https://tdarr.{domain}
+    - label: Internal server
+      value: http://tdarr:8265
+      copyable: true
+    - label: Media path
+      value: /data
+    - label: Transcode cache
+      value: /temp
+  settings:
+  - key: enabled
+    label: Automated transcoding
+    description: Run Tdarr library health checks and transcode automation.
+    type: boolean
+    default: true
+    setup: true
+  - key: cpu-workers
+    label: CPU workers
+    description: Concurrent CPU transcode workers; zero selects an adaptive value.
+    type: number
+    default: 0
+    minimum: 0
+    maximum: 8
+    step: 1
+  - key: gpu-workers
+    label: GPU workers
+    description: Concurrent GPU workers; minus one selects an adaptive value.
+    type: number
+    default: -1
+    minimum: -1
+    maximum: 2
+    step: 1
+  - key: health-cpu-workers
+    label: Health-check workers
+    description: Concurrent CPU workers used to validate media files.
+    type: number
+    default: 1
+    minimum: 0
+    maximum: 8
+    step: 1
+  - key: schedule
+    label: Automation schedule
+    description: Cron schedule for the daily Tdarr automation reconciliation.
+    type: text
+    default: '0 2 * * *'
+routes:
+- subdomain: tdarr
+  upstream: tdarr:8265
+  published_port: 8265
+  exposure: private
+  auth:
+    mode: forward_auth
+identity:
+  access_groups: [homelab-admin]

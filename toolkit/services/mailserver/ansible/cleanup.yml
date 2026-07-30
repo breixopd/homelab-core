@@ -1,0 +1,11 @@
+---
+# Do not leave the host distribution MTA permanently masked after the
+# Docker-Mailserver service is disabled or removed.  Keep it stopped by
+# default so the host does not unexpectedly publish SMTP.
+- name: Unmask disabled Docker-Mailserver host Postfix
+  ansible.builtin.systemd:
+    name: postfix
+    masked: false
+    enabled: false
+    state: stopped
+  failed_when: false

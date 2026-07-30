@@ -1,0 +1,4 @@
+---
+- name: Configure LLDAP client on managed guests and fleet hosts
+  ansible.builtin.include_role:
+    name: ldap_client

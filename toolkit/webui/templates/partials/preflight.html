@@ -1,0 +1,14 @@
+{% for item in items %}
+<div class="preflight-row">
+  <span class="status-marker {% if item.ok %}ok{% else %}fail{% endif %}" aria-hidden="true"></span>
+  <span class="preflight-label">{{ item.label }}</span>
+  {% if item.detail %}<span class="muted preflight-detail">{{ item.detail }}</span>{% endif %}
+  <span class="badge {% if item.ok %}ok{% else %}critical{% endif %}">{{ 'Passed' if item.ok else 'Blocked' }}</span>
+</div>
+{% else %}
+<div class="empty-state">No preflight results are available.</div>
+{% endfor %}
+{% if preflight_oob | default(false) %}
+<p id="preflight-status" class="muted text-sm deployment-section-note" hx-swap-oob="true">{{ 'Ready to deploy' if preflight_ok else 'Blocked by required checks' }}</p>
+<span id="deploy-primary-action" hx-swap-oob="innerHTML">{% include "partials/deploy_button.html" %}</span>
+{% endif %}

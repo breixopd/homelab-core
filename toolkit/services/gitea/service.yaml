@@ -1,0 +1,106 @@
+name: gitea
+label: Gitea
+description: Git, container registry, PyPI
+icon: 🔧
+category: cloud
+placement: apps
+priority: 30
+restart_policy: careful
+depends_on:
+- postgres
+databases:
+- provider: postgres
+  database: gitea
+  username: gitea
+  host_env: GITEA_DB_HOST
+  port_env: GITEA_DB_PORT
+  database_env: GITEA_DB_NAME
+  username_env: GITEA_DB_USER
+  password_env: GITEA_DB_PASSWORD
+memory_tier: medium
+host_sources:
+  GITEA_DATA_SOURCE:
+    path: data/gitea
+stateful: true
+data_specs:
+- name: gitea-data
+  source_env: GITEA_DATA_SOURCE
+  target: /var/lib/gitea
+  size_estimate_gb: 200
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+variables:
+  GITEA_HOST: git.{config.domain}
+  GITEA_ROOT_URL: https://git.{config.domain}
+  GITEA_TRUSTED_PROXIES: '{service.caddy.address}'
+routes:
+- subdomain: git
+  upstream: gitea:3000
+  published_port: 3000
+  exposure: public
+  auth:
+    mode: native
+  match:
+    kind: exact
+    paths: [/api/healthz]
+- subdomain: git
+  upstream: gitea:3000
+  published_port: 3000
+  exposure: public
+  auth:
+    mode: native
+  match:
+    kind: prefix
+    paths: [/v2/]
+- subdomain: git
+  upstream: gitea:3000
+  published_port: 3000
+  exposure: public
+  auth:
+    mode: forward_auth
+health:
+  public_probe_path: /api/healthz
+management:
+  panels:
+  - id: developer-endpoints
+    title: Developer endpoints
+    description: Repository, package, and OCI registry entry points.
+    items:
+    - label: Git and packages
+      value: https://git.{domain}
+      href: https://git.{domain}
+      copyable: true
+    - label: Container registry
+      value: git.{domain}
+      href: https://git.{domain}/v2/
+      copyable: true
+    - label: Registry login
+      value: docker login git.{domain}
+      copyable: true
+identity:
+  invite:
+    group: homelab-cloud
+    priority: 40
+    blurb: Git repositories, packages, and CI
+    sign_in: Visit while signed into Authelia; your account registers automatically.
+  provisioning:
+  - id: gitea_sso_first_login
+    mode: first_login
+    priority: 60
+    message: 'Gitea: first Authelia SSO visit will register the account automatically'
+    disabled_message: 'Gitea SSO: cloud service disabled'
+operator_bookmark:
+  section: Quick actions
+  priority: 90
+  description: Git repositories, Actions, packages, and container registry
+required_secrets:
+- name: GITEA_ADMIN_TOKEN
+  tier: bootstrapped
+  length: 48
+  description: Bootstrap API token for the owner SSO administrator
+- name: GITEA_DB_PASSWORD
+  tier: generated
+  length: 32
+  description: PostgreSQL database password
+  rotation: reconcile

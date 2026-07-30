@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "partials/machine_fields.html" import machine_fields %}
+
+{% block page_actions %}
+<a class="btn btn-ghost btn-sm" href="/deploy">Deploy</a>
+<button class="btn btn-primary" type="button" data-disclosure-toggle="machine-create" data-disclosure-group="machines" aria-controls="machine-create" aria-expanded="{{ 'true' if selected_template else 'false' }}">
+  <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#server"></use></svg>
+  Add machine
+</button>
+{% endblock %}
+
+{% block content %}
+{% if flash %}<div class="alert {{ 'alert-ok' if flash_ok else 'alert-error' }}" role="status">{{ flash }}</div>{% endif %}
+
+<section id="machine-create" class="content-band machine-editor" {% if not selected_template %}hidden{% endif %} aria-labelledby="machine-create-heading">
+  <div class="section-head">
+    <h2 id="machine-create-heading">Add machine</h2>
+    <form method="get" action="/machines" class="machine-template-picker">
+      <label class="form-field" for="machine-template"><span>Template</span><select id="machine-template" name="template"><option value="">Blank LXC</option>{% for template in view.templates %}<option value="{{ template.template_id }}" {% if selected_template == template.template_id %}selected{% endif %}>{{ template.template_id }}</option>{% endfor %}</select></label>
+      <button type="submit" class="btn btn-ghost btn-sm">Load</button>
+    </form>
+  </div>
+  <form method="post" action="/machines" class="field-grid machine-form">
+    <input type="hidden" name="revision" value="{{ view.revision }}">
+    <label class="form-field span-4" for="machine-create-id"><span>Machine ID</span><input id="machine-create-id" name="machine_id" pattern="[a-z0-9][a-z0-9-]{0,62}" required></label>
+    {{ machine_fields('machine-create', draft) }}
+    <div class="form-actions span-12">
+      <button type="button" class="btn btn-ghost" data-disclosure-close="machine-create">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save and generate</button>
+    </div>
+  </form>
+</section>
+
+<section class="content-band machine-inventory" aria-labelledby="machine-inventory-heading">
+  <div class="section-head">
+    <div><h2 id="machine-inventory-heading">Machine inventory</h2><p class="muted text-sm">{{ view.machines|length }} configured · {{ view.machines|selectattr('spec.enabled')|list|length }} enabled</p></div>
+  </div>
+  <div class="responsive-table machine-table-wrap">
+    <table class="data-table machine-table">
+      <thead><tr><th>Machine</th><th>Endpoint</th><th>Capacity</th><th>Placement</th><th>State</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+      {% for machine in view.machines %}
+        {% set spec = machine.spec %}
+        <tr>
+          <td data-label="Machine"><div class="machine-name"><strong>{{ machine.machine_id }}</strong><span class="badge neutral">{{ spec.kind|upper }}</span><small>{{ spec.hostname }}</small></div></td>
+          <td data-label="Endpoint"><code>{{ spec.address }}:{{ spec.ssh_port }}</code><small class="table-subtext">VMID {{ spec.vmid }}</small></td>
+          <td data-label="Capacity"><strong>{{ spec.cores }} CPU · {{ spec.memory_mb }} MB</strong><small class="table-subtext">{{ spec.root_disk_gb }} GB root{% if spec.data_disks %} · {{ spec.data_disks|length }} data{% endif %}</small></td>
+          <td data-label="Placement"><strong>{{ machine.services|length }} services</strong><small class="table-subtext">{{ spec.labels|join(', ') or 'No labels' }}</small></td>
+          <td data-label="State"><span class="status-dot {{ 'status-ok' if spec.enabled else 'status-muted' }}"></span>{{ 'Enabled' if spec.enabled else 'Disabled' }}<small class="table-subtext">{{ 'Managed' if spec.managed else 'External' }}</small></td>
+          <td data-label="Actions" class="table-action"><button type="button" class="btn btn-ghost icon-button" data-disclosure-toggle="machine-edit-{{ machine.machine_id }}" data-disclosure-group="machines" aria-controls="machine-edit-{{ machine.machine_id }}" aria-expanded="false" title="Edit {{ machine.machine_id }}"><svg class="button-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#pencil"></use></svg><span class="sr-only">Edit {{ machine.machine_id }}</span></button></td>
+        </tr>
+        <tr id="machine-edit-{{ machine.machine_id }}" class="machine-edit-row" hidden><td colspan="6">
+          <form method="post" action="/machines/{{ machine.machine_id }}" class="field-grid machine-form">
+            <input type="hidden" name="revision" value="{{ view.revision }}">
+            <div class="machine-edit-heading span-12"><div><strong>{{ machine.machine_id }}</strong><span class="muted">{{ machine.services|join(', ') or 'No service placements' }}</span></div><button type="button" class="btn btn-ghost icon-button" data-disclosure-close="machine-edit-{{ machine.machine_id }}" title="Close editor"><svg class="button-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#x"></use></svg><span class="sr-only">Close editor</span></button></div>
+            {{ machine_fields('machine-' ~ machine.machine_id, machine_documents[machine.machine_id]) }}
+            <div class="form-actions machine-edit-actions span-12">
+              {% if machine.can_retire %}<a href="/machines/{{ machine.machine_id }}/retire" class="btn btn-danger"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#trash-2"></use></svg>Retire</a>{% elif machine.can_remove %}<button type="submit" formaction="/machines/{{ machine.machine_id }}/remove" name="confirmation" value="{{ machine.machine_id }}" class="btn btn-danger" data-confirm="Remove machine definition {{ machine.machine_id }}?"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#trash-2"></use></svg>Remove</button>{% else %}<span class="muted text-sm">{{ (machine.retirement_blockers if spec.managed else machine.removal_blockers)|join(' · ') }}</span>{% endif %}
+              <span class="machine-action-spacer"></span>
+              <button type="button" class="btn btn-ghost" data-disclosure-close="machine-edit-{{ machine.machine_id }}">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save and generate</button>
+            </div>
+          </form>
+        </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

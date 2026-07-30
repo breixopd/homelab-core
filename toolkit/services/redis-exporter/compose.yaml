@@ -1,0 +1,35 @@
+services:
+  redis-exporter:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-redis-exporter
+    image: oliver006/redis_exporter:v1.87.0-alpine@sha256:1a286dba9547b0aa3ebd4e4106fa52ad67c754dcd7cb744eb745e41d48b252ad
+    container_name: redis-exporter
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    env_file:
+    - ${INSTALL_ROOT}/generated/.env.redis-exporter
+    expose:
+    - 9121
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:9121:9121
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O /dev/null http://localhost:9121/metrics || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64

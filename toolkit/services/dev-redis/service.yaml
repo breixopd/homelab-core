@@ -1,0 +1,25 @@
+name: dev-redis
+label: Dev Redis
+description: Dev project cache
+icon: 🔧
+category: cloud
+placement: apps
+priority: 30
+host_sources:
+  DEV_REDIS_DATA_SOURCE:
+    path: data/dev-redis
+stateful: true
+data_specs:
+- name: dev-redis-data
+  source_env: DEV_REDIS_DATA_SOURCE
+  target: /data
+  size_estimate_gb: 2
+  snapshot: true
+  host_uid: 999
+  host_gid: 999
+required_secrets:
+- name: DEV_REDIS_PASSWORD
+  tier: generated
+  length: 32
+  description: Development Redis password
+  rotation: reconcile

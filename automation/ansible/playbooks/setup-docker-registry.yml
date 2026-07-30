@@ -1,0 +1,61 @@
+---
+# Configure Docker daemon on all managed nodes: registry mirror, log rotation,
+# and overlay2. The node hosting the mirror pulls directly so it can repair it.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/setup-docker-registry.yml
+
+- name: Configure Docker daemon on all managed nodes
+  hosts: guest_hosts
+  become: true
+  vars:
+    registry_mirrors: >-
+      {{ [registry_mirror_url] if registry_mirror_enabled | default(false) | bool and
+         homelab_node_id != registry_mirror_node else [] }}
+  tasks:
+    - name: Ensure Docker config directory exists
+      ansible.builtin.file:
+        path: /etc/docker
+        state: directory
+        mode: "0755"
+
+    - name: Configure daemon.json with registry mirror, service DNS, and sane defaults
+      ansible.builtin.copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "live-restore": true,
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            },
+            "storage-driver": "overlay2",
+            "registry-mirrors": {{ registry_mirrors | to_json }},
+            "dns": {{ docker_dns_servers | default(['1.1.1.1']) | to_json }},
+            "dns-search": ["."],
+            "features": {
+              "buildkit": true
+            }
+          }
+        mode: "0644"
+      notify: restart docker
+
+  handlers:
+    - name: Restart Docker
+      listen: restart docker
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
+        daemon_reload: true
+
+    - name: Reset SSH connection after Docker restart
+      listen: restart docker
+      ansible.builtin.meta: reset_connection
+
+    - name: Wait for SSH after Docker restart
+      listen: restart docker
+      ansible.builtin.wait_for_connection:
+        timeout: 180
+        delay: 2
+        sleep: 5

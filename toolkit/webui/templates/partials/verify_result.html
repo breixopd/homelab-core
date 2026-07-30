@@ -1,0 +1,6 @@
+<div class="verify-result">
+  <div class="alert {% if ok %}alert-info{% else %}alert-warning{% endif %}">
+    Verify {% if ok %}passed{% else %}issues found{% endif %}
+  </div>
+  <pre class="mono text-sm">{{ text }}</pre>
+</div>

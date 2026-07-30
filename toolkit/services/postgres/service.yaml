@@ -1,0 +1,47 @@
+name: postgres
+label: PostgreSQL
+description: Shared database
+icon: 🗄️
+category: management
+placement: control
+priority: 5
+essential: true
+restart_policy: never
+provides:
+- primary-database
+internal_aliases: [postgres]
+depends_on: []
+memory_tier: heavy
+host_sources:
+  POSTGRES_DATA_SOURCE:
+    path: data/postgres
+stateful: true
+database_provider:
+  engine: postgresql
+  admin_username_env: POSTGRES_USER
+  admin_password_env: POSTGRES_PASSWORD
+  admin_database_env: POSTGRES_DB
+service_endpoint:
+  container_port: 5432
+  published_port: 5432
+data_specs:
+- name: postgres-data
+  source_env: POSTGRES_DATA_SOURCE
+  target: /var/lib/postgresql/data
+  size_estimate_gb: 20
+  snapshot: false
+  host_uid: 999
+  host_gid: 999
+backup_exports:
+- artifact: postgres.sql.gz
+  strategy: container
+  command: [pg_dumpall, -U, admin]
+variables:
+  POSTGRES_USER: admin
+  POSTGRES_DB: postgres
+required_secrets:
+- name: POSTGRES_PASSWORD
+  tier: generated
+  length: 32
+  description: Shared PostgreSQL administrator password
+  rotation: persistent

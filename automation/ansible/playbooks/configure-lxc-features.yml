@@ -1,0 +1,99 @@
+---
+# Apply each machine plugin's LXC feature flags on existing Proxmox containers.
+- name: Reconcile declared LXC features
+  hosts: proxmox_hosts
+  become: true
+  vars:
+    managed_lxc_nodes: >-
+      {{ machine_specs | dict2items | selectattr('value.kind', 'equalto', 'lxc') | list }}
+  tasks:
+    - name: Read current LXC feature sets
+      ansible.builtin.shell: |
+        set -euo pipefail
+        features="$(pct config {{ item.value.vmid }} | sed -n 's/^features: //p')"
+        for feature in fuse keyctl nesting; do
+          value="$(printf '%s\n' "$features" | tr ',' '\n' | sed -n "s/^${feature}=//p")"
+          printf '%s=%s\n' "$feature" "${value:-0}"
+        done | paste -sd, -
+      args:
+        executable: /bin/bash
+      loop: "{{ managed_lxc_nodes }}"
+      loop_control:
+        label: "{{ item.key }}"
+      register: current_lxc_features
+      changed_when: false
+
+    - name: Reconcile LXC feature set
+      ansible.builtin.command:
+        cmd: >-
+          pct set {{ item.item.value.vmid }} -features
+          fuse={{ 1 if item.item.value.fuse else 0 }},keyctl={{ 1 if item.item.value.keyctl else 0 }},nesting={{ 1 if item.item.value.nesting else 0 }}
+      loop: "{{ current_lxc_features.results }}"
+      loop_control:
+        label: "{{ item.item.key }}"
+      register: lxc_features
+      changed_when: true
+      failed_when: >
+        lxc_features.rc != 0 and
+        'already' not in (lxc_features.stderr | default('') | lower)
+      when: >-
+        item.stdout !=
+        'fuse=' ~ ('1' if item.item.value.fuse else '0') ~
+        ',keyctl=' ~ ('1' if item.item.value.keyctl else '0') ~
+        ',nesting=' ~ ('1' if item.item.value.nesting else '0')
+
+    - name: Allow VPN network stack in its LXC
+      ansible.builtin.lineinfile:
+        path: "/etc/pve/lxc/{{ vpn_node_vmid }}.conf"
+        line: "lxc.apparmor.profile: unconfined"
+        create: false
+      register: vpn_apparmor
+      when:
+        - vpn_enabled | default(false) | bool
+        - vpn_node_kind == 'lxc'
+
+    - name: Reboot VPN LXC after feature changes
+      ansible.builtin.command:
+        cmd: "pct reboot {{ vpn_node_vmid }}"
+      register: vpn_node_reboot
+      changed_when: true
+      notify: record vpn node reboot
+      when:
+        - vpn_enabled | default(false) | bool
+        - vpn_node_kind == 'lxc'
+        - lxc_features.changed or vpn_apparmor.changed
+
+  handlers:
+    - name: Record VPN node reboot
+      listen: record vpn node reboot
+      ansible.builtin.set_fact:
+        vpn_node_rebooted: true
+      run_once: true
+      delegate_to: localhost
+      delegate_facts: true
+
+- name: Wait for VPN node SSH after feature reconciliation
+  hosts: proxmox_hosts
+  gather_facts: false
+  tasks:
+    - name: Wait for VPN node SSH port from hypervisor
+      ansible.builtin.wait_for:
+        host: "{{ vpn_node_ip }}"
+        port: 22
+        delay: 15
+        timeout: 300
+      when: hostvars['localhost'].get('vpn_node_rebooted', false) | bool
+
+- name: Reconnect VPN node after feature reconciliation
+  hosts: "{{ vpn_node }}"
+  gather_facts: false
+  tasks:
+    - name: Clear stale unreachable state
+      ansible.builtin.meta: clear_host_errors
+      when: hostvars['localhost'].get('vpn_node_rebooted', false) | bool
+
+    - name: Wait for node connection
+      ansible.builtin.wait_for_connection:
+        timeout: 120
+        delay: 5
+      when: hostvars['localhost'].get('vpn_node_rebooted', false) | bool

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Wazuh custom integration — forward high-severity alerts to ntfy (and optional email)
+set -euo pipefail
+
+ALERT_FILE="$1"
+
+[[ -f "${ALERT_FILE}" ]] || exit 0
+
+CONF="/var/ossec/integrations/custom-ntfy.conf"
+# shellcheck source=/dev/null
+[[ -f "${CONF}" ]] && . "${CONF}"
+
+NTFY_URL="${WAZUH_NTFY_URL:-http://127.0.0.1:8090}"
+NTFY_TOPIC="${WAZUH_NTFY_TOPIC:-wazuh-alerts}"
+MIN_LEVEL="${WAZUH_ALERT_MIN_LEVEL:-10}"
+ALERT_EMAIL="${WAZUH_ALERT_EMAIL:-}"
+SMTP_HOST="${WAZUH_SMTP_HOST:-localhost}"
+SMTP_PORT="${WAZUH_SMTP_PORT:-25}"
+MAIL_FROM="${WAZUH_MAIL_FROM:-wazuh@localhost}"
+
+PARSED="$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    a = json.load(f)
+r = a.get('rule', {})
+print(r.get('level', 0))
+print(r.get('description', 'No description'))
+print(r.get('id', '0'))
+print(a.get('agent', {}).get('name', 'unknown'))
+print(a.get('timestamp', '')[:19])
+" "${ALERT_FILE}" 2>/dev/null)" || exit 0
+
+RULE_LEVEL="$(sed -n '1p' <<< "${PARSED}")"
+RULE_DESC="$(sed -n '2p' <<< "${PARSED}")"
+RULE_ID="$(sed -n '3p' <<< "${PARSED}")"
+AGENT_NAME="$(sed -n '4p' <<< "${PARSED}")"
+TIMESTAMP="$(sed -n '5p' <<< "${PARSED}")"
+
+if (( RULE_LEVEL < MIN_LEVEL )); then
+  exit 0
+fi
+
+PRIORITY="default"
+TAGS="warning"
+if (( RULE_LEVEL >= 12 )); then
+  PRIORITY="urgent"
+  TAGS="rotating_light,skull"
+elif (( RULE_LEVEL >= 8 )); then
+  PRIORITY="high"
+  TAGS="rotating_light"
+fi
+
+curl -sf -m 5 -X POST "${NTFY_URL}/${NTFY_TOPIC}" \
+  -H "Title: Wazuh L${RULE_LEVEL}: ${RULE_DESC}" \
+  -H "Priority: ${PRIORITY}" \
+  -H "Tags: ${TAGS}" \
+  -d "Rule ${RULE_ID} on ${AGENT_NAME} at ${TIMESTAMP}" \
+  2>/dev/null || true
+
+if [[ -n "${ALERT_EMAIL}" ]]; then
+  {
+    printf 'From: %s\r\n' "${MAIL_FROM}"
+    printf 'To: %s\r\n' "${ALERT_EMAIL}"
+    printf 'Subject: [Wazuh L%s] %s\r\n' "${RULE_LEVEL}" "${RULE_DESC}"
+    printf 'Content-Type: text/plain; charset=utf-8\r\n'
+    printf '\r\n'
+    printf 'Alert Level: %s\nRule: %s — %s\nAgent: %s\nTime: %s\n' \
+      "${RULE_LEVEL}" "${RULE_ID}" "${RULE_DESC}" "${AGENT_NAME}" "${TIMESTAMP}"
+  } | curl -sf -m 10 --url "smtp://${SMTP_HOST}:${SMTP_PORT}" \
+    --mail-from "${MAIL_FROM}" \
+    --mail-rcpt "${ALERT_EMAIL}" \
+    -T - 2>/dev/null || true
+fi

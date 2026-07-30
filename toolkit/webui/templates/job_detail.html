@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block page_actions %}<a href="/jobs" class="btn btn-ghost btn-sm">All jobs</a>{% endblock %}
+
+{% block content %}
+{% if flash %}<div class="notice success" role="status">{{ flash }}</div>{% endif %}
+{% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
+
+<section class="job-detail-summary" aria-label="Job summary">
+  <div><span>Operation</span><strong>{{ kind.value|replace('_', ' ')|title }}</strong></div>
+  <div><span>State</span><strong><span class="badge {% if can_cancel %}running{% else %}job-state-{{ state.value|lower }}{% endif %}" id="job-status-{{ job_id }}">{{ state.value|replace('_', ' ')|lower }}</span></strong></div>
+  <div><span>Started</span><strong><time datetime="{{ created_at.isoformat() }}">{{ created_at.strftime('%Y-%m-%d %H:%M:%S') }}</time></strong></div>
+  <div><span>Updated</span><strong><time datetime="{{ updated_at.isoformat() }}">{{ updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</time></strong></div>
+</section>
+
+{% if error_code %}<div class="notice error" role="alert">Controller error: <code>{{ error_code }}</code></div>{% endif %}
+
+<section class="content-band job-live-panel" {% if can_cancel %}data-job-id="{{ job_id }}" data-stream-url="/jobs/{{ job_id }}/stream?after={{ last_sequence }}"{% endif %}
+         aria-labelledby="job-events-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="job-events-heading">Event timeline</h2>
+      <p class="muted text-sm job-section-note">Controller messages in execution order</p>
+    </div>
+    {% if can_cancel %}
+    <form method="post" action="/jobs/{{ job_id }}/cancel" data-job-cancel data-confirm="Cancel this job?">
+      <button class="btn btn-danger btn-sm" type="submit">Cancel job</button>
+    </form>
+    {% endif %}
+  </div>
+  <pre id="log-{{ job_id }}" class="log-viewer job-log" aria-label="Job event output">{% for event in events %}{{ event.timestamp.strftime('%H:%M:%S') }}  {{ '%-7s'|format(event.level) }}  {{ event.message }}
+{% else %}Waiting for the first controller event...
+{% endfor %}</pre>
+</section>
+{% endblock %}
+
+{% block scripts %}{% if can_cancel %}<script src="/static/js/deploy.js?v={{ static_revision }}"></script>{% endif %}{% endblock %}

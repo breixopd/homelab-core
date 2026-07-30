@@ -1,0 +1,23 @@
+---
+profile: production
+strict: true
+offline: true
+# Service roles intentionally consume manifest-owned shared variables.
+skip_list:
+  - var-naming[no-role-prefix]
+exclude_paths:
+  - .cache/
+  # Import-only entrypoints are syntax-checked by the generator; lint their
+  # concrete playbooks below instead of reloading dynamic imports twice.
+  - automation/ansible/guest-setup.yml
+  - automation/ansible/site.yml
+  - automation/ansible/group_vars/generated.yml
+  - automation/ansible/group_vars/generated-routes.yml
+  - automation/ansible/inventory/hosts.yml
+extra_vars:
+  mesh_router_node: infra
+  service_nodes:
+    jellyfin: media
+    wazuh-indexer: infra
+    wazuh-manager: infra
+  vpn_node: media

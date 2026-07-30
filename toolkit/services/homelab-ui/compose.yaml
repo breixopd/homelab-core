@@ -1,0 +1,135 @@
+services:
+  homelab-controller:
+    restart: unless-stopped
+    profiles:
+    - svc-homelab-ui
+    build:
+      context: .
+      dockerfile: ./toolkit/Dockerfile
+    image: ${HOMELAB_UI_IMAGE:?run homelab-toolkit generate}
+    container_name: homelab-controller
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+    security_opt:
+    - no-new-privileges:true
+    tmpfs:
+    - /tmp
+    - /root/.ansible
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    volumes:
+    - ${INSTALL_ROOT:-.}:/app/repo
+    - controller-data:/var/lib/homelab-controller
+    - controller-payload-key:/run/secrets/homelab-controller
+    - controller-socket:/run/homelab-controller
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    working_dir: /app/repo
+    environment:
+      HOMELAB_ROOT: /app/repo
+      HOMELAB_NODE: ${HOMELAB_NODE}
+      HOMELAB_CONTROLLER_DB: /var/lib/homelab-controller/controller.db
+      HOMELAB_CONTROLLER_PAYLOAD_KEY_FILE: /run/secrets/homelab-controller/payload.key
+      HOMELAB_CONTROLLER_SOCKET: /run/homelab-controller/controller.sock
+      HOMELAB_CONTROLLER_ROLE: local
+      HOMELAB_CONTROLLER_TOKEN_FILE: /var/lib/homelab-controller/local.token
+      HOMELAB_CONTROLLER_LOCAL_TOKEN_FILE: /var/lib/homelab-controller/local.token
+      HOMELAB_CONTROLLER_UI_TOKEN_FILE: /run/homelab-controller/ui.token
+      HOMELAB_CONTROLLER_UI_GID: '10001'
+      PYTHONPATH: /app/repo
+      SOPS_AGE_KEY_FILE: /app/repo/keys/age.key
+      HOME: /tmp
+      ANSIBLE_LOCAL_TMP: /tmp
+      TZ: ${TZ:-UTC}
+    entrypoint:
+    - python3
+    command:
+    - -m
+    - toolkit.controller
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 4096
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - >-
+        curl -fsS --unix-socket /run/homelab-controller/controller.sock
+        http://localhost/v1/health | grep -q '"status":"ok"'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+  homelab-ui:
+    restart: unless-stopped
+    profiles:
+    - svc-homelab-ui
+    build:
+      context: .
+      dockerfile: ./toolkit/Dockerfile
+    image: ${HOMELAB_UI_IMAGE:?run homelab-toolkit generate}
+    container_name: homelab-ui
+    user: 10001:10001
+    read_only: true
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    tmpfs:
+    - /tmp
+    - /root/.cache
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    volumes:
+    - ${INSTALL_ROOT:-.}/config.yaml:/app/repo/config.yaml:ro
+    - controller-socket:/run/homelab-controller:ro
+    - homelab-ui-state:/var/lib/homelab-ui
+    working_dir: /opt/homelab-framework
+    environment:
+      HOMELAB_ROOT: /app/repo
+      HOMELAB_NODE: ${HOMELAB_NODE}
+      HOMELAB_CONTROLLER_SOCKET: /run/homelab-controller/controller.sock
+      HOMELAB_CONTROLLER_ROLE: ui
+      HOMELAB_CONTROLLER_TOKEN_FILE: /run/homelab-controller/ui.token
+      XDG_STATE_HOME: /var/lib/homelab-ui
+      WEBUI_SESSION_SECRET_FILE: /var/lib/homelab-ui/webui-secret
+      WEBUI_SECURE_COOKIES: 'true'
+      HOMELAB_TRUSTED_PROXY_CIDRS: ${CADDY_EDGE_IP}/32
+      HOMELAB_TRUST_CONTAINER_GATEWAY: 'true'
+      PYTHONPATH: /opt/homelab-framework
+      TZ: ${TZ:-UTC}
+      HOMELAB_REDIS_HOST: ${HOMELAB_REDIS_HOST}
+      HOMELAB_REDIS_PORT: ${HOMELAB_REDIS_PORT}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      INVITE_TOKEN_SECRET: ${INVITE_TOKEN_SECRET:-}
+    entrypoint:
+    - python3
+    command:
+    - -m
+    - toolkit.webui
+    depends_on:
+      homelab-controller:
+        condition: service_healthy
+    expose:
+    - 8080
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8085:8080
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:8080/health || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3

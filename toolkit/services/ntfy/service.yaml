@@ -1,0 +1,57 @@
+name: ntfy
+label: ntfy
+description: Push notifications
+icon: 🔔
+category: notifications
+placement: control
+priority: 50
+restart_policy: safe
+depends_on: []
+service_endpoint:
+  container_port: 80
+  published_port: 8090
+network_listeners:
+- id: servarr-api
+  port: 8090
+  sources: ['@service:servarr']
+memory_tier: light
+host_sources:
+  NTFY_CACHE_SOURCE:
+    path: data/ntfy/cache
+  NTFY_ETC_SOURCE:
+    path: data/ntfy/etc
+stateful: true
+data_specs:
+- name: ntfy-cache
+  source_env: NTFY_CACHE_SOURCE
+  target: /var/cache/ntfy
+  size_estimate_gb: 1
+  snapshot: true
+- name: ntfy-config
+  source_env: NTFY_ETC_SOURCE
+  target: /etc/ntfy
+  size_estimate_gb: 1
+  snapshot: true
+variables:
+  NTFY_BASE_URL: '{derived.public_url_protocol}://ntfy.{config.domain}'
+routes:
+- upstream: ntfy:80
+  published_port: 8090
+  exposure: public
+  auth:
+    mode: native
+health:
+  public_probe_path: /v1/health
+management:
+  panels:
+  - id: notification-endpoints
+    title: Notification endpoints
+    description: Subscribe in the ntfy app or publish from scripts and integrations.
+    items:
+    - label: Server
+      value: https://ntfy.{domain}
+      href: https://ntfy.{domain}
+      copyable: true
+    - label: Publish example
+      value: curl -d "Test notification" https://ntfy.{domain}/my-topic
+      copyable: true

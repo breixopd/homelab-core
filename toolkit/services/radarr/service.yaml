@@ -1,0 +1,59 @@
+name: radarr
+label: Radarr
+description: Movie automation
+icon: 🎬
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on:
+- prowlarr
+- qbittorrent
+- gluetun
+memory_tier: light
+memory_floor_mb: 256
+host_sources:
+  RADARR_CONFIG_SOURCE:
+    path: data/radarr/config
+stateful: true
+data_specs:
+- name: radarr-config
+  source_env: RADARR_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 2
+  snapshot: true
+  # linuxserver/radarr ignores PUID/PGID with the hardened read-only root
+  # filesystem and runs its built-in abc user.
+  host_uid: 911
+  host_gid: 1001
+- name: media-library
+  source_env: INSTALL_ROOT
+  source_subpath: media
+  target: /data
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+routes:
+- upstream: radarr:7878
+  published_port: 7878
+  exposure: private
+  auth:
+    mode: forward_auth
+identity:
+  access_groups: [homelab-admin]
+operator_bookmark:
+  section: Media administration
+  priority: 30
+  description: Movie library automation
+required_secrets:
+- name: RADARR_API_KEY
+  tier: generated
+  length: 32
+  description: API key bootstrapped after first start
+  rotation: persistent
+credentials:
+- name: Radarr API
+  url: '{proto}://radarr.{domain}'
+  password_env: RADARR_API_KEY
+  tags: [radarr, media, api-key]

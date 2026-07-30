@@ -1,0 +1,10 @@
+<button class="btn btn-primary"
+        {% if not preflight_ok %}disabled title="Resolve preflight failures before deploying"{% endif %}
+        hx-post="/deploy/jobs/deploy"
+        hx-include="#deploy-options"
+        hx-indicator="#spinner"
+        hx-target="#job-panel"
+        hx-swap="innerHTML">
+  <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#rocket"></use></svg>
+  Deploy
+</button>

@@ -1,0 +1,28 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    uid: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Loki
+    type: loki
+    access: proxy
+    uid: loki
+    url: http://loki:3100
+
+  - name: Redis (Infra)
+    type: redis-datasource
+    access: proxy
+    uid: redis-infra
+    url: redis://redis:6379
+
+  - name: Redis (Dev)
+    type: redis-datasource
+    access: proxy
+    uid: redis-dev
+    # Dev Redis lives on the apps LXC; reach it over the private bridge, not Docker DNS.
+    url: redis://$__env{DEV_VM_IP}:$__env{DEV_REDIS_PORT}

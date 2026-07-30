@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block page_actions %}
+<a href="/secrets" class="btn btn-ghost btn-sm">Cloudflare credentials</a>
+{% endblock %}
+
+{% block content %}
+{% if flash %}<div class="alert alert-ok" role="status">{{ flash }}</div>{% endif %}
+{% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
+
+<section class="content-band network-address-band" aria-labelledby="public-address-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="public-address-heading">Public edge address</h2>
+      <p class="muted text-sm network-section-note">Source: {{ ip_source }}</p>
+    </div>
+    <span class="badge {% if public_ip %}ok{% else %}warn{% endif %}">{{ 'Configured' if public_ip else 'Missing' }}</span>
+  </div>
+  <form method="post" action="/dns/save-ip" class="field-grid network-address-form">
+    <input type="hidden" name="revision" value="{{ revision }}">
+    <label class="form-field span-6" for="public-edge-ip">
+      <span>Public IPv4 address</span>
+      <input id="public-edge-ip" name="public_ip" value="{{ public_ip }}" placeholder="1.2.3.4"
+             inputmode="decimal" autocomplete="off" required>
+    </label>
+    <div class="network-address-actions span-6">
+      <button type="submit" class="btn btn-primary">Save address</button>
+    </div>
+  </form>
+</section>
+
+<section class="content-band dns-records-band" aria-labelledby="dns-records-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="dns-records-heading">Desired DNS records</h2>
+      <p class="muted text-sm network-section-note">{{ records|length }} records derived from public routes</p>
+    </div>
+    {% if has_cloudflare %}
+    <div class="row-actions dns-actions">
+      <button class="btn btn-primary btn-sm"
+              hx-post="/dns/sync"
+              hx-target="#dns-job-panel"
+              hx-indicator="#spinner"
+              hx-swap="innerHTML">Sync records</button>
+      <button class="btn btn-ghost btn-sm"
+              hx-post="/dns/cleanup"
+              hx-target="#dns-job-panel"
+              hx-indicator="#spinner"
+              hx-swap="innerHTML"
+              hx-confirm="Remove DNS records that are no longer desired?">Remove stale records</button>
+    </div>
+    {% else %}
+    <a href="/secrets" class="btn btn-ghost btn-sm">Configure Cloudflare</a>
+    {% endif %}
+  </div>
+  {% if records %}
+  <div class="responsive-table dns-records-wrap">
+    <table class="data-table dns-records-table" aria-labelledby="dns-records-heading">
+      <thead>
+        <tr><th scope="col">Type</th><th scope="col">Name</th><th scope="col">Target</th><th scope="col">Cloudflare</th></tr>
+      </thead>
+      <tbody>
+        {% for record in records %}
+        <tr>
+          <td><span class="badge neutral">{{ record.type }}</span></td>
+          <td><code>{{ record.name }}</code></td>
+          <td><code>{{ record.content }}</code></td>
+          <td><span class="badge {{ 'ok' if record.is_proxied else 'neutral' }}">{{ 'Proxied' if record.is_proxied else 'DNS only' }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">No public routes require DNS records.</div>
+  {% endif %}
+</section>
+
+<section id="dns-job-panel" class="dns-job-panel" aria-live="polite" aria-atomic="true"></section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/deploy.js?v={{ static_revision }}"></script>
+{% endblock %}

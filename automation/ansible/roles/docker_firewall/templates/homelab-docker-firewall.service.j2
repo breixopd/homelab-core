@@ -1,0 +1,12 @@
+[Unit]
+Description=Homelab Docker published-port policy
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/homelab/apply-docker-firewall
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

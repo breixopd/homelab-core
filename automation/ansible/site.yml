@@ -1,0 +1,9 @@
+---
+# Full Proxmox + LXC automation.
+# host-setup.yml prepares the Proxmox host (repos, network, ZFS, templates, kernel modules).
+# LXCs are provisioned by OpenTofu/BPG; guest-setup.yml bootstraps them.
+# For OpenTofu provisioning + generated inventory, use homelab-toolkit deploy all.
+- name: Prepare Proxmox hosts
+  ansible.builtin.import_playbook: host-setup.yml
+- name: Configure managed guests
+  ansible.builtin.import_playbook: guest-setup.yml

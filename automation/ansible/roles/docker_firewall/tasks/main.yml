@@ -1,0 +1,35 @@
+---
+- name: Ensure Docker firewall policy directory exists
+  ansible.builtin.file:
+    path: /usr/local/lib/homelab
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Render Docker published-port policy
+  ansible.builtin.template:
+    src: apply-policy.sh.j2
+    dest: /usr/local/lib/homelab/apply-docker-firewall
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install persistent Docker firewall unit
+  ansible.builtin.template:
+    src: homelab-docker-firewall.service.j2
+    dest: /etc/systemd/system/homelab-docker-firewall.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable persistent Docker firewall policy
+  ansible.builtin.systemd:
+    name: homelab-docker-firewall.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Reconcile Docker firewall policy now
+  ansible.builtin.command: /usr/local/lib/homelab/apply-docker-firewall
+  changed_when: false

@@ -1,0 +1,10 @@
+---
+# Ansible collections required by this project.
+# Install with: ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: ansible.posix
+    version: "2.1.0"
+  - name: community.general
+    version: "13.2.0"
+  - name: community.proxmox
+    version: "2.0.0"

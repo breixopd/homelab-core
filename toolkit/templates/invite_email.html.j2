@@ -1,0 +1,25 @@
+{% extends "invite_layout.html" %}
+{% block content %}
+<p>Hi {{ display_name }},</p>
+<p>You've been invited to the <strong>{{ domain }}</strong> homelab. One password works for sign-in across your apps.</p>
+
+<h2>Step 1 — Create your password</h2>
+<p>This link is personal and expires in 72 hours:</p>
+<p><a class="btn" href="{{ activate_url }}">Create your password</a></p>
+<p class="muted">Or copy: {{ activate_url }}</p>
+
+{% for tier, cards in sections %}
+<h2>{{ tier }}</h2>
+<ul>
+{% for card in cards %}
+  <li>
+    <strong>{{ card.label }}</strong> — {{ card.blurb }}<br>
+    <a href="{{ card.url }}">{{ card.url }}</a><br>
+    <span class="muted">{{ card.sign_in }}</span>
+  </li>
+{% endfor %}
+</ul>
+{% endfor %}
+
+<p class="muted">Questions? Contact {{ owner_email }}.</p>
+{% endblock %}

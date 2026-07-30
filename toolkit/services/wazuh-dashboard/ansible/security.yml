@@ -1,0 +1,4 @@
+---
+- name: Deploy Wazuh agents and baseline security to managed guests
+  ansible.builtin.include_role:
+    name: security_agent

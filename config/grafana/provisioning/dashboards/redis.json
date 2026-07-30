@@ -1,0 +1,37 @@
+{
+  "id": null,
+  "uid": "redis-overview",
+  "title": "Redis Overview",
+  "tags": ["redis", "cache"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Connected Clients",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [{"expr": "redis_connected_clients", "legendFormat": "{{instance}}", "refId": "A"}]
+    },
+    {
+      "id": 2,
+      "title": "Memory Used",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}},
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [{"expr": "redis_memory_used_bytes", "legendFormat": "{{instance}}", "refId": "A"}]
+    },
+    {
+      "id": 3,
+      "title": "Commands Processed/sec",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"x": 0, "y": 8, "w": 24, "h": 8},
+      "targets": [{"expr": "rate(redis_commands_processed_total[5m])", "legendFormat": "{{instance}}", "refId": "A"}]
+    }
+  ]
+}

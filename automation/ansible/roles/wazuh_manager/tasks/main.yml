@@ -1,0 +1,149 @@
+---
+# Native Wazuh manager on the infra LXC (agents on all guests connect here).
+
+- name: Install Wazuh repository signing key
+  ansible.builtin.get_url:
+    url: https://packages.wazuh.com/key/GPG-KEY-WAZUH
+    dest: /usr/share/keyrings/wazuh.asc
+    mode: "0644"
+  become: true
+
+- name: Add Wazuh repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/wazuh.list
+    content: "deb [signed-by=/usr/share/keyrings/wazuh.asc] https://packages.wazuh.com/4.x/apt/ stable main"
+    mode: "0644"
+  become: true
+
+- name: Install Wazuh manager
+  ansible.builtin.apt:
+    name: wazuh-manager
+    state: present
+    update_cache: true
+  become: true
+
+- name: Align Wazuh analysisd file descriptor limit with its systemd unit
+  ansible.builtin.lineinfile:
+    path: /var/ossec/etc/local_internal_options.conf
+    regexp: '^analysisd\.rlimit_nofile='
+    line: 'analysisd.rlimit_nofile=65536'
+    create: true
+    owner: root
+    group: wazuh
+    mode: "0640"
+  become: true
+  notify: restart wazuh-manager
+
+- name: Deploy Wazuh ntfy integration script
+  ansible.builtin.template:
+    src: custom-ntfy.sh.j2
+    dest: /var/ossec/integrations/custom-ntfy
+    owner: root
+    group: wazuh
+    mode: "0750"
+  become: true
+  notify: restart wazuh-manager
+
+- name: Deploy Wazuh ntfy integration config
+  ansible.builtin.template:
+    src: custom-ntfy.conf.j2
+    dest: /var/ossec/integrations/custom-ntfy.conf
+    owner: root
+    group: wazuh
+    mode: "0640"
+  become: true
+  notify: restart wazuh-manager
+
+- name: Register ntfy integration in ossec.conf
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} ANSIBLE MANAGED WAZUH NTFY INTEGRATION -->"
+    insertbefore: "</ossec_config>"
+    block: "{{ lookup('template', 'wazuh-ossec-integration.xml.j2') }}"
+  become: true
+  when: wazuh_ntfy_enabled | bool
+  notify: restart wazuh-manager
+
+- name: Remove ntfy integration from ossec.conf
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} ANSIBLE MANAGED WAZUH NTFY INTEGRATION -->"
+    state: absent
+  become: true
+  when: not wazuh_ntfy_enabled | bool
+  notify: restart wazuh-manager
+
+- name: Configure Wazuh email settings in ossec.conf global block
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} ANSIBLE MANAGED WAZUH EMAIL GLOBAL -->"
+    insertafter: "<global>"
+    block: "{{ lookup('template', 'wazuh-ossec-email-global.xml.j2') }}"
+  become: true
+  when: wazuh_email_enabled | bool
+  notify: restart wazuh-manager
+
+- name: Remove Wazuh email settings from ossec.conf global block
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} ANSIBLE MANAGED WAZUH EMAIL GLOBAL -->"
+    state: absent
+  become: true
+  when: not wazuh_email_enabled | bool
+  notify: restart wazuh-manager
+
+- name: Configure Wazuh high-severity email alerts in ossec.conf
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} ANSIBLE MANAGED WAZUH EMAIL ALERTS -->"
+    insertbefore: "</ossec_config>"
+    block: "{{ lookup('template', 'wazuh-ossec-email-alerts.xml.j2') }}"
+  become: true
+  when: wazuh_email_enabled | bool
+  notify: restart wazuh-manager
+
+- name: Remove Wazuh high-severity email alerts from ossec.conf
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} ANSIBLE MANAGED WAZUH EMAIL ALERTS -->"
+    state: absent
+  become: true
+  when: not wazuh_email_enabled | bool
+  notify: restart wazuh-manager
+
+- name: Start and enable Wazuh manager
+  ansible.builtin.systemd:
+    name: wazuh-manager
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  failed_when: false
+
+- name: Gather service state before repair check
+  ansible.builtin.service_facts:
+  become: true
+
+# Wazuh's .deb can end up half-installed (Status: reinstreq half-installed)
+# when a prior install is interrupted. apt state=present reports "ok" in
+# that state but the bundled python3 is missing, so the service won't start.
+# Force-remove and reinstall to recover.
+- name: Repair broken Wazuh manager package if service is not active
+  ansible.builtin.shell: |
+    set -e
+    dpkg --remove --force-remove-reinstreq --force-depends wazuh-manager
+    apt-get install -y wazuh-manager
+    systemctl daemon-reload
+    systemctl enable --now wazuh-manager
+  args:
+    executable: /bin/bash
+  become: true
+  when: ansible_facts.services.get('wazuh-manager.service', {}).get('state') != 'running'
+  changed_when: true
+
+- name: Verify Wazuh manager is running after recovery
+  ansible.builtin.systemd:
+    name: wazuh-manager
+    state: started
+    enabled: true
+  become: true

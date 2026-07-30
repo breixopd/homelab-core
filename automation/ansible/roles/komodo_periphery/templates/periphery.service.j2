@@ -1,0 +1,26 @@
+[Unit]
+Description=Komodo Periphery management agent
+Documentation=https://komo.do/docs/setup/connect-servers
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+Environment=HOME=/root
+ExecStart=/usr/local/bin/periphery --config-path {{ komodo_periphery_root }}/periphery.config.toml
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=60s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

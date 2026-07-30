@@ -1,0 +1,70 @@
+---
+# Reproduce the controller's locked toolkit environment on each managed guest.
+- name: Install architecture-matched uv from its immutable OCI image
+  ansible.builtin.shell: |
+    set -euo pipefail
+    temporary_uv="$(mktemp)"
+    uv_container="$(docker create \
+      ghcr.io/astral-sh/uv:0.11.29@sha256:eb2843a1e56fd9e30c7276ce1a52cba86e64c7b385f5e3279a0e08e02dd058fc \
+    )"
+    trap 'docker rm "$uv_container" >/dev/null 2>&1 || true; rm -f "$temporary_uv"' EXIT
+    docker cp "$uv_container:/uv" "$temporary_uv"
+    chmod 0755 "$temporary_uv"
+    if cmp --silent "$temporary_uv" /usr/local/bin/uv; then
+      echo "uv unchanged"
+    else
+      install --owner=root --group=root --mode=0755 "$temporary_uv" /usr/local/bin/uv
+      echo "uv updated"
+    fi
+  args:
+    executable: /bin/bash
+  register: guest_uv_install
+  changed_when: "'uv updated' in guest_uv_install.stdout"
+
+- name: Sync the locked toolkit runtime environment
+  ansible.builtin.command:
+    cmd: uv sync --locked --no-dev --python python3
+    chdir: "{{ repo_dest | default('/opt/homelab') }}"
+  environment:
+    UV_PROJECT_ENVIRONMENT: "{{ repo_dest | default('/opt/homelab') }}/.venv"
+  register: guest_uv_sync
+  changed_when: >-
+    'Installed ' in guest_uv_sync.stderr
+    or 'Updated ' in guest_uv_sync.stderr
+    or 'Removed ' in guest_uv_sync.stderr
+
+- name: Check installed runtime file integrity
+  ansible.builtin.shell: |
+    set -euo pipefail
+    "{{ repo_dest | default('/opt/homelab') }}/.venv/bin/python3" - <<'PY'
+    import importlib.metadata
+    import pathlib
+    import sys
+
+    missing = []
+    for distribution in importlib.metadata.distributions():
+        for relative in distribution.files or ():
+            if not pathlib.Path(distribution.locate_file(relative)).exists():
+                missing.append(f"{distribution.metadata['Name']}: {relative}")
+    if missing:
+        print("missing installed files:")
+        print("\\n".join(missing[:20]))
+        sys.exit(1)
+    PY
+  args:
+    executable: /bin/bash
+  register: guest_runtime_integrity
+  changed_when: false
+  # rc=1 is the expected, recoverable result when a RECORD entry is missing;
+  # every other non-zero result remains fail-closed.
+  failed_when: guest_runtime_integrity.rc not in [0, 1]
+
+- name: Repair incomplete locked toolkit runtime environment
+  ansible.builtin.command:
+    cmd: uv sync --locked --no-dev --python python3 --reinstall
+    chdir: "{{ repo_dest | default('/opt/homelab') }}"
+  environment:
+    UV_PROJECT_ENVIRONMENT: "{{ repo_dest | default('/opt/homelab') }}/.venv"
+  when: guest_runtime_integrity.rc != 0
+  register: guest_uv_repair
+  changed_when: true

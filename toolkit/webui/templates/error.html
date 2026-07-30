@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Homelab{% endblock %}
+{% block page_heading %}{{ title }}{% endblock %}
+{% block content %}
+  <section class="webui-error" aria-labelledby="error-heading">
+    <div class="webui-error-mark" aria-hidden="true"><svg><use href="/static/icons/sprite.svg#circle-alert"></use></svg></div>
+    <div class="webui-error-copy">
+      <p class="webui-error-status">{{ status_code }} · {{ status_label }}</p>
+      <h2 id="error-heading">{{ message }}</h2>
+      <p class="muted">The rest of the console is still available. Try again in a moment or return to the overview.</p>
+      <div class="webui-error-actions">
+        <a class="btn btn-primary" href="{{ retry_url }}">Try again</a>
+        <a class="btn btn-ghost" href="/">Back to overview</a>
+      </div>
+    </div>
+  </section>
+{% endblock %}

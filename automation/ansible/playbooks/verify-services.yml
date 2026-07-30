@@ -1,0 +1,44 @@
+---
+# Verify toolkit services: Docker, compose config, and expected URLs.
+#
+# Each URL check has a timeout and independent rescue so one failure does not
+# abort the remaining checks.
+
+- name: Verify toolkit services
+  hosts: guest_hosts
+  become: true
+  tasks:
+    - name: Verify docker is available
+      ansible.builtin.command: docker ps
+      changed_when: false
+
+    - name: Verify compose config renders
+      vars:
+        homelab_node: "{{ homelab_node_id }}"
+      ansible.builtin.command:
+        cmd: docker compose --env-file generated/{{ homelab_node }}/.env config
+        chdir: "{{ repo_dest | default('/opt/homelab') }}"
+      changed_when: false
+
+    - name: Check expected URLs for host
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        method: GET
+        validate_certs: true
+        return_content: false
+        status_code: [200, 301, 302, 401]
+        timeout: 10
+      loop: "{{ expected_urls[inventory_hostname] | default([]) }}"
+      changed_when: false
+      register: url_results
+
+    - name: Report URL check failures without aborting
+      ansible.builtin.debug:
+        msg: >
+          URL check failed for {{ item.url }} —
+          status: {{ item.status | default('N/A') }},
+          error: {{ item.msg | default('none') }}
+      loop: "{{ url_results.results | default([]) }}"
+      when:
+        - item is failed
+        - item.url is defined

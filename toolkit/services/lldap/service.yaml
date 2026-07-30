@@ -1,0 +1,87 @@
+name: lldap
+label: LLDAP
+description: User directory (LDAP)
+icon: 👥
+category: management
+placement: control
+priority: 10
+guest_task_order: 120
+recovery_task_order: 100
+image_build:
+  context: image
+  env_var: HOMELAB_LLDAP_IMAGE
+  smoke_tests:
+  - entrypoint: ldapsearch
+    command: [-VV]
+essential: true
+restart_policy: careful
+depends_on: []
+memory_tier: light
+service_endpoint:
+  container_port: 3890
+  published_port: 3890
+host_sources:
+  LLDAP_DATA_SOURCE:
+    path: data/lldap
+stateful: true
+variables:
+  LLDAP_HTTP_URL: '{derived.public_url_protocol}://users.{config.domain}'
+  LLDAP_BASE_DN: '{derived.ldap_base_dn}'
+  LLDAP_BIND_UID: ldap-bind
+  LLDAP_USER_OU: ou=people
+  LLDAP_GROUP_OU: ou=groups
+  AUTHELIA_DEFAULT_EMAIL: '{derived.admin_email}'
+data_specs:
+- name: directory-data
+  source_env: LLDAP_DATA_SOURCE
+  target: /data
+  size_estimate_gb: 2
+  snapshot: true
+  # The upstream image drops to the lldap user (1000:1000) after init.
+  host_uid: 1000
+  host_gid: 1000
+host_integrations:
+- id: ldap-client
+  label: LDAP SSH (SSSD)
+  kinds: [fleet]
+  default_for: [fleet]
+  ansible_role: ldap_client
+  managed_node_bootstrap: true
+network_listeners:
+- id: ldap
+  port: 3890
+  sources: ['@all', '@integration:ldap-client']
+routes:
+- subdomain: users
+  upstream: lldap:17170
+  published_port: 17170
+  exposure: private
+  auth:
+    mode: forward_auth
+required_secrets:
+- name: LLDAP_JWT_SECRET
+  tier: generated
+  length: 64
+  description: JWT signing key
+  rotation: restart
+- name: LLDAP_ADMIN_PASSWORD
+  tier: generated
+  length: 24
+  description: Directory administrator password
+  rotation: persistent
+- name: LLDAP_BIND_PASSWORD
+  tier: generated
+  length: 24
+  description: LDAP service bind password
+  rotation: reconcile
+- name: SSO_USER_PASSWORD
+  tier: generated
+  length: 24
+  description: Initial owner account password
+  rotation: reconcile
+credentials:
+- name: Authelia / LLDAP
+  url: '{proto}://auth.{domain}'
+  password_env: SSO_USER_PASSWORD
+  tags: [homelab, sso, directory]
+  notes: Sign in with the owner email or generated directory user ID.

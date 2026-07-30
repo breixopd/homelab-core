@@ -1,0 +1,113 @@
+---
+- name: Require a supported Tailscale release architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['architecture'] in tailscale_releases
+    fail_msg: "No verified Tailscale artifact is declared for {{ ansible_facts['architecture'] }}"
+
+- name: Select the verified Tailscale release
+  ansible.builtin.set_fact:
+    tailscale_release: "{{ tailscale_releases[ansible_facts['architecture']] }}"
+
+- name: Read installed Tailscale version
+  ansible.builtin.command: tailscale version
+  register: tailscale_check
+  changed_when: false
+  failed_when: false
+
+- name: Install verified Tailscale release
+  when: tailscale_check.rc != 0 or tailscale_check.stdout_lines | default([]) | first | default('') != tailscale_version
+  block:
+    - name: Download Tailscale release archive
+      ansible.builtin.get_url:
+        url: >-
+          https://pkgs.tailscale.com/stable/tailscale_{{ tailscale_version }}_{{ tailscale_release.asset_arch }}.tgz
+        dest: "/var/tmp/tailscale_{{ tailscale_version }}_{{ tailscale_release.asset_arch }}.tgz"
+        checksum: "sha256:{{ tailscale_release.sha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Extract Tailscale release archive
+      ansible.builtin.unarchive:
+        src: "/var/tmp/tailscale_{{ tailscale_version }}_{{ tailscale_release.asset_arch }}.tgz"
+        dest: /var/tmp
+        remote_src: true
+        creates: >-
+          /var/tmp/tailscale_{{ tailscale_version }}_{{ tailscale_release.asset_arch }}/tailscaled
+
+    - name: Install Tailscale client binary
+      ansible.builtin.copy:
+        src: >-
+          /var/tmp/tailscale_{{ tailscale_version }}_{{ tailscale_release.asset_arch }}/tailscale
+        dest: /usr/bin/tailscale
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Restart tailscaled
+
+    - name: Install Tailscale daemon binary
+      ansible.builtin.copy:
+        src: >-
+          /var/tmp/tailscale_{{ tailscale_version }}_{{ tailscale_release.asset_arch }}/tailscaled
+        dest: /usr/sbin/tailscaled
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Restart tailscaled
+
+    - name: Install vendor Tailscale systemd unit
+      ansible.builtin.copy:
+        src: >-
+          /var/tmp/tailscale_{{ tailscale_version }}_{{ tailscale_release.asset_arch }}/systemd/tailscaled.service
+        dest: /etc/systemd/system/tailscaled.service
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart tailscaled
+
+    - name: Install vendor Tailscale defaults
+      ansible.builtin.copy:
+        src: >-
+          /var/tmp/tailscale_{{ tailscale_version }}_{{ tailscale_release.asset_arch }}/systemd/tailscaled.defaults
+        dest: /etc/default/tailscaled
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart tailscaled
+
+- name: Enable and start Tailscale daemon
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Register with Headscale
+  ansible.builtin.command:
+    argv: >-
+      {{
+        [
+          'tailscale',
+          'up',
+          '--login-server=' + headscale_url,
+          '--authkey=' + headscale_auth_key,
+          '--hostname=' + inventory_hostname,
+          '--accept-routes',
+          '--accept-dns=false'
+        ]
+        + (
+          ['--advertise-tags=' + (headscale_tags | join(','))]
+          if headscale_tags | default([]) | length > 0
+          else []
+        )
+      }}
+  changed_when: true
+  when:
+    - headscale_url | default('') | length > 0
+    - headscale_auth_key | default('') | length > 0
+  no_log: true

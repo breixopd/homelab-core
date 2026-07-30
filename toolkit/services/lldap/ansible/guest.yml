@@ -1,0 +1,5 @@
+---
+# LLDAP owns the managed-node SSSD/PAM integration while retaining the role's
+# idempotent behavior.
+- name: Apply LLDAP guest hook
+  ansible.builtin.include_tasks: "{{ homelab_controller_root }}/toolkit/services/lldap/ansible/sync.yml"

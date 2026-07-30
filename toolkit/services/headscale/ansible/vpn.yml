@@ -1,0 +1,8 @@
+---
+- name: Install the mesh client on its manifest-selected routing node
+  ansible.builtin.include_role:
+    name: vpn_client
+  vars:
+    headscale_url: ""
+    headscale_auth_key: ""
+  when: homelab_node_id == service_nodes['headscale']

@@ -1,0 +1,67 @@
+name: plex
+label: Plex
+description: Media server (movies/TV/music)
+icon: 📺
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on: []
+memory_tier: heavy
+host_sources:
+  PLEX_CONFIG_SOURCE:
+    path: data/plex/config
+  PLEX_TRANSCODE_SOURCE:
+    path: data/plex/transcode
+stateful: true
+data_specs:
+- name: plex-config
+  source_env: PLEX_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 50
+  snapshot: true
+- name: transcode-cache
+  source_env: PLEX_TRANSCODE_SOURCE
+  target: /transcode
+  size_estimate_gb: 50
+  snapshot: false
+- name: media-library
+  source_env: MEDIA_LIBRARY_ROOT
+  target: /data
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+enabled_when:
+- setting: media-library.server
+  one_of: [plex, both]
+variables:
+  PLEX_URL: '{derived.public_url_protocol}://plex.{config.domain}'
+routes:
+- upstream: plex:32400
+  published_port: 32400
+  exposure: public
+  auth:
+    mode: native
+health:
+  public_probe_path: /identity
+guidance:
+- id: claim-token
+  phase: pre_deploy
+  category: Prerequisite
+  title: Plex claim token before first start
+  instructions: >-
+    Get a short-lived token from https://plex.tv/claim and provide PLEX_CLAIM in
+    setup before the first media deployment. Without it, claim the server
+    manually within the token window after the container starts.
+required_secrets:
+- name: PLEX_CLAIM
+  tier: user
+  length: 32
+  description: Short-lived Plex server claim token
+  setup:
+    label: Plex claim token
+    input: password
+    when:
+    - setting: media-library.server
+      one_of: [plex, both]

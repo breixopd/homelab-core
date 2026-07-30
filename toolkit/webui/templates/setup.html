@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }} · Homelab</title>
+  <link rel="stylesheet" href="/static/css/main.css?v={{ static_revision }}">
+  <script src="/static/js/setup.js?v={{ static_revision }}" defer></script>
+</head>
+<body class="setup-body">
+  <main class="setup-container">
+    <header class="setup-header">
+      <div class="brand-mark lg setup-brand-mark">HL</div>
+      <h1>Homelab setup</h1>
+      <p class="setup-subtitle">Secure first-run initialization.</p>
+    </header>
+
+    {% if error %}
+    <div class="alert alert-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    {% if status.phase == 'ready' %}
+    <section class="setup-card" aria-labelledby="setup-complete-title">
+      <h2 id="setup-complete-title">Setup complete</h2>
+      <p class="muted text-sm">This installation is already initialized. Sign in to manage deployments.</p>
+      <a class="btn btn-primary btn-lg" href="/login">Continue to sign in</a>
+    </section>
+    {% elif status.phase == 'recovery_required' %}
+    <section class="setup-card" aria-labelledby="recovery-title">
+      <h2 id="recovery-title">Recovery required</h2>
+      <p class="muted text-sm">Initialization state is incomplete or failed integrity checks. New setup attempts are blocked.</p>
+    </section>
+    {% elif needs_capability %}
+    <form method="post" action="/setup/session" class="setup-card">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+      <h2>Setup capability</h2>
+      <div class="setup-grid">
+        <label class="full">
+          One-time capability
+          <input name="capability" type="password" autocomplete="off" required autofocus>
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg btn-block">Authorize setup</button>
+    </form>
+    {% else %}
+    <form method="post" action="/setup" class="setup-form">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+      <section class="setup-card">
+        <h2>Identity and access</h2>
+        <div class="setup-grid">
+          <label>
+            <span>Domain <span class="required-mark">*</span></span>
+            <input name="domain" type="text" placeholder="home.example.com" required autofocus>
+          </label>
+          <label>
+            <span>Owner email <span class="required-mark">*</span></span>
+            <input name="email" type="email" placeholder="operator@example.com" autocomplete="email" required>
+          </label>
+          <label>
+            <span>Owner password <span class="required-mark">*</span></span>
+            <input name="owner_password" type="password" minlength="16" autocomplete="new-password" required>
+          </label>
+          <label>
+            <span>Confirm owner password <span class="required-mark">*</span></span>
+            <input name="owner_password_confirm" type="password" minlength="16" autocomplete="new-password" required>
+          </label>
+          <label class="full">
+            <span>Cloudflare API token <span class="required-mark">*</span></span>
+            <input name="cloudflare_api_token" type="password" autocomplete="new-password" required>
+          </label>
+          <label>
+            <span>Cloudflare zone ID <span class="required-mark">*</span></span>
+            <input name="cloudflare_zone_id" type="text" minlength="32" maxlength="32" autocomplete="off" required>
+          </label>
+        </div>
+      </section>
+
+      <section class="setup-card">
+        <h2>Proxmox</h2>
+        <div class="setup-grid">
+          <label>
+            <span>API token ID <span class="required-mark">*</span></span>
+            <input name="proxmox_api_token_id" type="text" placeholder="root@pam!homelab" autocomplete="off" required>
+          </label>
+          <label>
+            <span>API token secret <span class="required-mark">*</span></span>
+            <input name="proxmox_api_token_secret" type="password" autocomplete="new-password" required>
+          </label>
+          <label>
+            <span>API URL <span class="required-mark">*</span></span>
+            <input name="proxmox_api_url" type="url" placeholder="https://192.168.1.100:8006" required>
+          </label>
+          <label>
+            <span>Node <span class="required-mark">*</span></span>
+            <input name="proxmox_node" type="text" value="pve" required>
+          </label>
+          <label>
+            <span>Storage <span class="required-mark">*</span></span>
+            <input name="proxmox_storage" type="text" value="local-zfs" required>
+          </label>
+          <label>
+            <span>Timezone <span class="required-mark">*</span></span>
+            <input name="timezone" type="text" value="Europe/Madrid" required>
+          </label>
+        </div>
+      </section>
+
+      {% if service_settings %}
+      <section class="setup-card">
+        <h2>Services</h2>
+        <div class="setup-choice-grid">
+          {% for setting in service_settings %}
+          {% if setting.type == 'boolean' %}
+          {% set field = 'service_setting__' ~ setting.service ~ '__' ~ setting.key %}
+          <label class="label-row" title="{{ setting.description }}">
+            <input type="checkbox" name="{{ field }}" id="{{ field }}" {% if setting.default %}checked{% endif %}>
+            {{ setting.service_label }} · {{ setting.label }}
+          </label>
+          {% endif %}
+          {% endfor %}
+        </div>
+        <div class="setup-grid">
+          {% for setting in service_settings %}
+          {% set field = 'service_setting__' ~ setting.service ~ '__' ~ setting.key %}
+          {% if setting.type == 'select' %}
+          <label>
+            <span>{{ setting.service_label }} · {{ setting.label }}</span>
+            <select name="{{ field }}" id="{{ field }}">
+              {% for choice in setting.choices %}
+              <option value="{{ choice }}" {% if choice == setting.default %}selected{% endif %}>{{ choice|replace('_', ' ')|title }}</option>
+              {% endfor %}
+            </select>
+            {% if setting.description %}<small class="field-hint">{{ setting.description }}</small>{% endif %}
+          </label>
+          {% elif setting.type != 'boolean' %}
+          <label>
+            <span>{{ setting.service_label }} · {{ setting.label }}</span>
+            <input name="{{ field }}" id="{{ field }}" type="{{ 'number' if setting.type == 'number' else 'text' }}" value="{{ setting.default }}" {% if setting.minimum is not none %}min="{{ setting.minimum }}"{% endif %} {% if setting.maximum is not none %}max="{{ setting.maximum }}"{% endif %} {% if setting.step is not none %}step="{{ setting.step }}"{% endif %}>
+            {% if setting.description %}<small class="field-hint">{{ setting.description }}</small>{% endif %}
+          </label>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if service_secrets %}
+      <details class="setup-card advanced-section" open>
+        <summary>Service credentials</summary>
+        <div class="setup-grid advanced-fields">
+          {% for secret in service_secrets %}
+          <label class="setup-secret-row">
+            <span>{{ secret.label }}{% if secret.required %} <span class="required-mark">*</span>{% endif %}</span>
+            <input name="bootstrap_secret__{{ secret.name }}" id="bootstrap_secret__{{ secret.name }}" type="{{ secret.input }}" autocomplete="{{ 'new-password' if secret.input == 'password' else 'off' }}">
+            {% if secret.description %}<small class="field-hint">{{ secret.description }}</small>{% endif %}
+            {% for condition in secret.conditions %}
+            <span hidden data-condition-field="service_setting__{{ condition.setting|replace('.', '__') }}" data-condition-values="{{ condition.values|join('|') }}"></span>
+            {% endfor %}
+          </label>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+
+      <section class="setup-card">
+        <h2>Deployment inventory</h2>
+        <div class="preview-grid">
+          {% for cat in category_preview %}
+          <div class="preview-card">
+            <div class="cat-label">{{ cat.label }}</div>
+            <div class="cat-node">{{ cat.node }} / {{ cat.service_count }} services</div>
+            <div class="svc-tags">
+              {% for svc in cat.services[:6] %}<span class="svc-tag">{{ svc.label }}</span>{% endfor %}
+              {% if cat.services|length > 6 %}<span class="svc-tag more">+{{ cat.services|length - 6 }} more</span>{% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <button type="submit" class="btn btn-primary btn-lg btn-block">Initialize homelab</button>
+    </form>
+    {% endif %}
+  </main>
+</body>
+</html>

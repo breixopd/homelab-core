@@ -1,0 +1,36 @@
+name: node-exporter
+label: Node Exporter
+description: Host metrics
+icon: 🔧
+category: management
+placement: control
+priority: 10
+image_release:
+  compose_service: node-exporter
+  repository: docker.io/prom/node-exporter
+  version: v1.12.1
+  digest: sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+runtimes:
+  node-exporter-agent:
+    placements: ['@non-primary']
+    compose_profile: monitoring-agent
+prometheus:
+- id: controller
+  job: node
+  container_port: 9100
+  host_port: 9100
+- id: managed
+  job: node
+  container_port: 9100
+  host_port: 9100
+  runtime_service: node-exporter-agent
+- id: external
+  job: node
+  host_port: 9100
+  host_integration: monitoring-agent
+host_integrations:
+- id: monitoring-agent
+  label: Monitoring (Prometheus/Loki)
+  kinds: [plain, fleet]
+  default_for: [plain, fleet]
+  ansible_role: monitoring_agent

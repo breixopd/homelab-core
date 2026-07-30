@@ -1,0 +1,6 @@
+---
+# Wazuh agent installation is owned by the Wazuh service integration and is
+# dispatched to every managed guest.  The role keeps the manager-node guard so
+# an agent never conflicts with the native manager package.
+- name: Apply Wazuh security guest hook
+  ansible.builtin.include_tasks: "{{ homelab_controller_root }}/toolkit/services/wazuh-dashboard/ansible/security.yml"

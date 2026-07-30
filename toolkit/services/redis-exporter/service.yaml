@@ -1,0 +1,20 @@
+name: redis-exporter
+label: Redis Exporter
+description: Cache metrics
+icon: 🔧
+category: management
+placement: control
+priority: 10
+depends_on: ['redis']
+integrations:
+- service: redis
+  host_env: REDIS_EXPORTER_REDIS_HOST
+  port_env: REDIS_EXPORTER_REDIS_PORT
+generated_artifacts:
+- path: generated/.env.redis-exporter
+  sensitive: true
+prometheus:
+- id: exporter
+  job: redis
+  container_port: 9121
+  host_port: 9121

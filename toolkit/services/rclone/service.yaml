@@ -1,0 +1,33 @@
+name: rclone
+label: rclone
+description: Remote storage mount
+icon: ☁️
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on: []
+memory_tier: light
+host_sources:
+  RCLONE_CONFIG_SOURCE:
+    path: data/rclone/config
+stateful: true
+data_specs:
+- name: served-library
+  source_env: MEDIA_LIBRARY_ROOT
+  target: /library
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+- name: cache-tier
+  source_env: INSTALL_ROOT
+  source_subpath: media/cache
+  target: /cache
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+variables:
+  RCLONE_CACHE_MAX_SIZE: 500G
+  RCLONE_REMOTE: media-union

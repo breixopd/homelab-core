@@ -1,0 +1,50 @@
+services:
+  seaweedfs:
+    restart: unless-stopped
+    profiles:
+    - cloud
+    - svc-seaweedfs
+    image: chrislusf/seaweedfs:4.39@sha256:c7d6c721b30ae711db766bbbfd40192776e263d4e51e22f57baef7bef93c12c6
+    container_name: seaweedfs
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+    command:
+    - server
+    - -dir=/data
+    - -s3
+    - -s3.port=8333
+    - -s3.config=/etc/seaweedfs/s3.json
+    - -filer
+    - -filer.port=8888
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8333:8333
+    - ${PRIVATE_IP:-127.0.0.1}:8888:8888
+    volumes:
+    - ${SEAWEEDFS_DATA_SOURCE:-./data/seaweedfs}:/data
+    - ${GENERATED_SEAWEEDFS_S3_CONFIG:-./generated/seaweedfs-s3.json}:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://127.0.0.1:8888/ || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 512

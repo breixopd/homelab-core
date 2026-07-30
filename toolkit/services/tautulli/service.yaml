@@ -1,0 +1,39 @@
+name: tautulli
+label: Tautulli
+description: Plex monitoring and webhook automation
+icon: 📈
+category: media
+placement: media
+priority: 35
+restart_policy: safe
+depends_on:
+- plex
+memory_tier: light
+host_sources:
+  TAUTULLI_CONFIG_SOURCE:
+    path: data/tautulli/config
+stateful: true
+data_specs:
+- name: tautulli-config
+  source_env: TAUTULLI_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 5
+  snapshot: true
+enabled_when:
+- setting: media-library.server
+  one_of: [plex, both]
+routes:
+- subdomain: tautulli
+  upstream: tautulli:8181
+  published_port: 8181
+  exposure: private
+  auth:
+    mode: forward_auth
+identity:
+  access_groups: [homelab-admin]
+required_secrets:
+- name: TAUTULLI_API_KEY
+  tier: generated
+  length: 32
+  description: API key bootstrapped after first start
+  rotation: persistent

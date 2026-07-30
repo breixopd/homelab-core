@@ -1,0 +1,30 @@
+name: uptime-kuma
+label: Uptime Kuma
+description: Status page + uptime monitoring (replaces the clunky HTML health report)
+icon: 🟢
+category: notifications
+placement: control
+priority: 40
+restart_policy: careful
+depends_on: []
+memory_tier: medium
+host_sources:
+  UPTIME_KUMA_DATA_SOURCE:
+    path: data/uptime-kuma
+stateful: true
+
+routes:
+- subdomain: status
+  upstream: uptime-kuma:3001
+  published_port: 3001
+  exposure: public
+  auth:
+    mode: native
+health:
+  public_probe_path: /
+data_specs:
+- name: uptime-kuma-data
+  source_env: UPTIME_KUMA_DATA_SOURCE
+  target: /app/data
+  size_estimate_gb: 2
+  snapshot: true

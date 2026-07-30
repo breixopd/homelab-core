@@ -1,0 +1,100 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "homelab-toolkit"
+version = "1.0.0"
+description = "Config-driven homelab deploy toolkit (CLI + WebUI)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ansible>=12.3",
+    "argon2-cffi>=25.1",
+    "bcrypt>=5.0",
+    "certifi>=2026.6.17",
+    "click>=8.4.2",
+    "cryptography>=49.0",
+    "defusedxml>=0.7.1",
+    "pydantic>=2.13.4",
+    "pyyaml>=6.0.3",
+    "jinja2>=3.1.6",
+    "httpx>=0.28.1",
+    "pip-audit>=2.10.1",
+    "rich>=15.0",
+    "fastapi>=0.139.2",
+    "uvicorn[standard]>=0.51",
+    "python-multipart>=0.0.32",
+    "python-dotenv>=1.2.2",
+    "itsdangerous>=2.2",
+    "redis>=8.0.1",
+    "uptime-kuma-api2>=2.1.0,<3",
+]
+
+[project.optional-dependencies]
+test = [
+    "ansible-lint>=26.6.0",
+    "flask>=3.1.0",
+    "httpx>=0.27",
+    "mypy>=2.3",
+    "types-PyYAML>=6.0",
+    "types-click>=7.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.0",
+    "pytest-timeout>=2.4.0",
+    "requests>=2.34.2",
+    "ruff>=0.15.22",
+    "types-defusedxml>=0.7.0",
+]
+dev = [
+    "flask>=3.1.0",
+    "mypy>=2.3",
+    "types-PyYAML>=6.0",
+    "types-click>=7.1",
+    "pytest>=9.1.1",
+    "requests>=2.34.2",
+    "ruff>=0.15.22",
+    "types-defusedxml>=0.7.0",
+]
+
+[project.scripts]
+homelab-toolkit = "toolkit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["toolkit*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["toolkit", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+# The framework gate is intentionally isolated from service implementation tests.
+# Service tests live under tests/services/<service>/ and run as a separate CI
+# gate, while live post_start/verify hooks remain the deployment source of truth.
+testpaths = ["tests/framework"]
+markers = [
+    "e2e: End-to-end tests requiring a running UI instance",
+]
+
+[tool.coverage.run]
+omit = [
+    # Async/multi-host orchestration — covered by workflow mocks + live deploy verify.
+    "toolkit/core/deploy/deploy_workflow.py",
+    # Live SSH/docker hook matrix — `deploy verify --hooks` on fleet (108 checks).
+    "toolkit/core/ops/hook_verify.py",
+    # Parallel health collectors — exercised via Web UI / `homelab-toolkit health`.
+    "toolkit/core/ops/health_report.py",
+    # Post-deploy service configuration — validated on live stack (`deploy hooks`).
+    "toolkit/core/ops/automation.py",
+    # Host maintenance — exercised via CLI; SSH/docker paths are environment-specific.
+    "toolkit/core/ops/maintenance.py",
+]

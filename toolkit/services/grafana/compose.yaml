@@ -1,0 +1,75 @@
+services:
+  grafana:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-grafana
+    image: grafana/grafana:13.1.0@sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63
+    container_name: grafana
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    cap_drop:
+    - ALL
+    environment:
+      TZ: ${TZ:-UTC}
+      GF_SERVER_ROOT_URL: ${PUBLIC_URL_PROTOCOL:-https}://grafana.${BASE_DOMAIN:-localhost}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_AUTH_GENERIC_OAUTH_ENABLED: 'true'
+      GF_AUTH_GENERIC_OAUTH_NAME: Authelia
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: grafana
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${GRAFANA_OIDC_SECRET:-}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: openid profile email groups
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: ${PUBLIC_URL_PROTOCOL:-https}://auth.${BASE_DOMAIN:-localhost}/api/oidc/authorization
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: http://authelia:9091/api/oidc/token
+      GF_AUTH_GENERIC_OAUTH_API_URL: http://authelia:9091/api/oidc/userinfo
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: contains(groups[*], 'homelab-admin') && 'Admin' || contains(groups[*], 'lldap_admin')
+        && 'Admin' || 'Viewer'
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: ${GRAFANA_DB_HOST}:${GRAFANA_DB_PORT}
+      GF_DATABASE_NAME: ${GRAFANA_DB_NAME}
+      GF_DATABASE_USER: ${GRAFANA_DB_USER}
+      GF_DATABASE_PASSWORD: ${GRAFANA_DB_PASSWORD}
+      GF_DATABASE_SSL_MODE: disable
+      GF_INSTALL_PLUGINS: redis-datasource,grafana-clock-panel,grafana-piechart-panel
+      GF_SMTP_ENABLED: ${GRAFANA_SMTP_ENABLED:-false}
+      GF_SMTP_HOST: ${GRAFANA_SMTP_HOST:-}
+      GF_SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-noreply@localhost}
+      GF_SMTP_FROM_NAME: Homelab Grafana
+      GF_SMTP_EHLO_IDENTITY: grafana.${BASE_DOMAIN:-localhost}
+      GF_SMTP_SKIP_VERIFY: 'true'
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
+      NTFY_INTERNAL_URL: ${NTFY_INTERNAL_URL:-}
+      GRAFANA_WEBHOOK_HMAC_SECRET: ${GRAFANA_WEBHOOK_HMAC_SECRET}
+      DEV_VM_IP: ${DEV_VM_IP}
+      DEV_REDIS_PORT: 6380
+    expose:
+    - 3000
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:3002:3000
+    volumes:
+    - ${GRAFANA_DATA_SOURCE:-./data/grafana}:/var/lib/grafana
+    - ${INSTALL_ROOT}/config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    - ${INSTALL_ROOT}/config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    - ${GRAFANA_ALERTING_SOURCE:-./generated/grafana}:/etc/grafana/provisioning/alerting:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:3000/api/health || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256

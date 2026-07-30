@@ -1,0 +1,65 @@
+name: caddy
+label: Caddy
+description: Reverse proxy + TLS
+icon: 🌐
+category: management
+placement: control
+priority: 10
+essential: true
+internal_aliases: [caddy-infra]
+restart_policy: never
+depends_on:
+- authelia
+- crowdsec
+provides: [ingress]
+memory_tier: light
+host_sources:
+  CADDY_DATA_SOURCE:
+    path: data/caddy
+  CADDY_CONFIG_SOURCE:
+    path: data/caddy/config
+  CADDY_ACCESS_LOG_SOURCE:
+    path: data/caddy-access
+  GENERATED_CADDYFILE:
+    path: generated/Caddyfile
+generated_artifacts:
+- path: generated/Caddyfile
+image_build:
+  context: image
+  env_var: HOMELAB_CADDY_IMAGE
+  smoke_tests:
+  - command: [caddy, version]
+  - command: [caddy, list-modules]
+    contains: dns.providers.cloudflare
+  - command: [caddy, list-modules]
+    contains: http.handlers.crowdsec
+  - command: [caddy, list-modules]
+    contains: layer4.matchers.crowdsec
+stateful: true
+variables:
+  CADDY_BIND_ADDRESS: 0.0.0.0
+secret_projections:
+- source_env: CLOUDFLARE_API_TOKEN
+  target_env: CF_API_TOKEN
+- source_env: CROWDSEC_CADDY_BOUNCER_KEY
+  target_env: CADDY_BOUNCER_API_KEY
+data_specs:
+- name: caddy-data
+  source_env: CADDY_DATA_SOURCE
+  target: /data
+  size_estimate_gb: 1
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: caddy-config
+  source_env: CADDY_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 1
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: caddy-access-log
+  source_env: CADDY_ACCESS_LOG_SOURCE
+  target: /var/log/caddy
+  size_estimate_gb: 2
+  snapshot: false

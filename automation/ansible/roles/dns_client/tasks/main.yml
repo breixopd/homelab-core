@@ -1,0 +1,13 @@
+---
+- name: Configure systemd-resolved to use the manifest DNS provider
+  ansible.builtin.template:
+    src: resolved.conf.j2
+    dest: /etc/systemd/resolved.conf
+    mode: "0644"
+  notify: restart resolved
+
+- name: Ensure systemd-resolved is running
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    enabled: true
+    state: started

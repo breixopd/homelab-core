@@ -1,0 +1,81 @@
+services:
+  wazuh-indexer-certs-init:
+    profiles:
+    - security-wazuh-ui
+    - svc-wazuh-indexer
+    image: wazuh/wazuh-certs-generator:0.0.4@sha256:369b4d58509aab074b188596870c81584f7120e653d9ef83c591f0f785dcf325
+    container_name: wazuh-indexer-certs-init
+    restart: 'no'
+    environment:
+      CERT_TOOL_VERSION: '4.14'
+    volumes:
+    - ${WAZUH_CERTS_SOURCE:-./data/wazuh/certs}:/certificates
+    - ${INSTALL_ROOT}/config/wazuh/certs.yml:/config/certs.yml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    entrypoint:
+    - /bin/bash
+    - -c
+    - if [ -f /certificates/wazuh.indexer.pem ] && [ -f /certificates/admin.pem ] && [ -f /certificates/root-ca.pem ]; then
+      echo 'Wazuh certs already present; skipping.'; exit 0; fi; echo 'Generating Wazuh TLS certs (first boot)...'; exec /entrypoint.sh
+  wazuh-indexer:
+    restart: unless-stopped
+    networks:
+      plugin-wazuh-indexer:
+        aliases:
+        - wazuh.indexer
+    profiles:
+    - security-wazuh-ui
+    - svc-wazuh-indexer
+    image: wazuh/wazuh-indexer:4.14.6@sha256:afc3feafe16fa863abb7686369f4f17397297d10c8bac10320f22cc3e2a27363
+    container_name: wazuh-indexer
+    hostname: wazuh.indexer
+    read_only: false
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      OPENSEARCH_JAVA_OPTS: ${WAZUH_INDEXER_JAVA_OPTS:--Xms768m -Xmx768m}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${WAZUH_INDEXER_PASSWORD}
+      bootstrap.memory_lock: 'false'
+      discovery.type: single-node
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:9200:9200
+    volumes:
+    - ${WAZUH_INDEXER_DATA_SOURCE:-./data/wazuh/indexer}:/var/lib/wazuh-indexer
+    - ${INSTALL_ROOT}/config/wazuh/wazuh_indexer.yml:/usr/share/wazuh-indexer/config/opensearch.yml:ro
+    - ${INSTALL_ROOT}/generated/wazuh/internal_users.yml:/usr/share/wazuh-indexer/config/opensearch-security/internal_users.yml:ro
+    - ${WAZUH_CERTS_SOURCE:-./data/wazuh/certs}/root-ca.pem:/usr/share/wazuh-indexer/config/certs/root-ca.pem:ro
+    - ${WAZUH_CERTS_SOURCE:-./data/wazuh/certs}/wazuh.indexer-key.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.key:ro
+    - ${WAZUH_CERTS_SOURCE:-./data/wazuh/certs}/wazuh.indexer.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.pem:ro
+    - ${WAZUH_CERTS_SOURCE:-./data/wazuh/certs}/admin.pem:/usr/share/wazuh-indexer/config/certs/admin.pem:ro
+    - ${WAZUH_CERTS_SOURCE:-./data/wazuh/certs}/admin-key.pem:/usr/share/wazuh-indexer/config/certs/admin-key.pem:ro
+    depends_on:
+      wazuh-indexer-certs-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - >-
+        curl -sk
+        --cert /usr/share/wazuh-indexer/config/certs/admin.pem
+        --key /usr/share/wazuh-indexer/config/certs/admin-key.pem
+        https://localhost:9200/_cluster/health |
+        grep -qE '"status":"(green|yellow)"' || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 8
+      start_period: 300s
+    mem_limit: 2g
+    cpus: 1.5
+    pids_limit: 512

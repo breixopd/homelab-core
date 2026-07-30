@@ -1,0 +1,41 @@
+services:
+  ntfy:
+    restart: unless-stopped
+    profiles:
+    - notifications
+    - svc-ntfy
+    image: binwiederhier/ntfy:v2.26.0@sha256:a6d335064ae927c4dbef118e1fa39656b3d2e01472b2a82af5915d5cebfe815f
+    container_name: ntfy
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command: serve
+    environment:
+      TZ: ${TZ:-UTC}
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-http://ntfy.localhost}
+      NTFY_UPSTREAM_BASE_URL: https://ntfy.sh
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8090:80
+    expose:
+    - 80
+    volumes:
+    - ${NTFY_CACHE_SOURCE:-./data/ntfy/cache}:/var/cache/ntfy
+    - ${NTFY_ETC_SOURCE:-./data/ntfy/etc}:/etc/ntfy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q --spider http://localhost:80/v1/health || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128

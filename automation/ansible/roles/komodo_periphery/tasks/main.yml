@@ -1,0 +1,66 @@
+---
+- name: Require Komodo Core and a supported release architecture
+  ansible.builtin.assert:
+    that:
+      - komodo_core_address | default('') | length > 0
+      - ansible_facts['architecture'] in komodo_periphery_releases
+    fail_msg: "Komodo Core address and a verified Periphery artifact are required"
+
+- name: Select the verified Komodo Periphery release
+  ansible.builtin.set_fact:
+    komodo_periphery_release: "{{ komodo_periphery_releases[ansible_facts['architecture']] }}"
+
+- name: Create Komodo configuration directory
+  ansible.builtin.file:
+    path: "{{ komodo_periphery_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Download verified Komodo Periphery binary
+  ansible.builtin.get_url:
+    url: >-
+      https://github.com/moghtech/komodo/releases/download/v{{ komodo_periphery_version }}/{{ komodo_periphery_release.asset }}
+    dest: "/usr/local/bin/periphery-{{ komodo_periphery_version }}"
+    checksum: "sha256:{{ komodo_periphery_release.sha256 }}"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart Komodo Periphery
+
+- name: Activate Komodo Periphery release atomically
+  ansible.builtin.file:
+    src: "/usr/local/bin/periphery-{{ komodo_periphery_version }}"
+    dest: /usr/local/bin/periphery
+    state: link
+    force: true
+    owner: root
+    group: root
+  notify: Restart Komodo Periphery
+
+- name: Render Komodo Periphery configuration
+  ansible.builtin.template:
+    src: periphery.config.toml.j2
+    dest: "{{ komodo_periphery_root }}/periphery.config.toml"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart Komodo Periphery
+  no_log: true
+
+- name: Install Komodo Periphery systemd service
+  ansible.builtin.template:
+    src: periphery.service.j2
+    dest: /etc/systemd/system/periphery.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Komodo Periphery
+
+- name: Enable and start Komodo Periphery
+  ansible.builtin.systemd:
+    name: periphery
+    enabled: true
+    state: started
+    daemon_reload: true

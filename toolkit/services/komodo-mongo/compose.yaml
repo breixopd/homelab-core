@@ -1,0 +1,44 @@
+services:
+  komodo-mongo:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-komodo
+    image: mongo:7.0.37@sha256:340c1c56fb10e95cf79ff547f8664b96bc6ead9909bc355238cbf865a9695a6f
+    container_name: komodo-mongo
+    command: --quiet --wiredTigerCacheSizeGB 0.25
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETGID
+    - SETUID
+    - DAC_OVERRIDE
+    - FOWNER
+    environment:
+      TZ: ${TZ:-UTC}
+      MONGO_INITDB_ROOT_USERNAME: ${KOMODO_DATABASE_USERNAME:-komodo}
+      MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DATABASE_PASSWORD}
+    volumes:
+    - ${KOMODO_MONGO_DATA_SOURCE:-./data/komodo/mongo}:/data/db
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - >-
+        timeout 15s mongosh
+        'mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=3000&connectTimeoutMS=3000'
+        --norc --quiet
+        -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD"
+        --authenticationDatabase admin --eval "db.adminCommand('ping')" || exit 1
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 256

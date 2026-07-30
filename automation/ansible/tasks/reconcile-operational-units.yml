@@ -1,0 +1,221 @@
+---
+# Host-level services are reconciled during initial bootstrap and every redeploy.
+- name: Install homelab systemd service (staggered startup)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-compose.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Homelab Docker Compose (staggered startup)
+      After=docker.service network-online.target
+      Requires=docker.service
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      Environment=HOMELAB_ROOT={{ repo_dest | default('/opt/homelab') }}
+      Environment=HOMELAB_NODE={{ homelab_node_id }}
+      ExecStart={{ repo_dest | default('/opt/homelab') }}/.venv/bin/homelab-toolkit \
+        --root {{ repo_dest | default('/opt/homelab') }} deploy up --node {{ homelab_node_id }}
+      ExecStop=/bin/bash -lc 'compose={{ repo_dest | default('/opt/homelab') }}/generated/{{ homelab_node_id }}/compose.yaml; \
+        [ -f "$compose" ] || compose={{ repo_dest | default('/opt/homelab') }}/docker-compose.yml; \
+        exec /usr/bin/docker compose -f "$compose" \
+        --env-file {{ repo_dest | default('/opt/homelab') }}/generated/{{ homelab_node_id }}/.env down'
+      StandardOutput=journal
+      StandardError=journal
+      TimeoutStartSec=7200
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable homelab systemd service
+  ansible.builtin.systemd:
+    name: homelab-compose
+    enabled: false
+    daemon_reload: true
+
+- name: Install homelab watchdog timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-watchdog.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Homelab watchdog — health check + auto-heal
+      After=network-online.target docker.service
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      Environment=HOMELAB_ROOT={{ repo_dest | default('/opt/homelab') }}
+      Environment=HOMELAB_NODE={{ homelab_node_id }}
+      Environment=PATH={{ repo_dest | default('/opt/homelab') }}/.venv/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      # `watchdog heal` internally runs full_check() then heals + notifies.
+      # A separate `check` first would exit 1 (issues found) and skip the
+      # subsequent ExecStart (Type=oneshot fails fast on first non-zero),
+      # so it never got to heal. One ExecStart = one reliable loop.
+      ExecStart={{ repo_dest | default('/opt/homelab') }}/.venv/bin/python3 -m toolkit.cli \
+        --root {{ repo_dest | default('/opt/homelab') }} watchdog heal --notify
+      TimeoutStartSec=10min
+      StandardOutput=journal
+      StandardError=journal
+
+- name: Install homelab watchdog timer unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-watchdog.timer
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Homelab watchdog (every 5 min)
+
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=5min
+      Unit=homelab-watchdog.service
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Install homelab maintenance service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-maintenance.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Homelab scheduled maintenance (Docker prune, journals, logs)
+
+      [Service]
+      Type=oneshot
+      Environment=HOMELAB_ROOT={{ repo_dest | default('/opt/homelab') }}
+      Environment=HOMELAB_NODE={{ homelab_node_id }}
+      ExecStart={{ repo_dest | default('/opt/homelab') }}/.venv/bin/python3 -m toolkit.cli \
+        --root {{ repo_dest | default('/opt/homelab') }} maintenance run --node {{ homelab_node_id }}
+
+- name: Install homelab maintenance timer unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-maintenance.timer
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Homelab maintenance (daily)
+
+      [Timer]
+      OnBootSec=30min
+      OnCalendar={{ homelab_maintenance_calendar }}
+      RandomizedDelaySec=900
+      Persistent=true
+      Unit=homelab-maintenance.service
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Reconcile homelab watchdog timer
+  ansible.builtin.systemd:
+    name: homelab-watchdog.timer
+    enabled: "{{ homelab_enable_timers | default(true) }}"
+    state: "{{ 'started' if homelab_enable_timers | default(true) else 'stopped' }}"
+    daemon_reload: true
+
+- name: Reconcile homelab maintenance timer
+  ansible.builtin.systemd:
+    name: homelab-maintenance.timer
+    enabled: >-
+      {{ (homelab_enable_timers | default(true) | bool)
+         and (homelab_maintenance_enabled | default(true) | bool) }}
+    state: >-
+      {{ 'started' if ((homelab_enable_timers | default(true) | bool)
+         and (homelab_maintenance_enabled | default(true) | bool)) else 'stopped' }}
+    daemon_reload: true
+
+- name: Install verified resource tuning service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-rightsize.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Verified homelab container resource tuning
+      After=network-online.target docker.service
+      Wants=network-online.target
+      StartLimitIntervalSec=6h
+      StartLimitBurst=2
+
+      [Service]
+      Type=oneshot
+      Environment=HOMELAB_ROOT={{ repo_dest | default('/opt/homelab') }}
+      Environment=HOMELAB_NODE={{ homelab_node_id }}
+      Environment=PATH={{ repo_dest | default('/opt/homelab') }}/.venv/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      ExecStart={{ repo_dest | default('/opt/homelab') }}/.venv/bin/python3 -m toolkit.cli \
+        --root {{ repo_dest | default('/opt/homelab') }} watchdog rightsize --apply
+      TimeoutStartSec=2h
+      StandardOutput=journal
+      StandardError=journal
+  when: homelab_node_id == control_node
+
+- name: Install verified resource tuning timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/homelab-rightsize.timer
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Verified homelab resource tuning schedule
+
+      [Timer]
+      OnBootSec=2h
+      OnUnitActiveSec={{ homelab_rightsize_interval_hours }}h
+      RandomizedDelaySec=1800
+      Persistent=true
+      Unit=homelab-rightsize.service
+
+      [Install]
+      WantedBy=timers.target
+  when: homelab_node_id == control_node
+
+- name: Reconcile verified resource tuning timer
+  ansible.builtin.systemd:
+    name: homelab-rightsize.timer
+    enabled: >-
+      {{ (homelab_enable_timers | default(true) | bool)
+         and (homelab_rightsize_enabled | default(true) | bool) }}
+    state: >-
+      {{ 'started' if ((homelab_enable_timers | default(true) | bool)
+         and (homelab_rightsize_enabled | default(true) | bool)) else 'stopped' }}
+    daemon_reload: true
+  when: homelab_node_id == control_node
+
+- name: Disable resource tuning outside the control node
+  ansible.builtin.systemd:
+    name: homelab-rightsize.timer
+    enabled: false
+    state: stopped
+  failed_when: false
+  when: homelab_node_id != control_node
+
+- name: Remove resource tuning units outside the control node
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/homelab-rightsize.service
+    - /etc/systemd/system/homelab-rightsize.timer
+  when: homelab_node_id != control_node
+
+- name: Reload systemd after removing resource tuning units
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: homelab_node_id != control_node
+
+# Service-owned host lifecycle tasks are projected by the manifest generator.
+# Core owns only platform units above; a service can add an idempotent
+# ``toolkit/services/<name>/ansible/host.yml`` without changing this file.
+- name: Apply manifest-selected service host lifecycle tasks
+  ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+  loop: "{{ service_host_task_files | default([]) }}"
+  loop_control:
+    loop_var: service_task_file
+    label: "{{ service_task_file }}"
+
+- name: Apply manifest-selected service cleanup tasks
+  ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+  loop: "{{ service_cleanup_task_files | default([]) }}"
+  loop_control:
+    loop_var: service_task_file
+    label: "{{ service_task_file }}"

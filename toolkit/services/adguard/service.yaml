@@ -1,0 +1,89 @@
+name: adguard
+label: AdGuard
+description: DNS filtering
+icon: 🛡️
+category: management
+placement: control
+priority: 10
+guest_task_order: 140
+essential: true
+restart_policy: careful
+depends_on: []
+provides: [dns]
+memory_tier: light
+host_sources:
+  ADGUARD_CONFIG_SOURCE:
+    path: data/adguard/config
+  ADGUARD_WORK_SOURCE:
+    path: data/adguard/work
+stateful: true
+data_specs:
+- name: adguard-config
+  source_env: ADGUARD_CONFIG_SOURCE
+  target: /opt/adguardhome/conf
+  size_estimate_gb: 1
+  snapshot: true
+- name: adguard-work
+  source_env: ADGUARD_WORK_SOURCE
+  target: /opt/adguardhome/work
+  size_estimate_gb: 1
+  snapshot: true
+host_integrations:
+- id: dns-client
+  label: DNS client (AdGuard)
+  kinds: [plain, fleet]
+  default_for: [plain, fleet]
+  ansible_role: dns_client
+routes:
+- subdomain: dns
+  upstream: adguard:3000
+  published_port: 3003
+  exposure: private
+  auth:
+    mode: forward_auth
+operator_bookmark:
+  section: Quick actions
+  priority: 60
+  description: Internal DNS and ad blocking
+management:
+  panels:
+  - id: dns-client
+    title: DNS client setup
+    description: Use the control node address as DNS on LAN and mesh clients.
+    items:
+    - label: DNS server
+      value: '{address}'
+      copyable: true
+    - label: Admin UI
+      value: https://dns.{domain}
+      href: https://dns.{domain}
+      copyable: true
+required_secrets:
+- name: ADGUARD_ADMIN_PASSWORD
+  tier: generated
+  length: 24
+  description: Administrator password
+  rotation: persistent
+network_listeners:
+- id: dns-tcp-internal
+  port: 53
+  protocol: tcp
+  sources: ['@lan', '@mesh']
+- id: dns-tcp-public
+  port: 53
+  protocol: tcp
+  sources: ['@internet']
+  enabled_when:
+  - path: network.dns_public_access
+    equals: true
+- id: dns-udp-internal
+  port: 53
+  protocol: udp
+  sources: ['@lan', '@mesh']
+- id: dns-udp-public
+  port: 53
+  protocol: udp
+  sources: ['@internet']
+  enabled_when:
+  - path: network.dns_public_access
+    equals: true

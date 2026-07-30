@@ -1,0 +1,143 @@
+name: mailserver
+label: Docker-Mailserver
+description: SMTP/IMAP/Submission with spam filter + DKIM; auth via LLDAP
+icon: ✉️
+category: email
+placement: control
+priority: 60
+restart_policy: careful
+depends_on: [lldap, caddy]
+integrations:
+- service: lldap
+  host_env: MAILSERVER_LLDAP_HOST
+  port_env: MAILSERVER_LLDAP_PORT
+service_endpoint:
+  container_port: 25
+  published_port: 25
+memory_tier: medium
+memory_floor_mb: 512
+host_sources:
+  DMS_DATA_SOURCE:
+    path: data/dms/mail
+  DMS_STATE_SOURCE:
+    path: data/dms/state
+  DMS_CONFIG_SOURCE:
+    path: data/dms/config
+  DMS_LOG_SOURCE:
+    path: data/dms/log
+stateful: true
+variables:
+  MAIL_HOSTNAME: mail.{config.domain}
+  LLDAP_BASE_DN: '{derived.ldap_base_dn}'
+  LLDAP_BIND_DN: cn=ldap-bind,ou=people,{derived.ldap_base_dn}
+data_specs:
+- name: mail-data
+  source_env: DMS_DATA_SOURCE
+  target: /var/mail
+  size_estimate_gb: 20
+  snapshot: true
+  # Docker-Mailserver delivers mail as its stable virtual-mail user. Keep the
+  # bind mount writable throughout reconciliation, not only after post-start.
+  host_uid: 5000
+  host_gid: 5000
+- name: mail-state
+  source_env: DMS_STATE_SOURCE
+  target: /var/mail-state
+  size_estimate_gb: 2
+  snapshot: true
+  # Docker-Mailserver owns a mixed Postfix/Postdrop tree.  The generic
+  # reconciler must not flatten it to one uid/gid; the plugin repairs the
+  # upstream contract after the container is available.
+  manage_permissions: false
+- name: mail-config
+  source_env: DMS_CONFIG_SOURCE
+  target: /tmp/docker-mailserver
+  size_estimate_gb: 1
+  snapshot: true
+- name: mail-logs
+  source_env: DMS_LOG_SOURCE
+  target: /var/log/mail
+  size_estimate_gb: 5
+  snapshot: false
+required_secrets:
+- name: MAIL_ADMIN_PASSWORD
+  tier: generated
+  length: 32
+  description: Initial mail administrator password
+  rotation: persistent
+credentials:
+- name: Mail server admin (IMAP/SMTP)
+  url: imaps://mail.{domain}:993
+  password_env: MAIL_ADMIN_PASSWORD
+  tags: [mail, email, admin]
+network_listeners:
+- id: smtp-internal
+  port: 25
+  sources: ['@lan', '@mesh']
+- id: smtp-public
+  port: 25
+  sources: ['@internet']
+  enabled_when:
+  - path: network.mail_public_access
+    equals: true
+- id: submissions-internal
+  port: 465
+  sources: ['@lan', '@mesh']
+- id: submissions-public
+  port: 465
+  sources: ['@internet']
+  enabled_when:
+  - path: network.mail_public_access
+    equals: true
+- id: submission-internal
+  port: 587
+  sources: ['@lan', '@mesh']
+- id: submission-public
+  port: 587
+  sources: ['@internet']
+  enabled_when:
+  - path: network.mail_public_access
+    equals: true
+- id: imaps-internal
+  port: 993
+  sources: ['@lan', '@mesh']
+- id: imaps-public
+  port: 993
+  sources: ['@internet']
+  enabled_when:
+  - path: network.mail_public_access
+    equals: true
+- id: managesieve-internal
+  port: 4190
+  sources: ['@lan', '@mesh']
+management:
+  panels:
+  - id: client-setup
+    title: Mail client setup
+    description: Use these exact values in Gmail, Apple Mail, Thunderbird, or another standards-based client.
+    items:
+    - label: Email address
+      value: '{email}'
+      copyable: true
+    - label: Username
+      value: '{email}'
+      copyable: true
+    - label: Password
+      value: Your Homelab account password
+    - label: Incoming server
+      value: mail.{domain}
+      copyable: true
+    - label: IMAP security
+      value: SSL/TLS on port 993
+    - label: Outgoing server
+      value: mail.{domain}
+      copyable: true
+    - label: SMTP security
+      value: SSL/TLS on port 465 or STARTTLS on port 587
+  - id: webmail
+    title: Webmail
+    description: Browser access remains protected by Homelab SSO.
+    items:
+    - label: Open Roundcube
+      value: https://mail.{domain}
+      href: https://mail.{domain}

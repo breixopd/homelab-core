@@ -1,0 +1,46 @@
+services:
+  bazarr:
+    restart: unless-stopped
+    profiles:
+    - media
+    - svc-bazarr
+    image: lscr.io/linuxserver/bazarr:1.6.0@sha256:4c30dc0bb9a5d223075e7f5d12c77bd293c4b460f86d696dbe64763104c1e88c
+    container_name: bazarr
+    read_only: false
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    tmpfs:
+    - /tmp
+    - /run:exec
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ:-UTC}
+      UMASK_SET: '022'
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:6767:6767
+    volumes:
+    - ${BAZARR_CONFIG_SOURCE:-./data/bazarr/config}:/config
+    - ${INSTALL_ROOT}/media:/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q --spider http://localhost:6767/ || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    mem_limit: 512m
+    cpus: 0.75
+    pids_limit: 512

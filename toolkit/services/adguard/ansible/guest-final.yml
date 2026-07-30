@@ -1,0 +1,17 @@
+---
+# AdGuard's first boot can take longer than Compose's health gate.  Keep the
+# bounded wait beside the service that owns the container and run it directly
+# before final post-start hooks.
+- name: Wait for AdGuard to be healthy before final hooks
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker inspect adguard --format '{{ '{{' }}.State.Health.Status{{ '}}' }}' 2>/dev/null | grep -q healthy
+  args:
+    executable: /bin/bash
+  register: adguard_health
+  retries: 10
+  delay: 3
+  until: adguard_health.rc == 0
+  changed_when: false
+  failed_when: false
+  when: homelab_node_id == service_nodes['adguard']

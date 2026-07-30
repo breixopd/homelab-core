@@ -1,0 +1,157 @@
+---
+# Bootstrap LXC containers: base packages, Docker, SSH hardening, monitoring.
+# Runs against guest_hosts (all LXCs) after OpenTofu provisioning.
+#
+# LXCs have SSH access as root (no cloud-init user). The BPG provider injects
+# SSH keys via initialization.user_account.keys, so root can connect directly.
+#
+# Repo clone, compose up, and monitoring agents run in deploy-server-toolkit.yml
+# (after /opt/homelab exists with docker-compose.yml and generated .env).
+
+- name: Bootstrap LXC guests with base stack
+  hosts: guest_hosts
+  gather_facts: false
+  become: true
+  serial: 1
+  vars:
+    homelab_controller_root: "{{ playbook_dir }}/../../.."
+  pre_tasks:
+    - name: Wait for SSH on freshly provisioned LXCs
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+        delay: 15
+    - name: Gather facts after SSH is up
+      ansible.builtin.setup:
+  tasks:
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - git
+          - curl
+          - ca-certificates
+          - python3
+          - python3-venv
+          - python3-pip
+          - python3-apt
+          - gnupg
+          - locales
+          - tzdata
+          - rsync
+          - netcat-openbsd
+        state: present
+        update_cache: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Remove distribution Docker packages that conflict with Docker CE
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-doc
+          - podman-docker
+        state: absent
+        purge: true
+      failed_when: false
+
+    - name: Ensure Docker apt keyring directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: Install Docker CE apt signing key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+
+    - name: Add Docker CE apt repository
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: deb
+        architectures: "{{ 'amd64' if ansible_facts['architecture'] in ['x86_64', 'amd64'] else ansible_facts['architecture'] }}"
+        uris: https://download.docker.com/linux/debian
+        suites: "{{ ansible_facts['distribution_release'] }}"
+        components: stable
+        signed_by: /etc/apt/keyrings/docker.asc
+        state: present
+        enabled: true
+
+    - name: Install Docker CE (zstd layer support requires Engine 23+)
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Set locale in LXC /etc/environment
+      ansible.builtin.lineinfile:
+        path: /etc/environment
+        line: "{{ item }}"
+        create: true
+        mode: "0644"
+      loop:
+        - 'LC_ALL=C.UTF-8'
+        - 'LANG=C.UTF-8'
+        - 'LANGUAGE=C.UTF-8'
+
+    - name: Generate all common locales (eliminates locale warnings)
+      ansible.builtin.shell: |
+        locale-gen en_US.UTF-8 C.UTF-8 2>/dev/null || true
+        update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8 2>/dev/null || true
+      changed_when: false
+
+    - name: Set timezone
+      ansible.builtin.file:
+        src: "/usr/share/zoneinfo/{{ homelab_timezone | default('UTC') }}"
+        dest: /etc/localtime
+        state: link
+        force: true
+      when: homelab_timezone is defined
+
+    - name: Persist timezone in /etc/timezone
+      ansible.builtin.copy:
+        dest: /etc/timezone
+        content: "{{ homelab_timezone | default('UTC') }}\n"
+        mode: "0644"
+      when: homelab_timezone is defined
+
+    - name: Configure Docker daemon (live-restore, log limits, overlay2, service DNS)
+      ansible.builtin.copy:
+        dest: /etc/docker/daemon.json
+        mode: "0644"
+        content: |
+          {
+            "live-restore": true,
+            "storage-driver": "overlay2",
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            },
+            "dns": {{ docker_dns_servers | default(['1.1.1.1']) | to_json }},
+            "dns-search": ["."]
+          }
+      notify: restart docker
+
+    - name: Enable and start Docker
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Reconcile host operational services and timers
+      ansible.builtin.include_tasks: ../tasks/reconcile-operational-units.yml
+
+  handlers:
+    - name: Restart Docker
+      listen: restart docker
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted

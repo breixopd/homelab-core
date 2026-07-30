@@ -1,0 +1,42 @@
+name: immich-postgres
+label: Immich PostgreSQL
+description: Vector + pgvector database for Immich
+icon: 🗄️
+category: cloud
+placement: apps
+priority: 30
+memory_tier: heavy
+restart_policy: never
+depends_on: []
+database_provider:
+  engine: postgresql
+  admin_username_env: IMMICH_POSTGRES_ADMIN_USER
+  admin_password_env: IMMICH_POSTGRES_ADMIN_PASSWORD
+  admin_database_env: IMMICH_POSTGRES_ADMIN_DATABASE
+service_endpoint:
+  container_port: 5432
+variables:
+  IMMICH_POSTGRES_ADMIN_USER: postgres
+  IMMICH_POSTGRES_ADMIN_DATABASE: postgres
+host_sources:
+  IMMICH_DB_DATA_SOURCE:
+    path: data/immich-postgres
+stateful: true
+data_specs:
+- name: immich-database
+  source_env: IMMICH_DB_DATA_SOURCE
+  target: /var/lib/postgresql/data
+  size_estimate_gb: 20
+  snapshot: false
+  host_uid: 999
+  host_gid: 999
+backup_exports:
+- artifact: immich-postgres.sql.gz
+  strategy: container
+  command: [pg_dumpall, -U, postgres]
+required_secrets:
+- name: IMMICH_POSTGRES_ADMIN_PASSWORD
+  tier: generated
+  length: 32
+  description: Vector database administrator password
+  rotation: persistent

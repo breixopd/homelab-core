@@ -1,0 +1,31 @@
+[DEFAULT]
+bantime = {{ fail2ban_bantime }}
+findtime = {{ fail2ban_findtime }}
+maxretry = {{ fail2ban_maxretry }}
+
+[sshd]
+enabled = true
+port = {{ ssh_port | default('22') }}
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = {{ fail2ban_maxretry }}
+bantime = {{ fail2ban_bantime }}
+findtime = {{ fail2ban_findtime }}
+
+[caddy-auth]
+enabled = {{ fail2ban_caddy_enabled | bool | lower }}
+filter = caddy-auth
+logpath = {{ fail2ban_caddy_logpath }}
+backend = auto
+maxretry = {{ fail2ban_caddy_maxretry }}
+bantime = {{ fail2ban_caddy_bantime }}
+findtime = {{ fail2ban_caddy_findtime }}
+
+[authelia-auth]
+enabled = {{ fail2ban_authelia_enabled | bool | lower }}
+filter = authelia-auth
+logpath = {{ fail2ban_authelia_logpath }}
+backend = auto
+maxretry = {{ fail2ban_authelia_maxretry }}
+bantime = {{ fail2ban_authelia_bantime }}
+findtime = {{ fail2ban_authelia_findtime }}

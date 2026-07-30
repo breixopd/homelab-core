@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="job-summary" aria-label="Job history summary">
+  <div class="job-summary-item"><span>Active</span><strong>{{ queued + running }} active</strong></div>
+  <div class="job-summary-item"><span>Queued</span><strong>{{ queued }}</strong></div>
+  <div class="job-summary-item"><span>Needs attention</span><strong>{{ attention }}</strong></div>
+  <div class="job-summary-item"><span>Succeeded</span><strong>{{ succeeded }}</strong></div>
+</section>
+
+<section class="content-band" aria-labelledby="job-history-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="job-history-heading">Recent activity</h2>
+      <p class="muted text-sm job-section-note">The latest 100 controller operations</p>
+    </div>
+  </div>
+  <div class="table-toolbar">
+    <label class="sr-only" for="job-filter">Filter jobs</label>
+    <input id="job-filter" class="table-filter" type="search" placeholder="Filter jobs"
+           autocomplete="off" aria-controls="job-history-body" data-table-filter="job-history-body">
+    <span class="table-count" data-filter-count="job-history-body" aria-live="polite">{{ jobs|length }} shown</span>
+  </div>
+  <div class="responsive-table job-history-wrap">
+    <table class="data-table job-history" aria-labelledby="job-history-heading">
+      <thead><tr><th scope="col">Operation</th><th scope="col">State</th><th scope="col">Started</th><th scope="col">Updated</th><th scope="col">Result</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead>
+      <tbody id="job-history-body">
+        {% for job in jobs %}
+        <tr data-filter-row>
+          <td data-label="Operation"><strong>{{ job.kind.value|replace('_', ' ')|title }}</strong><code class="job-id">{{ job.job_id }}</code></td>
+          <td data-label="State"><span class="badge job-state-{{ job.state.value|lower }}">{{ job.state.value|replace('_', ' ')|title }}</span></td>
+          <td data-label="Started"><time datetime="{{ job.created_at.isoformat() }}">{{ job.created_at.strftime('%Y-%m-%d %H:%M') }}</time></td>
+          <td data-label="Updated"><time datetime="{{ job.updated_at.isoformat() }}">{{ job.updated_at.strftime('%Y-%m-%d %H:%M') }}</time></td>
+          <td data-label="Result">{% if job.error_code %}<code class="critical-text">{{ job.error_code }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="table-action" data-label="Open"><a class="btn btn-ghost btn-xs" href="/jobs/{{ job.job_id }}">View</a></td>
+        </tr>
+        {% else %}
+        <tr data-filter-row><td colspan="6" class="people-empty">No controller jobs have run yet.</td></tr>
+        {% endfor %}
+        <tr data-filter-empty hidden><td colspan="6" class="people-empty">No jobs match this filter.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,12 @@
+---
+# Headscale server URL and auth key — leave empty to skip VPN registration
+headscale_url: ""
+headscale_auth_key: ""
+tailscale_version: "1.98.9"
+tailscale_releases:
+  x86_64:
+    asset_arch: amd64
+    sha256: 11be30ad301d48f84ff52fec34f8a2f78eb3e3dee1be4e9624d19fccc8df5540
+  aarch64:
+    asset_arch: arm64
+    sha256: fa554ee808d7d07ee8e3ebbc0215ea087157e2a0abbf408e6e18ea7532554db6

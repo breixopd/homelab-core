@@ -1,0 +1,126 @@
+# Run the homelab toolkit UI on your laptop for remote deployment.
+# No Python or dependencies needed — just Docker.
+#
+# Usage:
+#   docker compose -f docker-compose.setup.yml up --build
+#   Open http://localhost:8080 in your browser.
+#   docker compose -f docker-compose.setup.yml exec controller homelab-toolkit bootstrap token
+#
+# The wizard will guide you through configuration and deploy
+# services to your remote Proxmox VMs via SSH.
+# ------------------------------------------------------------------------------
+# Pinned Docker Image Versions
+# This file uses specific pinned versions instead of :latest for reproducibility.
+# Update versions intentionally after testing in a non-production environment.
+# ------------------------------------------------------------------------------
+
+name: homelab-setup
+
+services:
+  controller:
+    image: homelab-toolkit:latest
+    container_name: homelab-controller-setup
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /root/.ansible
+    volumes:
+      - ${HOMELAB_SETUP_ROOT:-.}:/app/repo
+      - controller-data:/var/lib/homelab-controller
+      - controller-payload-key:/run/secrets/homelab-controller
+      - controller-socket:/run/homelab-controller
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent:ro
+      - ${HOMELAB_SSH_KEY_FILE:-/dev/null}:/ssh_key:ro
+    working_dir: /app/repo
+    environment:
+      HOMELAB_ROOT: /app/repo
+      HOMELAB_CONTROLLER_DB: /var/lib/homelab-controller/controller.db
+      HOMELAB_CONTROLLER_PAYLOAD_KEY_FILE: /run/secrets/homelab-controller/payload.key
+      HOMELAB_CONTROLLER_SOCKET: /run/homelab-controller/controller.sock
+      HOMELAB_CONTROLLER_ROLE: local
+      HOMELAB_CONTROLLER_TOKEN_FILE: /var/lib/homelab-controller/local.token
+      HOMELAB_CONTROLLER_LOCAL_TOKEN_FILE: /var/lib/homelab-controller/local.token
+      HOMELAB_CONTROLLER_UI_TOKEN_FILE: /run/homelab-controller/ui.token
+      HOMELAB_CONTROLLER_UI_GID: "10001"
+      ANSIBLE_LOCAL_TMP: /tmp
+      HOME: /tmp
+      ANSIBLE_COLLECTIONS_PATH: /ansible-collections
+      SSH_AUTH_SOCK: /ssh-agent
+      HOMELAB_REPO_URL: ${HOMELAB_REPO_URL:-}
+      TZ: ${TZ:-UTC}
+    entrypoint: ["python3"]
+    command: ["-m", "toolkit.controller"]
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - from toolkit.controller.client import controller_client_from_environment as f; c=f(); h=c.health(); c.close(); assert h.status == 'ok'
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    mem_limit: 1g
+    cpus: 1.00
+    pids_limit: 256
+
+  toolkit:
+    build:
+      context: .
+      dockerfile: toolkit/Dockerfile
+    image: homelab-toolkit:latest
+    container_name: homelab-toolkit-setup
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /run/homelab-ui-root
+    volumes:
+      - controller-socket:/run/homelab-controller:ro
+      - homelab-ui-state:/var/lib/homelab-ui
+    working_dir: /app
+    environment:
+      HOMELAB_ROOT: /run/homelab-ui-root
+      HOMELAB_CONTROLLER_SOCKET: /run/homelab-controller/controller.sock
+      HOMELAB_CONTROLLER_ROLE: ui
+      HOMELAB_CONTROLLER_TOKEN_FILE: /run/homelab-controller/ui.token
+      XDG_STATE_HOME: /var/lib/homelab-ui
+      WEBUI_SESSION_SECRET_FILE: /var/lib/homelab-ui/webui-secret
+      WEBUI_SECURE_COOKIES: "false"
+      HOME: /tmp
+      TZ: ${TZ:-UTC}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      controller:
+        condition: service_healthy
+    command: ["ui"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 1g
+    cpus: 0.50
+    pids_limit: 128
+
+volumes:
+  controller-data:
+  controller-payload-key:
+  controller-socket:
+  homelab-ui-state:

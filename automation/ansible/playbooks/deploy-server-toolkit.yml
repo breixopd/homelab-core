@@ -1,0 +1,521 @@
+---
+# Deploys the homelab stack on each managed node.
+# Execution order:
+#   1. Controller sync of toolkit, generated assets, and role-scoped env
+#   2. Python venv + toolkit install
+#   3. Docker Compose rollout and health gate
+#   4. Post-start hooks using the role-scoped runtime environment
+#   5. DNS sync on the manifest-owned DNS provider
+#
+# Expects repo_dest and controller-sync settings from group vars.
+
+# Mesh and tunnel providers need /dev/net/tun when hosted in LXCs.
+- name: Ensure /dev/net/tun on mesh router LXC for mesh subnet router
+  hosts: proxmox_hosts
+  become: true
+  tasks:
+    - name: Read mesh router LXC config for TUN device
+      ansible.builtin.command:
+        cmd: "pct config {{ mesh_router_vmid }}"
+      register: pct_mesh_router_config
+      changed_when: false
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - mesh_subnet_router | default(true) | bool
+        - mesh_enabled | default(false) | bool
+        - mesh_router_kind == 'lxc'
+
+    - name: Pass TUN device into mesh router LXC
+      ansible.builtin.command:
+        cmd: "pct set {{ mesh_router_vmid }} -dev0 /dev/net/tun"
+      register: pct_mesh_router_tun
+      changed_when: true
+      failed_when: >
+        pct_mesh_router_tun.rc != 0 and
+        'already' not in (pct_mesh_router_tun.stderr | default('') | lower) and
+        'exists' not in (pct_mesh_router_tun.stderr | default('') | lower)
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - mesh_subnet_router | default(true) | bool
+        - mesh_enabled | default(false) | bool
+        - mesh_router_kind == 'lxc'
+        - "'dev0:' not in pct_mesh_router_config.stdout"
+
+    - name: Reboot mesh router LXC after TUN passthrough
+      ansible.builtin.command:
+        cmd: "pct reboot {{ mesh_router_vmid }}"
+      register: mesh_router_reboot
+      changed_when: true
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - mesh_subnet_router | default(true) | bool
+        - mesh_enabled | default(false) | bool
+        - mesh_router_kind == 'lxc'
+        - pct_mesh_router_tun is changed
+
+    - name: Record mesh router reboot for downstream wait play
+      ansible.builtin.set_fact:
+        mesh_router_rebooted: true
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - mesh_router_reboot is changed
+      run_once: true
+      delegate_to: localhost
+      delegate_facts: true
+
+- name: Wait for mesh router SSH after TUN reboot
+  hosts: proxmox_hosts
+  gather_facts: false
+  tasks:
+    - name: Wait for mesh router SSH port from hypervisor
+      ansible.builtin.wait_for:
+        host: "{{ mesh_router_ip }}"
+        port: 22
+        delay: 15
+        timeout: 300
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - hostvars['localhost'].get('mesh_router_rebooted', false) | bool
+
+- name: Reconnect mesh router node after TUN reboot
+  hosts: "{{ mesh_router_node }}"
+  gather_facts: false
+  tasks:
+    - name: Clear stale unreachable state after mesh router reboot
+      ansible.builtin.meta: clear_host_errors
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - hostvars['localhost'].get('mesh_router_rebooted', false) | bool
+
+    - name: Wait for mesh router node SSH
+      ansible.builtin.wait_for_connection:
+        timeout: 120
+        delay: 5
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - hostvars['localhost'].get('mesh_router_rebooted', false) | bool
+
+# The tunnel provider needs /dev/net/tun on its LXC.
+- name: Ensure /dev/net/tun on tunnel provider LXC
+  hosts: proxmox_hosts
+  become: true
+  tasks:
+    - name: Read VPN LXC config for TUN device
+      ansible.builtin.command:
+        cmd: "pct config {{ vpn_node_vmid }}"
+      register: pct_vpn_node_config
+      changed_when: false
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - vpn_enabled | default(false) | bool
+        - vpn_node_kind == 'lxc'
+
+    - name: Pass TUN device into VPN LXC
+      ansible.builtin.command:
+        cmd: "pct set {{ vpn_node_vmid }} -dev0 /dev/net/tun"
+      register: pct_vpn_tun
+      changed_when: true
+      failed_when: >
+        pct_vpn_tun.rc != 0 and
+        'already' not in (pct_vpn_tun.stderr | default('') | lower) and
+        'exists' not in (pct_vpn_tun.stderr | default('') | lower)
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - vpn_enabled | default(false) | bool
+        - vpn_node_kind == 'lxc'
+        - "'dev0:' not in pct_vpn_node_config.stdout"
+
+    - name: Reboot VPN LXC after TUN passthrough
+      ansible.builtin.command:
+        cmd: "pct reboot {{ vpn_node_vmid }}"
+      register: vpn_tun_reboot
+      changed_when: true
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - vpn_enabled | default(false) | bool
+        - vpn_node_kind == 'lxc'
+        - pct_vpn_tun is changed
+
+    - name: Record VPN node reboot for downstream wait play
+      ansible.builtin.set_fact:
+        vpn_tun_rebooted: true
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - vpn_tun_reboot is changed
+      run_once: true
+      delegate_to: localhost
+      delegate_facts: true
+
+- name: Wait for VPN node SSH after TUN reboot
+  hosts: proxmox_hosts
+  gather_facts: false
+  tasks:
+    - name: Wait for VPN node SSH port from hypervisor
+      ansible.builtin.wait_for:
+        host: "{{ vpn_node_ip }}"
+        port: 22
+        delay: 15
+        timeout: 300
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - hostvars['localhost'].get('vpn_tun_rebooted', false) | bool
+
+- name: Reconnect VPN node after TUN reboot
+  hosts: "{{ vpn_node }}"
+  gather_facts: false
+  tasks:
+    - name: Clear stale unreachable state after VPN node reboot
+      ansible.builtin.meta: clear_host_errors
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - hostvars['localhost'].get('vpn_tun_rebooted', false) | bool
+
+    - name: Wait for VPN node SSH
+      ansible.builtin.wait_for_connection:
+        timeout: 120
+        delay: 5
+      when:
+        - not (skip_tun_setup | default(false) | bool)
+        - hostvars['localhost'].get('vpn_tun_rebooted', false) | bool
+
+- name: Deploy homelab stack per managed node
+  hosts: guest_hosts
+  serial: 1
+  become: true
+  vars:
+    homelab_controller_root: "{{ playbook_dir }}/../../.."
+  tasks:
+    - name: Wait for host load before deploy (loadavg ≤ cores×2)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cores=$(nproc)
+        threshold=$((cores * 2))
+        deadline=$((SECONDS + 600))
+        while [ "$SECONDS" -lt "$deadline" ]; do
+          load=$(awk '{print int($1+0.5)}' /proc/loadavg)
+          if [ "$load" -le "$threshold" ]; then
+            echo "load_ok load=${load} threshold=${threshold}"
+            exit 0
+          fi
+          echo "waiting load=${load} threshold=${threshold}"
+          sleep 15
+        done
+        load=$(awk '{print int($1+0.5)}' /proc/loadavg)
+        echo "load gate timeout load=${load} threshold=${threshold} — continuing anyway" >&2
+        exit 0
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Ensure homelab root directory exists
+      ansible.builtin.file:
+        path: "{{ repo_dest }}"
+        state: directory
+        mode: "0755"
+
+    # ── Step 3: Sync authoritative deploy files from Ansible controller ──
+    - name: Sync toolkit from Ansible controller
+      ansible.builtin.include_tasks: ../tasks/sync-toolkit-from-controller.yml
+      when: >-
+        not (
+          homelab_preserve_controller | default(false) | bool
+          and homelab_node_id == control_node
+        )
+
+    - name: Sync deploy tree from Ansible controller
+      ansible.builtin.include_tasks: ../tasks/sync-from-controller.yml
+      when: >-
+        not (
+          homelab_preserve_controller | default(false) | bool
+          and homelab_node_id == control_node
+        )
+
+    # ── Step 4: Python venv + toolkit ────────────────────────────────
+    - name: Ensure guest toolkit venv
+      ansible.builtin.include_tasks: ../tasks/ensure-guest-toolkit-venv.yml
+
+    - name: Reconcile host operational services and timers
+      ansible.builtin.include_tasks: ../tasks/reconcile-operational-units.yml
+
+    - name: Apply manifest-selected service pre-deploy tasks
+      ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+      loop: "{{ service_pre_deploy_task_files | default([]) }}"
+      loop_control:
+        loop_var: service_task_file
+        label: "{{ service_task_file }}"
+
+    # Config, Compose environments, and role-scoped hook bundles are rendered by the controller.
+
+    - name: Fix bind-mount data directory permissions
+      vars:
+        homelab_node: "{{ homelab_node_id }}"
+      ansible.builtin.shell: |
+        "{{ repo_dest }}/.venv/bin/python3" -c "
+        from pathlib import Path
+        from toolkit.core.compose.volume_permissions import fix_volume_permissions
+        for line in fix_volume_permissions(Path('{{ repo_dest }}'), node='{{ homelab_node }}'):
+            print(line)
+        "
+      args:
+        chdir: "{{ repo_dest }}"
+      environment:
+        PYTHONPATH: "{{ repo_dest }}"
+        HOMELAB_ROOT: "{{ repo_dest }}"
+      register: volume_perms
+      changed_when: volume_perms.stdout | length > 0
+
+    - name: Display volume permission fixes
+      ansible.builtin.debug:
+        msg: "{{ volume_perms.stdout_lines }}"
+      when: volume_perms.stdout_lines | length > 0
+
+    - name: Wait for host load before compose up
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cores=$(nproc)
+        threshold=$((cores * 2))
+        deadline=$((SECONDS + 300))
+        while [ "$SECONDS" -lt "$deadline" ]; do
+          load=$(awk '{print int($1+0.5)}' /proc/loadavg)
+          if [ "$load" -le "$threshold" ]; then
+            exit 0
+          fi
+          sleep 15
+        done
+        load=$(awk '{print int($1+0.5)}' /proc/loadavg)
+        echo "load gate timeout before compose load=${load} threshold=${threshold} — continuing" >&2
+        exit 0
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    # ── Step 7: Staggered Docker compose up ───────────────────────────
+    # Run detached and poll a status file — avoids Ansible async SSH reconnect
+    # bugs through Proxmox ProxyCommand during long compose pulls.
+    - name: Launch staggered Docker Compose for this VM role
+      vars:
+        homelab_node: "{{ homelab_node_id }}"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        MARKER="{{ repo_dest }}/.compose-up.{{ homelab_node }}.status"
+        LOG="{{ repo_dest }}/.compose-up.{{ homelab_node }}.log"
+        if [[ "${HOMELAB_FORCE_COMPOSE:-0}" != "1" ]] \
+          && [[ -f "$MARKER" ]] && [[ "$(tr -d '[:space:]' < "$MARKER")" == "running" ]]; then
+          COMPOSE_RUNNING=0
+          if systemctl is-active --quiet "homelab-staggered-{{ homelab_node }}" 2>/dev/null; then
+            COMPOSE_RUNNING=1
+          else
+            for pid in $(pgrep -f '{{ repo_dest }}/\.venv/bin/homelab-toolkit --root {{ repo_dest }} deploy up --node {{ homelab_node }}' 2>/dev/null || true); do
+              if [[ "$pid" != "$$" && "$pid" != "$PPID" ]]; then
+                COMPOSE_RUNNING=1
+                break
+              fi
+            done
+          fi
+          if [[ "$COMPOSE_RUNNING" == "1" ]]; then
+            echo "compose already running"
+            exit 0
+          fi
+        fi
+        systemctl stop "homelab-staggered-{{ homelab_node }}" 2>/dev/null || true
+        # Kill stray compose jobs without matching this launcher shell (pkill -f would
+        # SIGTERM the script itself because the systemd-run line is in argv).
+        for pid in $(pgrep -f '{{ repo_dest }}/\.venv/bin/homelab-toolkit --root {{ repo_dest }} deploy up --node {{ homelab_node }}' 2>/dev/null || true); do
+          if [[ "$pid" != "$$" && "$pid" != "$PPID" ]]; then
+            kill "$pid" 2>/dev/null || true
+          fi
+        done
+        rm -f "$MARKER" "{{ repo_dest }}/.compose-deploy.{{ homelab_node }}.lock"
+        : > "$LOG"
+        echo running > "$MARKER"
+        systemctl reset-failed "homelab-staggered-{{ homelab_node }}" 2>/dev/null || true
+        systemd-run --unit="homelab-staggered-{{ homelab_node }}" \
+          --description="Homelab staggered compose {{ homelab_node }}" \
+          --remain-after-exit \
+          --setenv=HOMELAB_ROOT="{{ repo_dest }}" \
+          --setenv=HOMELAB_NODE="{{ homelab_node }}" \
+          --setenv=HOMELAB_FORCE_COMPOSE="{{ homelab_force_compose | default('0') }}" \
+          --setenv=HOMELAB_PRESERVE_CONTROLLER="{{ homelab_preserve_controller | default('0') }}" \
+          --setenv=PYTHONPATH="{{ repo_dest }}" \
+          /bin/bash -lc \
+          '{{ repo_dest }}/.venv/bin/homelab-toolkit --root {{ repo_dest }} deploy up \
+          --node {{ homelab_node }} >> {{ repo_dest }}/.compose-up.{{ homelab_node }}.log 2>&1'
+        systemctl show -p MainPID --value "homelab-staggered-{{ homelab_node }}" || true
+      args:
+        chdir: "{{ repo_dest }}"
+        executable: /bin/bash
+      environment:
+        HOMELAB_ROOT: "{{ repo_dest }}"
+        HOMELAB_NODE: "{{ homelab_node }}"
+        HOMELAB_FORCE_COMPOSE: "{{ homelab_force_compose | default('0') }}"
+        HOMELAB_PRESERVE_CONTROLLER: "{{ homelab_preserve_controller | default('0') }}"
+        PYTHONPATH: "{{ repo_dest }}"
+      register: compose_launch
+      changed_when: true
+
+    - name: Wait for staggered compose to finish
+      delegate_to: localhost
+      connection: local
+      become: false
+      vars:
+        ansible_become: false
+        homelab_node: "{{ homelab_node_id }}"
+      ansible.builtin.command:
+        argv:
+          # This task runs inside the controller container during UI-driven
+          # applies. The bind-mounted repository intentionally excludes its
+          # host .venv, so use the interpreter running Ansible itself.
+          - "{{ ansible_playbook_python }}"
+          - "-m"
+          - "toolkit.core.deploy.compose_wait"
+          - "--root"
+          - "{{ homelab_controller_root }}"
+          - "--node"
+          - "{{ homelab_node }}"
+          - "--repo-dest"
+          - "{{ repo_dest }}"
+      environment:
+        PYTHONPATH: "{{ homelab_controller_root }}"
+      register: compose_wait
+      changed_when: false
+      failed_when: compose_wait.rc != 0
+
+    # ── Step 7b: Auto-retry unhealthy services ───────────────────────────
+    - name: Verify compose service health and restart unhealthy services
+      vars:
+        homelab_node: "{{ homelab_node_id }}"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cd {{ repo_dest }}
+        # shellcheck source=/dev/null
+        . "{{ repo_dest }}/.venv/bin/activate"
+        compose_file=generated/{{ homelab_node }}/compose.yaml
+        [ -f "$compose_file" ] || compose_file=docker-compose.yml
+        for svc in $(docker compose --env-file generated/{{ homelab_node }}/.env -f "$compose_file" ps --services 2>/dev/null); do
+          attempt=1
+          while [ $attempt -le 3 ]; do
+            state=$(docker compose --env-file generated/{{ homelab_node }}/.env -f "$compose_file" ps --format json "$svc" 2>/dev/null | python3 -c "
+        import sys, json
+        try:
+            d = json.loads(sys.stdin.read())
+            if isinstance(d, dict):
+                print(d.get('Health', '') or d.get('State', ''))
+            elif isinstance(d, list):
+                print(d[0].get('Health', '') or d[0].get('State', '') if d else '')
+            else:
+                print('')
+        except: print('')
+        " 2>/dev/null)
+            if [ "$state" = "healthy" ] || [ "$state" = "running" ]; then
+              break
+            fi
+            echo "[retry $attempt] Restarting $svc (state=$state)..."
+            docker compose --env-file generated/{{ homelab_node }}/.env -f "$compose_file" up -d "$svc" 2>&1
+            attempt=$((attempt + 1))
+            [ $attempt -le 3 ] && sleep 15
+          done
+          if [ $attempt -gt 3 ]; then
+            echo "[WARN] $svc still unhealthy after 3 retries — continuing"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      register: health_result
+      changed_when: "'Restarting' in health_result.stdout"
+      failed_when: false
+
+    - name: Display compose health verification
+      ansible.builtin.debug:
+        msg: "{{ health_result.stdout_lines | default([]) }}"
+      when: "'Restarting' in health_result.stdout"
+
+    - name: Enable homelab-compose systemd unit after successful deploy
+      ansible.builtin.systemd:
+        name: homelab-compose
+        enabled: true
+        daemon_reload: true
+
+    - name: Enable homelab watchdog timer after successful deploy
+      ansible.builtin.systemd:
+        name: homelab-watchdog.timer
+        enabled: true
+        daemon_reload: true
+
+    # ── Step 8: Service-owned host integrations + post-start hooks ─────
+    - name: Apply manifest-selected service post-deploy tasks
+      ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+      loop: "{{ service_post_deploy_task_files | default([]) }}"
+      loop_control:
+        loop_var: service_task_file
+        label: "{{ service_task_file }}"
+
+    - name: Run post-start hooks for this node
+      vars:
+        homelab_node: "{{ homelab_node_id }}"
+      ansible.builtin.shell: |
+        "{{ repo_dest }}/.venv/bin/python3" -m toolkit.cli --root "{{ repo_dest }}" deploy hooks --node "{{ homelab_node }}"
+      args:
+        chdir: "{{ repo_dest }}"
+      environment:
+        PYTHONPATH: "{{ repo_dest }}"
+        HOMELAB_ROOT: "{{ repo_dest }}"
+        HOMELAB_NODE: "{{ homelab_node }}"
+      register: hooks_result
+      until: hooks_result.rc == 0
+      retries: 5
+      delay: 30
+      changed_when: hooks_result.rc == 0
+      failed_when: hooks_result.rc != 0
+
+    - name: Display hook results
+      ansible.builtin.debug:
+        msg: "{{ hooks_result.stdout_lines | default(hooks_result.stdout.splitlines()) | default(['(no hook output)']) }}"
+
+    # DNS must converge before service verifiers query newly added or renamed
+    # public records.
+    - name: Sync DNS records to Cloudflare
+      ansible.builtin.shell: |
+        "{{ repo_dest }}/.venv/bin/python3" -m toolkit.cli --root "{{ repo_dest }}" dns sync
+      args:
+        chdir: "{{ repo_dest }}"
+      environment:
+        PYTHONPATH: "{{ repo_dest }}"
+        HOMELAB_ROOT: "{{ repo_dest }}"
+      register: dns_result
+      changed_when: dns_result.rc == 0
+      failed_when: false
+      when: homelab_node_id == ingress_node
+
+    - name: Verify post-start hooks for this VM role
+      delegate_to: localhost
+      connection: local
+      become: false
+      vars:
+        ansible_become: false
+        homelab_node: "{{ homelab_node_id }}"
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "-m"
+          - "toolkit.cli"
+          - "--root"
+          - "{{ homelab_controller_root }}"
+          - "deploy"
+          - "verify"
+          - "--hooks"
+          - "--node"
+          - "{{ homelab_node }}"
+      environment:
+        PYTHONPATH: "{{ homelab_controller_root }}"
+      register: verify_hooks_result
+      changed_when: false
+      # Report-only during provisioning: post-start hook config (metrics dashboards,
+      # DNS rewrites and *arr wiring often need services to fully settle, which can
+      # lag the hook run on a fresh destroy-first boot. Convergence is the loop's job
+      # (`deploy verify`), so a transient miss here must not abort the whole deploy.
+      # Set homelab_verify_hooks_required=true to make it a hard gate.
+      failed_when: homelab_verify_hooks_required | default(false) | bool and verify_hooks_result.rc != 0
+
+    - name: Display hook verification results
+      ansible.builtin.debug:
+        msg: "{{ verify_hooks_result.stdout_lines | default(verify_hooks_result.stdout.splitlines()) | default(['(no verify output)']) }}"

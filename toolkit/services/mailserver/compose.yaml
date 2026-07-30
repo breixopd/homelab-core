@@ -1,0 +1,83 @@
+services:
+  mailserver:
+    restart: unless-stopped
+    profiles:
+    - email
+    - svc-mailserver
+    image: ghcr.io/docker-mailserver/docker-mailserver:15.1.0@sha256:af51b15dd3fc72153c0e90eb7692bb5e3a463212d87959a80fa7aa89b617d44a
+    container_name: mailserver
+    hostname: ${MAIL_HOSTNAME:-mail.localhost}
+    cap_drop:
+    - ALL
+    cap_add:
+    - NET_BIND_SERVICE
+    - SYS_CHROOT
+    - DAC_OVERRIDE
+    - CHOWN
+    - SETUID
+    - SETGID
+    - KILL
+    tmpfs:
+    - /tmp
+    - /run
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      OVERRIDE_HOSTNAME: ${MAIL_HOSTNAME:-mail.localhost}
+      ACCOUNT_PROVISIONER: LDAP
+      LDAP_SERVER_HOST: ldap://${MAILSERVER_LLDAP_HOST}:${MAILSERVER_LLDAP_PORT}
+      LDAP_SEARCH_BASE: ${LLDAP_BASE_DN:-dc=home,dc=local}
+      LDAP_BIND_DN: ${LLDAP_BIND_DN:-cn=ldap-bind,ou=people,dc=home,dc=local}
+      LDAP_BIND_PW: ${LLDAP_BIND_PASSWORD:-}
+      DOVECOT_AUTH_BIND: 'yes'
+      DOVECOT_USER_FILTER: (&(objectClass=inetOrgPerson)(|(uid=%u)(mail=%u)))
+      DOVECOT_PASS_ATTRS: uid=user,userPassword=password
+      DOVECOT_USER_ATTRS: =home=/var/mail/%{ldap:uid}/,=mail=maildir:~/Maildir,=uid=5000,=gid=5000
+      LDAP_QUERY_FILTER_DOMAIN: (mail=*@%s)
+      LDAP_QUERY_FILTER_USER: (&(objectClass=inetOrgPerson)(|(mail=%s)(uid=%s)))
+      LDAP_QUERY_FILTER_ALIAS: (&(objectClass=inetOrgPerson)(mailAlias=%s))
+      LDAP_QUERY_FILTER_GROUP: (|)
+      LDAP_QUERY_FILTER_SENDERS: (&(objectClass=inetOrgPerson)(|(mail=%s)(uid=%s)(mailAlias=%s)))
+      ENABLE_RSPAMD: '1'
+      ENABLE_CLAMAV: '0'
+      ENABLE_AMAVIS: '0'
+      ENABLE_FAIL2BAN: '1'
+      ENABLE_POSTGREY: '0'
+      ENABLE_MANAGESIEVE: '1'
+      ENABLE_OPENDKIM: '0'
+      ENABLE_OPENDMARC: '0'
+      ENABLE_POLICYD_SPF: '0'
+      SSL_TYPE: manual
+      SSL_CERT_PATH: /etc/caddy-certificates/acme-v02.api.letsencrypt.org-directory/wildcard_.${DOMAIN}/wildcard_.${DOMAIN}.crt
+      SSL_KEY_PATH: /etc/caddy-certificates/acme-v02.api.letsencrypt.org-directory/wildcard_.${DOMAIN}/wildcard_.${DOMAIN}.key
+      POSTFIX_INET_PROTOCOLS: ipv4
+      POSTFIX_MESSAGE_SIZE_LIMIT: '52428800'
+      DOVECOT_INET_PROTOCOLS: ipv4
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:25:25
+    - ${PRIVATE_IP:-127.0.0.1}:465:465
+    - ${PRIVATE_IP:-127.0.0.1}:587:587
+    - ${PRIVATE_IP:-127.0.0.1}:993:993
+    - ${PRIVATE_IP:-127.0.0.1}:4190:4190
+    volumes:
+    - ${DMS_DATA_SOURCE:-./data/dms/mail}:/var/mail
+    - ${DMS_STATE_SOURCE:-./data/dms/state}:/var/mail-state
+    - ${DMS_LOG_SOURCE:-./data/dms/log}:/var/log/mail
+    - ${DMS_CONFIG_SOURCE:-./data/dms/config}:/tmp/docker-mailserver
+    - ${CADDY_DATA_SOURCE:-./data/caddy}/caddy/certificates:/etc/caddy-certificates:ro
+    - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - nc -z 127.0.0.1 25 && nc -z 127.0.0.1 465 && nc -z 127.0.0.1 587 && nc -z 127.0.0.1 993
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    mem_limit: 1g
+    cpus: 2.0
+    pids_limit: 512

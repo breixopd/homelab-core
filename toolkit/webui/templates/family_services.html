@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block content %}
+<p class="muted intro">Apps available on your account. Open a link and sign in when prompted.</p>
+
+{% if tier_labels %}
+<p class="muted text-sm">Access tier: <strong>{{ tier_labels|join(', ') }}</strong></p>
+{% endif %}
+
+{% for section in sections %}
+<section class="section">
+  <h2>{{ section.name }}</h2>
+  <div class="cat-grid">
+    {% for card in section.cards %}
+    <div class="surface panel">
+      <div class="panel-head"><strong>{{ card.label }}</strong></div>
+      <p class="muted text-sm">{{ card.blurb }}</p>
+      <p><a href="{{ card.url }}" target="_blank" rel="noopener">{{ card.url }}</a></p>
+      <p class="muted text-sm">{{ card.sign_in }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% else %}
+<div class="surface panel">
+  <p class="muted">No apps are assigned yet. Ask the homelab owner to add you to a Media or Cloud group.</p>
+</div>
+{% endfor %}
+{% endblock %}

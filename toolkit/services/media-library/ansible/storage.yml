@@ -1,0 +1,44 @@
+---
+# Media-library owns the shared media bind mount.  Directory layout and
+# ownership are declared by service.yaml and reconciled by the generic volume
+# permission pass; this hook only attaches the configured machine data disk.
+- name: Resolve media-library data mount
+  ansible.builtin.set_fact:
+    media_data_mount: >-
+      {{ (machine_data_mounts[service_nodes['media-library']] | default([]) | first) | default('') }}
+  when: homelab_node_id == service_nodes['media-library']
+
+- name: Check declared media data mount
+  ansible.builtin.stat:
+    path: "{{ media_data_mount }}"
+  register: prox_data_disk
+  when:
+    - homelab_node_id == service_nodes['media-library']
+    - media_data_mount | default('') | length > 0
+
+- name: Ensure media mount target exists before bind mount
+  ansible.builtin.file:
+    path: "{{ repo_dest | default('/opt/homelab') }}/media"
+    state: directory
+    mode: "0775"
+  when:
+    - homelab_node_id == service_nodes['media-library']
+    - media_data_mount | default('') | length > 0
+    - prox_data_disk.stat.exists | default(false)
+    - prox_data_disk.stat.isdir | default(false)
+
+- name: Bind declared media data mount into the install root
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if mountpoint -q "{{ repo_dest | default('/opt/homelab') }}/media"; then
+      exit 0
+    fi
+    mount --bind "{{ media_data_mount }}" "{{ repo_dest | default('/opt/homelab') }}/media"
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when:
+    - homelab_node_id == service_nodes['media-library']
+    - media_data_mount | default('') | length > 0
+    - prox_data_disk.stat.exists | default(false)
+    - prox_data_disk.stat.isdir | default(false)

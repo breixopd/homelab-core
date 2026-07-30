@@ -1,0 +1,290 @@
+---
+# security-agent/tasks/main.yml — Deploy security agents to all guest VMs
+#
+# Installs: Wazuh agent, Fail2ban, unattended-upgrades, SSH hardening, UFW baseline.
+# The Wazuh agent reports to the infra VM's Wazuh manager for centralized SIEM.
+
+- name: Install baseline security packages
+  ansible.builtin.apt:
+    name:
+      - fail2ban
+      - ufw
+      - unattended-upgrades
+      - apt-listchanges
+    state: present
+    update_cache: true
+  become: true
+
+- name: Enable unattended-upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    mode: "0644"
+  become: true
+
+- name: Configure unattended operating-system upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/52homelab-unattended-upgrades
+    content: |
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+      Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      // Reboots require workload-aware orchestration; maintenance reports the pending state.
+      Unattended-Upgrade::Automatic-Reboot "false";
+    mode: "0644"
+  become: true
+
+- name: Enable operating-system update timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+  become: true
+
+- name: Deploy Fail2ban Caddy auth filter
+  ansible.builtin.template:
+    src: fail2ban/filter.d/caddy-auth.conf.j2
+    dest: /etc/fail2ban/filter.d/caddy-auth.conf
+    mode: "0644"
+  become: true
+  when: fail2ban_caddy_enabled | bool
+  notify: restart fail2ban
+
+- name: Remove Fail2ban Caddy auth filter
+  ansible.builtin.file:
+    path: /etc/fail2ban/filter.d/caddy-auth.conf
+    state: absent
+  become: true
+  when: not fail2ban_caddy_enabled | bool
+  notify: restart fail2ban
+
+- name: Deploy Fail2ban Authelia auth filter
+  ansible.builtin.template:
+    src: fail2ban/filter.d/authelia-auth.conf.j2
+    dest: /etc/fail2ban/filter.d/authelia-auth.conf
+    mode: "0644"
+  become: true
+  when: fail2ban_authelia_enabled | bool
+  notify: restart fail2ban
+
+- name: Remove Fail2ban Authelia auth filter
+  ansible.builtin.file:
+    path: /etc/fail2ban/filter.d/authelia-auth.conf
+    state: absent
+  become: true
+  when: not fail2ban_authelia_enabled | bool
+  notify: restart fail2ban
+
+- name: Configure Fail2ban jails
+  ansible.builtin.template:
+    src: fail2ban/jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    mode: "0644"
+  become: true
+  notify: restart fail2ban
+
+- name: Start and enable Fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true
+  become: true
+
+- name: Ensure SSH directory exists for target user
+  ansible.builtin.file:
+    path: "{{ '/root/.ssh' if ansible_user == 'root' else '/home/' + ansible_user + '/.ssh' }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+
+- name: Check if homelab admin SSH key exists on guest
+  ansible.builtin.stat:
+    path: "{{ repo_dest | default('/opt/homelab') }}/ssh/homelab_admin_ed25519.pub"
+  register: _homelab_ssh_key_stat
+  become: true
+
+- name: Copy homelab admin SSH public key to user directory
+  ansible.builtin.copy:
+    src: "{{ repo_dest | default('/opt/homelab') }}/ssh/homelab_admin_ed25519.pub"
+    dest: "{{ '/root/.ssh/homelab_admin_ed25519.pub' if ansible_user == 'root' else '/home/' + ansible_user + '/.ssh/homelab_admin_ed25519.pub' }}"
+    mode: "0644"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    remote_src: true
+  become: true
+  when: _homelab_ssh_key_stat.stat.exists | default(false)
+
+- name: Add homelab admin public key to authorized_keys
+  ansible.builtin.shell: |
+    set -euo pipefail
+    KEYFILE="/home/{{ ansible_user }}/.ssh/homelab_admin_ed25519.pub"
+    if [ "{{ ansible_user }}" = "root" ]; then
+      AUTHFILE="/root/.ssh/authorized_keys"
+      KEYFILE="/root/.ssh/homelab_admin_ed25519.pub"
+    else
+      AUTHFILE="/home/{{ ansible_user }}/.ssh/authorized_keys"
+    fi
+    mkdir -p "$(dirname "$AUTHFILE")"
+    chmod 700 "$(dirname "$AUTHFILE")"
+    touch "$AUTHFILE"
+    if [ -f "$KEYFILE" ]; then
+      KEYCONTENT=$(cat "$KEYFILE")
+      if ! grep -qF "$KEYCONTENT" "$AUTHFILE" 2>/dev/null; then
+        echo "$KEYCONTENT" >> "$AUTHFILE"
+        echo "added"
+      else
+        echo "exists"
+      fi
+    fi
+  args:
+    executable: /bin/bash
+  register: homelab_key_added
+  changed_when: "'added' in homelab_key_added.stdout"
+  become: true
+
+- name: Ensure authorized_keys has correct permissions
+  ansible.builtin.file:
+    path: "{{ '/root/.ssh/authorized_keys' if ansible_user == 'root' else '/home/' + ansible_user + '/.ssh/authorized_keys' }}"
+    mode: "0600"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+
+- name: Check if admin user has SSH authorized keys
+  ansible.builtin.stat:
+    path: "{{ '/root/.ssh/authorized_keys' if ansible_user == 'root' else '/home/' + ansible_user + '/.ssh/authorized_keys' }}"
+  register: admin_ssh_keys
+  become: true
+
+- name: Harden SSH configuration (disable password auth when keys present)
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^#?PermitRootLogin', line: "PermitRootLogin {{ 'prohibit-password' if ansible_user == 'root' else 'no' }}" }
+    - { regexp: '^#?PasswordAuthentication', line: "PasswordAuthentication {{ 'no' if (admin_ssh_keys.stat.exists | default(false)) else 'yes' }}" }
+    - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
+    - { regexp: '^#?UsePAM', line: 'UsePAM yes' }
+    - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+    - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
+    - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+    - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
+  become: true
+  notify: restart sshd
+
+- name: Ensure homelab policy directory exists
+  ansible.builtin.file:
+    path: /usr/local/lib/homelab
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+
+- name: Render declared UFW policy reconciler
+  ansible.builtin.template:
+    src: reconcile-ufw-policy.sh.j2
+    dest: /usr/local/lib/homelab/reconcile-ufw-policy
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+
+- name: Reconcile complete UFW policy in one transaction
+  ansible.builtin.command: /usr/local/lib/homelab/reconcile-ufw-policy
+  register: homelab_ufw_reconcile
+  changed_when: "'ufw-policy: changed' in homelab_ufw_reconcile.stdout"
+  become: true
+
+# wazuh-agent conflicts with wazuh-manager (both own /var/ossec/). If a prior
+# deploy installed the agent on the manager node, remove it so the manager can run.
+# Use --remove (not purge) to avoid deleting /var/ossec/ which wazuh-manager
+# also depends on. Only act if wazuh-agent is actually installed.
+- name: Check if wazuh-agent is installed on the manager node
+  ansible.builtin.command: dpkg -s wazuh-agent
+  register: wazuh_agent_installed
+  changed_when: false
+  failed_when: false
+  become: true
+  when: homelab_node_id == service_nodes['wazuh-indexer']
+
+- name: Remove wazuh-agent from the manager node
+  ansible.builtin.apt:
+    name: wazuh-agent
+    state: absent
+    purge: false
+  become: true
+  when:
+    - homelab_node_id == service_nodes['wazuh-indexer']
+    - wazuh_agent_installed.rc == 0
+
+- name: Install Wazuh repository signing key
+  ansible.builtin.get_url:
+    url: https://packages.wazuh.com/key/GPG-KEY-WAZUH
+    dest: /usr/share/keyrings/wazuh.asc
+    mode: "0644"
+  become: true
+
+- name: Add Wazuh repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/wazuh.list
+    content: "deb [signed-by=/usr/share/keyrings/wazuh.asc] https://packages.wazuh.com/4.x/apt/ stable main"
+    mode: "0644"
+  become: true
+
+# wazuh-agent and wazuh-manager both own /var/ossec/ and conflict — never
+# install the agent on the node that runs the manager natively.
+- name: Install Wazuh agent
+  ansible.builtin.apt:
+    name: wazuh-agent
+    state: present
+    update_cache: true
+  environment:
+    WAZUH_MANAGER: "{{ service_ips['wazuh-indexer'] }}"
+  become: true
+  when: homelab_node_id != service_nodes['wazuh-indexer']
+
+- name: Configure Wazuh agent manager address
+  ansible.builtin.lineinfile:
+    path: /var/ossec/etc/ossec.conf
+    regexp: '<address>.*</address>'
+    line: "      <address>{{ service_ips['wazuh-indexer'] }}</address>"
+    state: present
+  become: true
+  notify: restart wazuh-agent
+  when: homelab_node_id != service_nodes['wazuh-indexer']
+
+- name: Enable FIM on critical directories
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    insertafter: '<syscheck>'
+    marker: "<!-- {mark} ANSIBLE MANAGED FIM DIRECTORIES -->"
+    block: |
+      <directories check_all="yes" realtime="yes">/etc,/usr/bin,/usr/sbin,/bin,/sbin</directories>
+      <directories check_all="yes" realtime="yes">/home,/root</directories>
+      <directories check_all="yes" realtime="yes">/usr/local/bin,/usr/local/sbin</directories>
+      <directories check_all="yes" realtime="yes">/opt</directories>
+      <directories check_all="yes" realtime="yes">/boot</directories>
+  become: true
+  notify: restart wazuh-agent
+  when: homelab_node_id != service_nodes['wazuh-indexer']
+
+- name: Start and enable Wazuh agent
+  ansible.builtin.systemd:
+    name: wazuh-agent
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
+  when: homelab_node_id != service_nodes['wazuh-indexer']

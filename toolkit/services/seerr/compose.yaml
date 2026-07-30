@@ -1,0 +1,38 @@
+services:
+  seerr:
+    restart: unless-stopped
+    profiles:
+    - media
+    - svc-seerr
+    image: ghcr.io/seerr-team/seerr:v3.3.0@sha256:c92d2dc117f62185e7bcb88cd56efd374ea79210eaf433275449e8d5988eb5a8
+    container_name: seerr
+    init: true
+    read_only: false
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      LOG_LEVEL: info
+      PORT: 5055
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:5055:5055
+    volumes:
+    - ${SEERR_CONFIG_SOURCE:-./data/seerr/config}:/app/config
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q --spider http://localhost:5055/api/v1/settings/public || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    mem_limit: 768m
+    cpus: 0.75
+    pids_limit: 512

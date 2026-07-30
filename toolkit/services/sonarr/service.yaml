@@ -1,0 +1,60 @@
+name: sonarr
+label: Sonarr
+description: TV automation
+icon: 📺
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on:
+- prowlarr
+- qbittorrent
+- gluetun
+memory_tier: light
+memory_floor_mb: 256
+host_sources:
+  SONARR_CONFIG_SOURCE:
+    path: data/sonarr/config
+stateful: true
+data_specs:
+- name: sonarr-config
+  source_env: SONARR_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 2
+  snapshot: true
+  # linuxserver/sonarr ignores PUID/PGID with the hardened read-only root
+  # filesystem and runs its built-in abc user.
+  host_uid: 911
+  host_gid: 1001
+- name: media-library
+  source_env: INSTALL_ROOT
+  source_subpath: media
+  target: /data
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+routes:
+- upstream: sonarr:8989
+  published_port: 8989
+  exposure: private
+  auth:
+    mode: forward_auth
+identity:
+  access_groups: [homelab-admin]
+operator_bookmark:
+  section: Media administration
+  priority: 20
+  description: TV library automation
+required_secrets:
+- name: SONARR_API_KEY
+  tier: generated
+  length: 32
+  description: API key bootstrapped after first start
+  rotation: persistent
+credentials:
+- name: Sonarr API
+  url: '{proto}://sonarr.{domain}'
+  password_env: SONARR_API_KEY
+  tags: [sonarr, media, api-key]
+  notes: API key for managed integrations.

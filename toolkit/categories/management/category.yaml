@@ -1,0 +1,17 @@
+name: management
+label: Management
+placement: control
+priority: 10
+always_on: true
+description: 'Core infrastructure: auth, monitoring, reverse proxy, databases'
+service_group: homelab-admin
+access_group:
+  name: homelab-admin
+  label: Admin
+  description: Infrastructure administration and private operator tools
+  default_invite: false
+  administrator: true
+compose_profiles:
+- management
+- svc-homelab-ui
+selected_compose_profiles: management_selected_compose_profiles

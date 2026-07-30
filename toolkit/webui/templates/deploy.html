@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="deployment-summary" aria-label="Deployment inventory">
+  <div class="deployment-summary-item">
+    <span>Nodes</span>
+    <strong>{{ node_count }}</strong>
+  </div>
+  <div class="deployment-summary-item">
+    <span>Services</span>
+    <strong>{{ total_services }}</strong>
+  </div>
+  <div class="deployment-summary-item">
+    <span>Generated configs</span>
+    <strong>{{ envs_ready }} / {{ node_count }}</strong>
+  </div>
+  <div class="deployment-summary-item">
+    <span>Categories</span>
+    <strong>{{ category_count }}</strong>
+  </div>
+</section>
+
+{% if last_verify %}
+<section class="content-band" aria-labelledby="last-verification-heading">
+  <div class="section-head">
+    <h2 id="last-verification-heading">Last verification</h2>
+  </div>
+  <div class="responsive-table verification-table-wrap">
+    <table class="data-table verification-table" aria-labelledby="last-verification-heading">
+      <thead><tr><th scope="col">Node</th><th scope="col">Result</th><th scope="col">Healthy</th><th scope="col">Issues</th></tr></thead>
+      <tbody>
+        {% for node, data in last_verify.items() %}
+        <tr>
+          <td><code>{{ node }}</code></td>
+          <td><span class="badge {% if data.ok %}ok{% else %}critical{% endif %}">{{ 'Passed' if data.ok else 'Failed' }}</span></td>
+          <td>{{ data.healthy }}</td>
+          <td>{{ data.unhealthy }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="content-band" aria-labelledby="preflight-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="preflight-heading">Preflight</h2>
+      <p id="preflight-status" class="muted text-sm deployment-section-note">{{ 'Ready to deploy' if preflight_ok else 'Blocked by required checks' }}</p>
+    </div>
+    <button class="btn btn-ghost btn-sm"
+            hx-get="/partials/deploy/preflight"
+            hx-target="#preflight-panel"
+            hx-indicator="#spinner"
+            hx-swap="innerHTML">Refresh</button>
+  </div>
+  <div id="preflight-panel" class="preflight-list">{% include "partials/preflight.html" %}</div>
+</section>
+
+<section class="content-band deployment-pipeline" aria-labelledby="pipeline-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="pipeline-heading">Pipeline</h2>
+      <p class="muted text-sm deployment-section-note">Target and execution controls</p>
+    </div>
+  </div>
+
+  <div class="pipeline-toolbar">
+    <span id="deploy-primary-action">{% include "partials/deploy_button.html" %}</span>
+    <button class="btn btn-ghost btn-sm" type="button"
+            data-disclosure-toggle="deploy-options"
+            aria-controls="deploy-options"
+            aria-expanded="false">Options</button>
+    <button class="btn btn-ghost btn-sm" type="button"
+            data-disclosure-toggle="advanced-options"
+            aria-controls="advanced-options"
+            aria-expanded="false">Advanced</button>
+  </div>
+
+  <div id="deploy-options" class="deployment-options" hidden>
+    <div class="choice-grid deployment-choice-grid">
+      <label class="choice-option"><input type="checkbox" name="skip_infra" value="1"><span>Skip infrastructure</span></label>
+      <label class="choice-option"><input type="checkbox" name="skip_dns" value="1"><span>Skip DNS</span></label>
+    </div>
+    <label class="form-field deployment-target" for="deployment-target">
+      <span>Target</span>
+      <select id="deployment-target" name="target_vm">
+        <option value="">All nodes</option>
+        {% for target in enabled_targets %}<option value="{{ target }}">{{ target }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <div id="advanced-options" class="deployment-advanced" hidden>
+    <button class="btn btn-ghost btn-sm"
+            hx-post="/deploy/jobs/generate"
+            hx-target="#job-panel"
+            hx-indicator="#spinner"
+            hx-swap="innerHTML">Generate configuration</button>
+    <button class="btn btn-ghost btn-sm"
+            hx-post="/deploy/jobs/recover"
+            hx-include="#deploy-options"
+            hx-target="#job-panel"
+            hx-indicator="#spinner"
+            hx-swap="innerHTML">Recover deployment</button>
+    <button class="btn btn-ghost btn-sm"
+            hx-post="/deploy/jobs/verify"
+            hx-include="#deploy-options"
+            hx-target="#job-panel"
+            hx-indicator="#spinner"
+            hx-swap="innerHTML">Run verification</button>
+  </div>
+</section>
+
+<section class="content-band deployment-jobs-section" aria-labelledby="deployment-activity-heading">
+  <div class="section-head">
+    <div>
+      <h2 id="deployment-activity-heading">Deployment activity</h2>
+      <p class="muted text-sm deployment-section-note">Live controller job output</p>
+    </div>
+  </div>
+  <div id="job-panel" class="deployment-jobs" aria-live="polite">
+    {% for job in active_jobs %}
+      {% if job.manageable %}
+      {% with job_id=job.job_id, action=job.kind|lower, cancellable=true %}
+        {% include "partials/deploy_job.html" %}
+      {% endwith %}
+      {% else %}
+      <div class="surface panel deploy-job-readonly">
+        <div class="panel-head">
+          <strong>{{ job.kind|lower }}</strong>
+          <span class="badge running">{{ job.state|lower }}</span>
+        </div>
+      </div>
+      {% endif %}
+    {% else %}
+    <div class="inline-status">No active deployment jobs</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="content-band" aria-labelledby="deployment-steps-heading">
+  <div class="section-head">
+    <h2 id="deployment-steps-heading">Pipeline steps</h2>
+  </div>
+  <ol id="step-list" class="deployment-steps">
+    {% for step_id, label in step_labels.items() %}
+    <li data-step="{{ step_id }}"><span class="step-marker pending" aria-hidden="true"></span><span>{{ label }}</span></li>
+    {% endfor %}
+  </ol>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/deploy.js?v={{ static_revision }}"></script>
+{% endblock %}

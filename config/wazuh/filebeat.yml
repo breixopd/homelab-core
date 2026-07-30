@@ -1,0 +1,26 @@
+filebeat.modules:
+  - module: wazuh
+    alerts:
+      enabled: true
+    archives:
+      enabled: false
+
+setup.template.json.enabled: true
+setup.template.json.path: /etc/filebeat/wazuh-template.json
+setup.template.json.name: wazuh
+setup.template.overwrite: true
+setup.ilm.overwrite: true
+setup.ilm.enabled: false
+
+output.elasticsearch:
+  hosts:
+    - http://127.0.0.1:9200
+  index: wazuh-alerts-4.x-%{+yyyy.MM.dd}
+
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0644

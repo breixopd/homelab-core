@@ -1,0 +1,96 @@
+name: komodo-core
+label: Komodo
+description: Fleet Docker management
+icon: ⚙️
+category: management
+placement: control
+priority: 10
+recovery_task_order: 140
+restart_policy: careful
+depends_on:
+- komodo-mongo
+memory_tier: medium
+stateful: true
+host_integrations:
+- id: komodo-periphery
+  label: Komodo Periphery
+  kinds: [fleet]
+  default_for: [fleet]
+  ansible_role: komodo_periphery
+data_specs:
+- name: komodo-keys
+  volume: komodo-keys
+  target: /config/keys
+  size_estimate_gb: 1
+  snapshot: true
+routes:
+- subdomain: komodo
+  upstream: komodo-core:9120
+  published_port: 9120
+  exposure: private
+  auth:
+    mode: oidc
+operator_bookmark:
+  section: Quick actions
+  priority: 70
+  description: Fleet container management
+variables:
+  PUBLIC_URL_PROTOCOL: '{derived.public_url_protocol}'
+  KOMODO_DATABASE_USERNAME: komodo
+management:
+  panels:
+  - id: deployment-control
+    title: Deployment control
+    description: Komodo manages application deployments and registered Periphery agents through Homelab OIDC.
+    items:
+    - label: Web interface
+      value: https://komodo.{domain}
+      href: https://komodo.{domain}
+    - label: Internal API
+      value: http://komodo-core:9120
+      copyable: true
+    - label: Authentication
+      value: Sign in with your Homelab account
+    - label: Agent credentials
+      value: Reconciled automatically and never displayed here
+  actions:
+  - id: reconcile-credentials
+    label: Reconcile runtime credentials
+    description: Reconcile the local administrator, automation API, and Periphery onboarding credentials.
+    confirmation: Reconcile Komodo runtime credentials while preserving MongoDB data?
+oidc:
+  client_id: komodo
+  secret_env_var: KOMODO_OIDC_CLIENT_SECRET
+  redirect_uris:
+  - https://komodo.{domain}/auth/oidc/callback
+  scopes: [openid, profile, email]
+  authorization_policy: two_factor
+  require_pkce: true
+  pkce_challenge_method: S256
+  token_endpoint_auth_method: client_secret_basic
+  response_types: [code]
+  grant_types: [authorization_code]
+required_secrets:
+- name: KOMODO_OIDC_CLIENT_SECRET
+  tier: generated
+  length: 48
+  description: OIDC client secret for Authelia integration
+  rotation: restart
+- name: KOMODO_ONBOARDING_SEED
+  tier: generated
+  length: 48
+  description: Seed material for the registered Periphery onboarding key
+  rotation: persistent
+- name: KOMODO_INIT_ADMIN_PASSWORD
+  tier: generated
+  length: 24
+  description: First-run administrator password
+  rotation: reconcile
+- name: KOMODO_API_KEY
+  tier: bootstrapped
+  length: 48
+  description: Automation service account API key
+- name: KOMODO_API_SECRET
+  tier: bootstrapped
+  length: 48
+  description: Automation service account API secret

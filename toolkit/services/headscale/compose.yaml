@@ -1,0 +1,50 @@
+services:
+  headscale:
+    restart: unless-stopped
+    profiles:
+    - security-headscale
+    - svc-headscale
+    build:
+      context: ./toolkit/services/headscale/image
+    image: ${HOMELAB_HEADSCALE_IMAGE:?run homelab-toolkit generate}
+    container_name: headscale
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    - /var/run
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command: serve
+    environment:
+      TZ: ${TZ:-UTC}
+    expose:
+    - 8080
+    - 9090
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:4080:8080
+    volumes:
+    - ${HEADSCALE_DATA_SOURCE:-./data/headscale}:/var/lib/headscale
+    - ${HEADSCALE_CONFIG_SOURCE:-./generated/headscale}:/etc/headscale:ro
+    depends_on:
+      authelia:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - /bin/busybox
+      - wget
+      - -q
+      - --spider
+      - http://localhost:8080/health
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 256

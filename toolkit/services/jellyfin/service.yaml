@@ -1,0 +1,111 @@
+name: jellyfin
+label: Jellyfin
+description: Media server (movies/TV/music)
+icon: 🎬
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on: []
+memory_tier: heavy
+host_sources:
+  JELLYFIN_CONFIG_SOURCE:
+    path: data/jellyfin/config
+runtimes:
+  jellyfin-vaapi:
+    required_host_paths: [/dev/dri]
+  jellyfin-nvidia:
+    required_host_paths: [/dev/nvidia0]
+stateful: true
+data_specs:
+- name: jellyfin-config
+  source_env: JELLYFIN_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 50
+  snapshot: true
+  # linuxserver/jellyfin runs as its built-in ``abc`` user when the
+  # hardened read-only root filesystem is enabled (PUID/PGID are ignored).
+  host_uid: 911
+  host_gid: 1001
+- name: media-library
+  source_env: MEDIA_LIBRARY_ROOT
+  target: /data/media
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+enabled_when:
+- setting: media-library.server
+  one_of: [jellyfin, both]
+variables:
+  JELLYFIN_HOST: jellyfin.{config.domain}
+management:
+  panels:
+  - id: account-access
+    title: Account access
+    description: Jellyfin authenticates directly against the homelab directory.
+    items:
+    - label: Server
+      value: https://jellyfin.{domain}
+      href: https://jellyfin.{domain}
+      copyable: true
+    - label: Username
+      value: '{username}'
+      copyable: true
+    - label: Password
+      value: Your normal homelab account password
+  settings:
+  - key: hardware-transcode
+    label: Hardware transcoding
+    description: Select a hardware backend or detect the best supported backend automatically.
+    type: select
+    default: auto
+    choices: [none, vaapi, nvidia, auto]
+routes:
+- upstream: jellyfin:8096
+  published_port: 8096
+  exposure: public
+  auth:
+    mode: native
+health:
+  public_probe_path: /health
+identity:
+  invite:
+    group: homelab-media
+    priority: 10
+    blurb: Watch TV shows and movies
+    sign_in: Sign in with your email and homelab password.
+  provisioning:
+  - id: jellyfin_ldap_first_login
+    mode: first_login
+    priority: 40
+    message: 'Jellyfin: sign in with the directory email; the account is created on first LDAP login'
+    disabled_message: 'Jellyfin LDAP: media service disabled'
+required_secrets:
+- name: LLDAP_BIND_PASSWORD
+  tier: generated
+  length: 24
+  description: LDAP service bind password
+  rotation: reconcile
+- name: SSO_USER_PASSWORD
+  tier: generated
+  length: 24
+  description: Initial owner account password
+  rotation: reconcile
+- name: JELLYFIN_ADMIN_PASSWORD
+  tier: generated
+  length: 24
+  fallback_env: SSO_USER_PASSWORD
+  description: Bootstrap credential for the Jellyfin owner account
+  rotation: reconcile
+- name: JELLYFIN_API_KEY
+  tier: generated
+  length: 32
+  description: API key used by media automation
+  rotation: persistent
+credentials:
+- name: Jellyfin
+  url: '{proto}://jellyfin.{domain}'
+  password_env: JELLYFIN_ADMIN_PASSWORD
+  tags: [jellyfin, media, admin]
+  notes: Owner account credential; LDAP users sign in with directory credentials.

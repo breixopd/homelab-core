@@ -1,0 +1,46 @@
+services:
+  prowlarr:
+    restart: unless-stopped
+    profiles:
+    - media
+    - svc-prowlarr
+    image: lscr.io/linuxserver/prowlarr:2.5.2@sha256:2f3d31307beba3ba2dd226d191f5f5c14ee3b4d8b49277c64683f5ed97083179
+    container_name: prowlarr
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    tmpfs:
+    - /tmp
+    - /run:exec
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ:-UTC}
+      PROWLARR__Auth__ApiKey: ${PROWLARR_API_KEY}
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:9696:9696
+    volumes:
+    - ${PROWLARR_CONFIG_SOURCE:-./data/prowlarr/config}:/config
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -sf
+      - http://localhost:9696/ping
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 512m
+    cpus: 0.75
+    pids_limit: 512

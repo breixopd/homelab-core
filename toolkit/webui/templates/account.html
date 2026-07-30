@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+<p class="muted intro">Manage your homelab sign-in and see which apps you can open.</p>
+
+<div class="stat-grid two-col account-summary">
+  <div class="surface stat-card">
+    <div class="stat-label">Signed in as</div>
+    <div class="stat-value mono account-summary-value">{{ user_label }}</div>
+    {% if email %}<div class="stat-sub">{{ email }}</div>{% endif %}
+  </div>
+  <div class="surface stat-card">
+    <div class="stat-label">Access</div>
+    <div class="stat-value account-summary-value">
+      {% if tier_labels %}{{ tier_labels|join(', ') }}{% else %}Family{% endif %}
+    </div>
+  </div>
+</div>
+
+<section class="section">
+  <h2>Password &amp; security</h2>
+  <div class="surface panel">
+    <p>Use the homelab sign-in portal to change your password{% if not is_admin %} or turn on two-factor authentication{% endif %}.</p>
+    <p><a class="btn btn-primary" href="{{ auth_url }}" target="_blank" rel="noopener">Open sign-in portal</a></p>
+  </div>
+</section>
+
+{% if sections %}
+<section class="section">
+  <h2>Your apps</h2>
+  <div class="cat-grid">
+    {% for section in sections %}
+    <div class="surface panel">
+      <div class="panel-head"><strong>{{ section.name }}</strong></div>
+      <ul class="svc-list">
+        {% for card in section.cards %}
+        <li>
+          <a href="{{ card.url }}" target="_blank" rel="noopener">{{ card.label }}</a>
+          <span class="muted text-sm"> — {{ card.blurb }}</span>
+          <div class="muted text-sm">{{ card.sign_in }}</div>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

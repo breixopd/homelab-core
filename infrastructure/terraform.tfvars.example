@@ -1,0 +1,11 @@
+# ──────────────────────────────────────────────
+# Required: Proxmox credentials for BPG provider
+# ──────────────────────────────────────────────
+
+# BPG provider API token — single string, created on Proxmox host:
+#   pveum user token add terraform@pve provider --privsep=0
+# Output format: terraform@pve!provider=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+proxmox_api_token = "terraform@pve!provider=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Provider, template, machine, and network settings are generated exclusively
+# from config.yaml and config.local.yaml into generated.auto.tfvars.

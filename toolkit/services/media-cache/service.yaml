@@ -1,0 +1,123 @@
+name: media-cache
+label: Media Cache
+description: Playback-aware cache tiering
+icon: ⚡
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on:
+- rclone
+memory_tier: light
+image_release:
+  compose_service: media-cache
+  repository: ghcr.io/breixopd/media-cache
+  version: v1.1.1
+  digest: sha256:054f060098c2a9510349950e257e7c0e1e39fd48709d6b137afe13d8717c8c10
+stateful: true
+data_specs:
+- name: cache-tier
+  source_env: INSTALL_ROOT
+  source_subpath: media/cache
+  target: /cache
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+- name: cache-index
+  volume: media-cache-state
+  target: /state
+  size_estimate_gb: 1
+  snapshot: true
+host_integrations:
+- id: media-cache
+  label: Media cache storage pool
+  kinds: [plain, fleet]
+  controller_lifecycle: true
+  fields:
+  - key: path
+    label: Storage path
+    description: Absolute path containing media on this host.
+    type: path
+    required: true
+    placeholder: /srv/media
+variables:
+  RCLONE_CACHE_MAX_GB: '500'
+  RCLONE_REMOTE: media-union
+  COLD_AFTER_DAYS: '{setting.cold-after-days}'
+  UPLINK_MBPS: '{setting.uplink-mbps}'
+management:
+  panels:
+  - id: cache-behavior
+    title: Playback cache
+    description: The cache promotes active media locally and demotes inactive files without changing library paths.
+    items:
+    - label: Media library
+      value: Shared /data library used by media services
+    - label: Promotion
+      value: Playback-aware prefetch to local storage
+    - label: Demotion
+      value: Controlled by the inactivity period below
+    - label: Storage backends
+      value: Listed in the resources section when configured
+  settings:
+  - key: enabled
+    label: Enabled
+    description: Run playback-aware cache promotion and demotion.
+    type: boolean
+    default: false
+    setup: true
+  - key: cold-after-days
+    label: Demote after
+    description: Move inactive media back to remote storage after this many days.
+    type: number
+    default: 15
+    minimum: 1
+    maximum: 365
+    step: 1
+  - key: uplink-mbps
+    label: Uplink capacity
+    description: Available remote-storage uplink bandwidth in megabits per second.
+    type: number
+    default: 0
+    minimum: 0
+    maximum: 100000
+    step: 1
+  metrics:
+  - key: cache_used_pct
+    label: Cache used
+    source: status
+    field: cache_used_pct
+    unit: percent
+    precision: 1
+  - key: tracked_files
+    label: Tracked files
+    source: status
+    field: tracked_files
+    unit: count
+  - key: active_prefetch
+    label: Active prefetches
+    source: status
+    field: active_prefetch
+    unit: count
+  - key: effective_uplink_mbps
+    label: Effective uplink
+    source: status
+    field: effective_uplink_mbps
+    unit: mbps
+    precision: 1
+  resources:
+  - key: storage_backends
+    label: Storage backends
+    description: Rclone remotes currently joined to the media storage pool.
+    columns:
+    - key: name
+      label: Name
+    - key: kind
+      label: Kind
+required_secrets:
+- name: MEDIA_CACHE_TOKEN
+  tier: generated
+  length: 32
+  description: Administrative API token
+  rotation: restart

@@ -1,0 +1,124 @@
+name: gluetun
+label: Gluetun
+description: VPN client / egress for media services
+icon: 🛡️
+category: media
+placement: media
+priority: 30
+restart_policy: safe
+depends_on: []
+provides: [tunnel-device]
+memory_tier: light
+host_sources:
+  GLUETUN_DATA_SOURCE:
+    path: data/gluetun
+generated_artifacts:
+- path: generated/.env.vpn
+  sensitive: true
+stateful: true
+data_specs:
+- name: gluetun-state
+  source_env: GLUETUN_DATA_SOURCE
+  target: /gluetun
+  size_estimate_gb: 1
+  snapshot: true
+variables:
+  VPN_SERVER_COUNTRIES: '{setting.server-countries}'
+guidance:
+- id: provider-credentials
+  phase: pre_deploy
+  category: Prerequisite
+  title: VPN provider credentials
+  instructions: >-
+    Provide the VPN credential requested by setup. NordVPN uses an access token
+    and derives its WireGuard key during generation. OpenVPN providers use the
+    account username and password; custom WireGuard uses its private key and
+    tunnel addresses.
+management:
+  panels:
+  - id: tunnel-routing
+    title: VPN routing
+    description: Gluetun has no user interface; manage the provider and preferred countries with the settings below.
+    items:
+    - label: Protected workload
+      value: qBittorrent
+    - label: Torrent web interface
+      value: https://qbt.{domain}
+      href: https://qbt.{domain}
+    - label: Tunnel health
+      value: Verified using the public exit address and leak checks
+  settings:
+  - key: enabled
+    label: VPN protection
+    description: Route qBittorrent traffic through the managed VPN tunnel.
+    type: boolean
+    default: true
+    setup: true
+  - key: provider
+    label: VPN provider
+    description: Select the account provider used by the managed VPN tunnel.
+    type: select
+    default: nordvpn
+    choices: [nordvpn, protonvpn, mullvad, surfshark, pia]
+    setup: true
+  - key: server-countries
+    label: Preferred countries
+    description: Comma-separated Gluetun country filters; leave empty to use the provider default.
+    type: text
+    default: ''
+required_secrets:
+- name: VPN_PROVIDER
+  tier: bootstrapped
+  length: 32
+  description: VPN provider identifier
+- name: VPN_TYPE
+  tier: bootstrapped
+  length: 32
+  description: VPN tunnel type
+- name: NORDVPN_TOKEN
+  tier: user
+  length: 32
+  description: NordVPN access token
+  setup:
+    label: NordVPN access token
+    input: password
+    required: true
+    when:
+    - setting: gluetun.enabled
+      equals: true
+    - setting: gluetun.provider
+      equals: nordvpn
+- name: VPN_USER
+  tier: user
+  length: 32
+  description: OpenVPN account username
+  setup:
+    label: VPN username
+    input: text
+    required: true
+    when:
+    - setting: gluetun.enabled
+      equals: true
+    - setting: gluetun.provider
+      one_of: [protonvpn, mullvad, surfshark, pia]
+- name: VPN_PASSWORD
+  tier: user
+  length: 32
+  description: OpenVPN account password
+  setup:
+    label: VPN password
+    input: password
+    required: true
+    when:
+    - setting: gluetun.enabled
+      equals: true
+    - setting: gluetun.provider
+      one_of: [protonvpn, mullvad, surfshark, pia]
+- name: WIREGUARD_PRIVATE_KEY
+  tier: user
+  length: 32
+  description: WireGuard private key
+- name: WIREGUARD_ADDRESSES
+  tier: user
+  length: 32
+  description: WireGuard tunnel addresses

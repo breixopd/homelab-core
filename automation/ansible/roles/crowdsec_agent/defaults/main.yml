@@ -1,0 +1,16 @@
+# CrowdSec agent — enroll to the infra LXC's CrowdSec Local API (LAPI) on :8080.
+crowdsec_lapi_url: "http://{{ service_ips.get('crowdsec', control_ip) }}:8080"
+crowdsec_lapi_token: ""
+crowdsec_machine_name: ""
+crowdsec_package_version: "1.7.8"
+crowdsec_package_key_url: "https://packagecloud.io/crowdsec/crowdsec/gpgkey"
+crowdsec_package_key_path: /etc/apt/keyrings/crowdsec.asc
+crowdsec_package_key_sha256: "cd5729fe6f95d29efc48f1cfe63e0d4a3088506cf99f3cf74b572c4b70429980" # gitleaks:allow — public package checksum
+
+# Collections to install on enrollment (match the infra CrowdSec server's set).
+crowdsec_collections:
+  - crowdsecurity/linux
+  - crowdsecurity/ssh-bf
+
+# Allow the agent to phone home for scenario updates.
+crowdsec_enable_api: true

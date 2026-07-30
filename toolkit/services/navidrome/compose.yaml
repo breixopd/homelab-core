@@ -1,0 +1,45 @@
+services:
+  navidrome:
+    restart: unless-stopped
+    profiles:
+    - media
+    - svc-navidrome
+    image: deluan/navidrome:0.63.2@sha256:9012939114fbb1bb641b81cf96dec5ded15f0aafefe8d47a511d7cb919658e40
+    container_name: navidrome
+    read_only: true
+    cap_drop:
+    - ALL
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      ND_LOGLEVEL: info
+      ND_MUSICFOLDER: /music
+      ND_BASEURL: ${NAVIDROME_BASE_URL:-}
+      ND_ENABLETRANSCODINGCONFIG: 'true'
+      ND_TRANSCODINGCACHESIZE: 100MB
+      ND_EXTAUTH_TRUSTEDSOURCES: ${NAVIDROME_EXTAUTH_TRUSTED_SOURCES}
+      ND_EXTAUTH_USERHEADER: Remote-User
+      ND_EXTAUTH_LOGOUTURL: ${NAVIDROME_EXTAUTH_LOGOUT_URL}
+      ND_ENABLEUSEREDITING: 'false'
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:4533:4533
+    volumes:
+    - ${NAVIDROME_DATA_SOURCE:-./data/navidrome}:/data
+    - ${MEDIA_LIBRARY_ROOT:-./media}/music:/music:ro
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q -O /dev/null http://localhost:4533/ping || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256

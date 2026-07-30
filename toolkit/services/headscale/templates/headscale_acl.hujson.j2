@@ -1,0 +1,32 @@
+{
+  "randomizeClientPort": false,
+  "tagOwners": {
+{% for tag in fleet_tags %}
+    "{{ tag }}": ["{{ tag_owner | default('homelab@') }}"]{% if not loop.last %},{% endif %}
+{% endfor %}
+  },
+  "autoApprovers": {
+    "routes": {
+      "{{ mesh_lan_cidr }}": [{{ mesh_router_tag | tojson }}]
+    }
+  },
+  "acls": [
+    // G86 (Phase 3): tags-only ACLs — the allow-all rule has been removed.
+    //
+    // autogroup:member = personal (untagged) devices belonging to tailnet
+    // members, i.e. owner laptops/phones. Tagged fleet nodes only match the
+    // explicit tag rules below, so they cannot reach arbitrary destinations.
+
+    // Subnet router reaches everything (it advertises the homelab LAN).
+    {"action": "accept", "src": [{{ mesh_router_tag | tojson }}], "dst": ["*:*"]},
+
+    // Fleet external nodes reach the subnet router (internal services via mesh).
+    {"action": "accept", "src": ["tag:fleet-external"], "dst": [{{ (mesh_router_tag ~ ':*') | tojson }}]},
+
+    // Fleet-to-fleet mesh ops (sync, ansible, monitoring probes).
+    {"action": "accept", "src": ["tag:fleet-external"], "dst": ["tag:fleet-external:*"]},
+
+    // Owner laptops/phones (user keys without tags) retain full reach.
+    {"action": "accept", "src": ["autogroup:member"], "dst": ["*:*"]}
+  ]
+}

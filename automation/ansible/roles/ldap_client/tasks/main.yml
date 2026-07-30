@@ -1,0 +1,66 @@
+---
+- name: Require the service-owned LLDAP bind credential
+  ansible.builtin.assert:
+    that:
+      - lldap_bind_password | default('') | length > 0
+    quiet: true
+    fail_msg: LLDAP bind credential is unavailable; run through homelab-toolkit secret injection
+  no_log: true
+
+- name: Install SSSD and LDAP packages
+  ansible.builtin.apt:
+    name:
+      - sssd
+      - sssd-ldap
+      - ldap-utils
+      - libpam-sss
+      - libnss-sss
+      - libpam-mkhomedir
+    state: present
+    update_cache: true
+
+- name: Deploy SSSD config for LLDAP
+  ansible.builtin.template:
+    src: sssd.conf.j2
+    dest: /etc/sssd/sssd.conf
+    owner: root
+    group: root
+    mode: "0600"
+  notify: restart sssd
+
+- name: Configure NSS to use SSS
+  ansible.builtin.lineinfile:
+    path: /etc/nsswitch.conf
+    regexp: "^({{ item }}):.*"
+    line: "{{ item }}:         files sss"
+    backrefs: true
+  loop:
+    - passwd
+    - group
+    - shadow
+
+- name: Enable PAM SSS authentication
+  ansible.builtin.shell: |
+    set -e
+    if grep -q pam_sss /etc/pam.d/common-auth 2>/dev/null; then exit 0; fi
+    export DEBIAN_FRONTEND=noninteractive
+    for _ in $(seq 1 30); do
+      if pam-auth-update --enable sss; then exit 0; fi
+      sleep 3
+    done
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Enable and start SSSD
+  ansible.builtin.systemd:
+    name: sssd
+    enabled: true
+    state: started
+
+- name: Create home directory on first login
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/common-session
+    line: "session required pam_mkhomedir.so skel=/etc/skel umask=0077"
+    insertafter: "session.*pam_sss"

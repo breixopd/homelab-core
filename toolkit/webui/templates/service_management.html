@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block page_actions %}<a href="/services" class="btn btn-ghost btn-sm">All services</a>{% endblock %}
+
+{% block content %}
+{% if flash %}<div class="notice success" role="status">{{ flash }}{% if job_id %} <a href="/jobs/{{ job_id }}">View job</a>{% endif %}</div>{% endif %}
+{% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
+
+<section class="service-manage-summary" aria-label="Service summary">
+  <div><span>State</span><strong><span class="badge {{ 'ok' if service.enabled else 'neutral' }}">{{ 'Enabled' if service.enabled else 'Disabled' }}</span></strong></div>
+  <div><span>Category</span><strong>{{ service.category|title }}</strong></div>
+  <div><span>Node</span><strong><code>{{ service.node }}</code></strong></div>
+  <div><span>Status</span><strong id="service-reporting-status">Loading live data</strong></div>
+</section>
+
+{% if service.panels %}
+<div class="service-info-grid" aria-label="Service information">
+  {% for panel in service.panels %}
+  <section class="content-band service-info-panel" aria-labelledby="service-panel-{{ panel.id }}">
+    <div class="section-head"><div><h2 id="service-panel-{{ panel.id }}">{{ panel.title }}</h2>{% if panel.description %}<p class="muted text-sm service-manage-note">{{ panel.description }}</p>{% endif %}</div></div>
+    <dl class="service-info-list">
+      {% for item in panel.items %}
+      <div><dt>{{ item.label }}</dt><dd>{% if item.href %}<a href="{{ item.href }}" target="_blank" rel="noopener noreferrer">{{ item.value }}</a>{% else %}<code>{{ item.value }}</code>{% endif %}{% if item.copyable %}<button type="button" class="btn btn-ghost btn-xs" data-copy-value="{{ item.value }}" aria-label="Copy {{ item.label }}">Copy</button>{% endif %}</dd></div>
+      {% endfor %}
+    </dl>
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div id="service-observability"
+     aria-live="polite"
+     aria-busy="true"
+     hx-get="/partials/services/{{ service.service }}/observability"
+     hx-trigger="load, every 30s"
+     hx-swap="innerHTML">
+  <section class="content-band service-observability-loading" aria-label="Loading live service data">
+    <div class="section-head"><div><h2>Live service data</h2><p class="muted text-sm">Collecting metrics, history, and resources without delaying the rest of this page.</p></div></div>
+    <div class="service-metric-grid" aria-hidden="true">
+      {% for _ in range(4) %}<div class="service-metric service-metric-skeleton"><span></span><strong></strong></div>{% endfor %}
+    </div>
+  </section>
+</div>
+
+{% if service.secrets %}
+<section class="content-band" aria-labelledby="service-secrets-heading">
+  <div class="section-head">
+    <div><h2 id="service-secrets-heading">Integration credentials</h2><p class="muted text-sm service-manage-note">Stored values are encrypted and never returned to this page. Leave a field blank to keep its current value.</p></div>
+  </div>
+  <form method="post" action="/services/{{ service.service }}/secrets">
+    <div class="field-grid secret-fields">
+      {% for field in service.secrets %}
+      <label class="form-field span-6" for="service-secret-{{ field.name }}">
+        <span>{{ field.label }}</span>
+        <input id="service-secret-{{ field.name }}" name="secret_{{ field.name }}" type="password"
+               placeholder="{{ 'Configured' if field.is_configured else 'Not configured' }}" autocomplete="off">
+        {% if field.description %}<small>{{ field.description }}</small>{% endif %}
+      </label>
+      {% endfor %}
+    </div>
+    <div class="action-bar"><button type="submit" class="btn btn-primary">Save credentials and reconcile</button></div>
+  </form>
+</section>
+{% endif %}
+
+{% if service.settings %}
+<section class="content-band" aria-labelledby="service-settings-heading">
+  <div class="section-head">
+    <div><h2 id="service-settings-heading">Settings</h2><p class="muted text-sm service-manage-note">Validated service configuration</p></div>
+  </div>
+  <form method="post" action="/services/{{ service.service }}/settings">
+    <input type="hidden" name="revision" value="{{ service.revision }}">
+    <div class="choice-grid service-boolean-grid">
+      {% for setting in service.settings %}
+      {% set current = setting.value if setting.value is not none else setting.default %}
+      {% if setting.type == 'boolean' %}
+      <label class="choice-option"><input type="checkbox" name="setting_{{ setting.key }}" {% if current %}checked{% endif %}><span><strong>{{ setting.label }}</strong>{% if setting.description %}<small>{{ setting.description }}</small>{% endif %}</span></label>
+      {% endif %}
+      {% endfor %}
+    </div>
+    <div class="field-grid service-setting-grid">
+      {% for setting in service.settings %}
+      {% set current = setting.value if setting.value is not none else setting.default %}
+      {% if setting.type == 'select' %}
+      <label class="form-field span-4"><span>{{ setting.label }}</span><select name="setting_{{ setting.key }}">{% for choice in setting.choices %}<option value="{{ choice }}" {% if current == choice %}selected{% endif %}>{{ choice|replace('_', ' ')|title }}</option>{% endfor %}</select>{% if setting.description %}<small>{{ setting.description }}</small>{% endif %}</label>
+      {% elif setting.type != 'boolean' %}
+      <label class="form-field span-4"><span>{{ setting.label }}</span><input name="setting_{{ setting.key }}" type="{{ 'number' if setting.type == 'number' else 'text' }}" value="{{ current if current is not none else '' }}" {% if setting.minimum is not none %}min="{{ setting.minimum }}"{% endif %} {% if setting.maximum is not none %}max="{{ setting.maximum }}"{% endif %} {% if setting.step is not none %}step="{{ setting.step }}"{% endif %}>{% if setting.description %}<small>{{ setting.description }}</small>{% endif %}</label>
+      {% endif %}
+      {% endfor %}
+    </div>
+    <div class="action-bar"><button type="submit" class="btn btn-primary">Save and generate</button></div>
+  </form>
+</section>
+{% endif %}
+
+{% if service.actions %}
+<section class="content-band" aria-labelledby="service-actions-heading">
+  <div class="section-head"><div><h2 id="service-actions-heading">Actions</h2><p class="muted text-sm service-manage-note">Controller-managed service operations</p></div></div>
+  <div class="service-action-list">
+    {% for action in service.actions %}
+    <div class="service-action-row">
+      <div><strong>{{ action.label }}</strong><p class="muted text-sm">{{ action.description }}</p></div>
+      <form method="post" action="/services/{{ service.service }}/actions/{{ action.id }}" {% if action.confirmation %}data-confirm="{{ action.confirmation }}"{% endif %}>
+        <button type="submit" class="btn {{ 'btn-danger' if action.is_dangerous else 'btn-ghost' }} btn-sm" {% if not action.can_run %}disabled{% endif %}>{{ action.label }}</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}<script src="/static/js/service-metrics.js?v={{ static_revision }}"></script>{% endblock %}

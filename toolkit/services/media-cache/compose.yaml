@@ -1,0 +1,55 @@
+services:
+  media-cache:
+    restart: unless-stopped
+    profiles:
+    - media-cache
+    - svc-media-cache
+    image: ghcr.io/breixopd/media-cache:v1.1.1@sha256:054f060098c2a9510349950e257e7c0e1e39fd48709d6b137afe13d8717c8c10
+    container_name: media-cache
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    cap_drop:
+    - ALL
+    security_opt:
+    - no-new-privileges:true
+    environment:
+      TZ: ${TZ:-UTC}
+      MEDIA_CACHE_TOKEN: ${MEDIA_CACHE_TOKEN:?MEDIA_CACHE_TOKEN is required}
+      RCLONE_CONFIG: /config/rclone/rclone.conf
+      SONARR_URL: http://sonarr:8989
+      SONARR_API_KEY: ${SONARR_API_KEY:-}
+      RADARR_URL: http://radarr:7878
+      RADARR_API_KEY: ${RADARR_API_KEY:-}
+      JELLYFIN_URL: http://jellyfin:8096
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
+      CACHE_DIR: /cache
+      LIBRARY_DIR: /library
+      CACHE_MAX_GB: ${RCLONE_CACHE_MAX_GB:-500}
+      COLD_AFTER_DAYS: ${COLD_AFTER_DAYS:-15}
+      UPLINK_MBPS: ${UPLINK_MBPS:-0}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-media-union}
+    volumes:
+    - ${MEDIA_LIBRARY_ROOT:-./media}:/library:ro
+    - ${INSTALL_ROOT}/media/cache:/cache
+    - ${RCLONE_CONFIG_SOURCE:-./data/rclone/config}:/config/rclone:ro
+    - media-cache-state:/state
+    expose:
+    - 8686
+    depends_on:
+      rclone:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -sf
+      - http://localhost:8686/health
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128

@@ -1,0 +1,13 @@
+---
+komodo_core_address: ""
+komodo_connect_as: "{{ inventory_hostname }}"
+komodo_onboarding_key: ""
+komodo_periphery_root: /etc/komodo
+komodo_periphery_version: "2.2.0"
+komodo_periphery_releases:
+  x86_64:
+    asset: periphery-x86_64
+    sha256: ace9007805dbfe75ad73c75c36bb26852fa909d825577f31f5d13eecd3c52660
+  aarch64:
+    asset: periphery-aarch64
+    sha256: ccb253d25eb66ac2c2041192d78875e9c57548637d64abc0030e0f2224239af1

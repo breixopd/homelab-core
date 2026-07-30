@@ -1,0 +1,62 @@
+name: bazarr
+label: Bazarr
+description: Subtitle downloads
+icon: 💬
+category: media
+placement: media
+priority: 20
+restart_policy: safe
+depends_on: [sonarr, radarr]
+memory_tier: light
+memory_floor_mb: 512
+host_sources:
+  BAZARR_CONFIG_SOURCE:
+    path: data/bazarr/config
+stateful: true
+data_specs:
+- name: bazarr-config
+  source_env: BAZARR_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 2
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: media-library
+  source_env: INSTALL_ROOT
+  source_subpath: media
+  target: /data
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+routes:
+- upstream: bazarr:6767
+  published_port: 6767
+  exposure: private
+  auth:
+    mode: forward_auth
+identity:
+  access_groups: [homelab-admin]
+operator_bookmark:
+  section: Media administration
+  priority: 50
+  description: Subtitle automation and provider status
+guidance:
+- id: subtitle-providers
+  phase: post_deploy
+  category: Optional
+  title: Configure additional subtitle providers
+  instructions: >-
+    OpenSubtitles is configured automatically when its credentials are
+    supplied. Credential-free providers remain available without them. For
+    other providers, visit {url} and open Settings, then Providers.
+  route_url: true
+required_secrets:
+- name: OPENSUBTITLES_USER
+  tier: user
+  length: 32
+  description: Optional OpenSubtitles account username
+- name: OPENSUBTITLES_PASSWORD
+  tier: user
+  length: 32
+  description: Optional OpenSubtitles account password

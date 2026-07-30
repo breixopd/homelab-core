@@ -1,0 +1,46 @@
+name: prometheus
+label: Prometheus
+description: Metrics collection
+icon: 📈
+category: management
+placement: control
+priority: 5
+essential: true
+internal_aliases: [prometheus]
+restart_policy: careful
+depends_on: []
+provides: [metrics]
+memory_tier: medium
+host_sources:
+  PROMETHEUS_DATA_SOURCE:
+    path: data/prometheus
+  PROMETHEUS_CONFIG_SOURCE:
+    path: generated/prometheus.yml
+generated_artifacts:
+- path: generated/prometheus.yml
+image_build:
+  context: image
+  env_var: HOMELAB_PROMETHEUS_IMAGE
+  smoke_tests:
+  - command: [--version]
+    contains: prometheus, version
+stateful: true
+prometheus:
+- id: server
+  container_port: 9090
+  host_port: 9090
+data_specs:
+- name: prometheus-data
+  source_env: PROMETHEUS_DATA_SOURCE
+  target: /prometheus
+  size_estimate_gb: 20
+  snapshot: true
+  host_uid: 65532
+  host_gid: 65532
+  host_subdirs: [data]
+routes:
+- upstream: prometheus:9090
+  published_port: 9090
+  exposure: private
+  auth:
+    mode: forward_auth

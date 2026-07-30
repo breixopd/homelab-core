@@ -1,0 +1,49 @@
+services:
+  redis:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-redis
+    image: redis:8.8.0-alpine@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+    container_name: redis
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETGID
+    - SETUID
+    - DAC_OVERRIDE
+    environment:
+      TZ: ${TZ:-UTC}
+    entrypoint:
+    - /bin/sh
+    - -ec
+    command:
+    - |
+      cp /run/redis-source/redis.conf /run/redis/redis.conf
+      chown redis:redis /run/redis/redis.conf
+      exec /usr/local/bin/docker-entrypoint.sh redis-server /run/redis/redis.conf
+    tmpfs:
+    - /run/redis
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:6379:6379
+    volumes:
+    - ${REDIS_DATA_SOURCE:-./data/redis}:/data
+    - ${INSTALL_ROOT}/generated/redis.conf:/run/redis-source/redis.conf:ro
+    - ${INSTALL_ROOT}/generated/redis-healthcheck.sh:/usr/local/bin/redis-healthcheck.sh:ro
+    healthcheck:
+      test:
+      - CMD
+      - sh
+      - /usr/local/bin/redis-healthcheck.sh
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 768m
+    cpus: 0.5
+    pids_limit: 128

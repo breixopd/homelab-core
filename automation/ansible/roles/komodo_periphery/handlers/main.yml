@@ -1,0 +1,8 @@
+---
+- name: Restart Komodo Periphery
+  listen: restart komodo periphery
+  ansible.builtin.systemd:
+    name: periphery
+    state: restarted
+    daemon_reload: true
+  become: true

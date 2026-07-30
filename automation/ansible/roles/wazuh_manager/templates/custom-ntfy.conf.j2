@@ -1,0 +1,9 @@
+WAZUH_NTFY_URL="{{ wazuh_ntfy_url }}"
+WAZUH_NTFY_TOPIC="{{ wazuh_ntfy_topic }}"
+WAZUH_ALERT_MIN_LEVEL="{{ wazuh_alert_level }}"
+{% if wazuh_alert_email and not (wazuh_email_enabled | bool) %}
+WAZUH_ALERT_EMAIL="{{ wazuh_alert_email }}"
+WAZUH_SMTP_HOST="{{ wazuh_smtp_host }}"
+WAZUH_SMTP_PORT="{{ wazuh_smtp_port }}"
+WAZUH_MAIL_FROM="{{ wazuh_mail_from }}"
+{% endif %}

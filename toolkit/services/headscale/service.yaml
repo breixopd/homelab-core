@@ -1,0 +1,135 @@
+name: headscale
+label: Headscale
+description: Mesh VPN control plane; managed through Homelab UI and CLI (no built-in Headscale web UI)
+icon: 🔗
+category: security
+placement: control
+priority: 15
+guest_task_order: 130
+recovery_task_order: 130
+restart_policy: careful
+depends_on:
+- authelia
+- caddy
+provides: [mesh-router]
+memory_tier: light
+host_sources:
+  HEADSCALE_DATA_SOURCE:
+    path: data/headscale
+  HEADSCALE_CONFIG_SOURCE:
+    path: generated/headscale
+generated_artifacts:
+- path: generated/headscale/config.yaml
+  sensitive: true
+- path: generated/headscale/acl.hujson
+image_build:
+  context: image
+  env_var: HOMELAB_HEADSCALE_IMAGE
+  smoke_tests:
+  - command: [version]
+    contains: headscale version
+host_paths:
+- path: generated/headscale
+host_integrations:
+- id: vpn-client
+  label: Headscale mesh VPN
+  kinds: [plain, fleet]
+  default_for: [plain, fleet]
+  ansible_role: vpn_client
+  controller_lifecycle: true
+stateful: true
+data_specs:
+- name: headscale-data
+  source_env: HEADSCALE_DATA_SOURCE
+  target: /var/lib/headscale
+  size_estimate_gb: 1
+  snapshot: false
+backup_exports:
+- artifact: headscale.sqlite.gz
+  strategy: sqlite
+  data_spec: headscale-data
+  database_path: db.sqlite
+routes:
+- subdomain: vpn
+  upstream: headscale:8080
+  published_port: 4080
+  exposure: public
+  auth:
+    mode: oidc
+health:
+  public_probe_path: /health
+guidance:
+- id: enroll-personal-devices
+  phase: post_deploy
+  category: Optional
+  title: Enroll personal devices on the mesh
+  instructions: >-
+    LXC guests stay on the private LAN; laptops, phones, and fleet hosts join
+    the mesh. Use `homelab-toolkit mesh join` for personal devices and
+    `homelab-toolkit fleet wizard` for managed hosts. Login server: {url}.
+    Validate enrollment with `homelab-toolkit mesh doctor`.
+  route_url: true
+management:
+  panels:
+  - id: mesh-enrollment
+    title: Mesh enrollment
+    description: Headscale is the control server; device and enrollment management lives here in Homelab UI.
+    items:
+    - label: Login server
+      value: https://vpn.{domain}
+      href: https://vpn.{domain}
+      copyable: true
+    - label: Join command
+      value: tailscale up --login-server=https://vpn.{domain}
+      copyable: true
+    - label: Built-in Headscale UI
+      value: None — use this service page and the mesh CLI
+  metrics:
+  - key: registered_nodes
+    label: Registered nodes
+    source: status
+    field: registered_nodes
+    unit: count
+  - key: online_nodes
+    label: Online nodes
+    source: status
+    field: online_nodes
+    unit: count
+  - key: users
+    label: Mesh users
+    source: status
+    field: users
+    unit: count
+  resources:
+  - key: mesh_nodes
+    label: Mesh nodes
+    description: Devices registered with the Headscale control plane.
+    columns:
+    - key: name
+      label: Device
+    - key: user
+      label: Owner
+    - key: addresses
+      label: Mesh addresses
+    - key: state
+      label: State
+    - key: last_seen
+      label: Last seen
+oidc:
+  client_id: headscale
+  secret_env_var: HEADSCALE_OIDC_CLIENT_SECRET
+  redirect_uris:
+  - https://vpn.{domain}/oidc/callback
+  scopes: [openid, profile, email, groups]
+  authorization_policy: two_factor
+  require_pkce: true
+  pkce_challenge_method: S256
+  token_endpoint_auth_method: client_secret_basic
+  response_types: [code]
+  grant_types: [authorization_code]
+required_secrets:
+- name: HEADSCALE_OIDC_CLIENT_SECRET
+  tier: generated
+  length: 48
+  description: OIDC client secret for Authelia integration
+  rotation: restart

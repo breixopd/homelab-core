@@ -1,0 +1,11 @@
+<section class="surface panel deploy-job identity-job"
+         data-job-id="{{ job_id }}"
+         data-identity-job="{{ job_id }}"
+         data-stream-url="/people/stream/{{ job_id }}"
+         aria-labelledby="identity-job-title-{{ job_id }}">
+  <div class="panel-head">
+    <strong id="identity-job-title-{{ job_id }}">Identity job</strong>
+    <span class="badge running" id="job-status-{{ job_id }}">{{ job_state }}</span>
+  </div>
+  <pre id="log-{{ job_id }}" class="log-viewer" aria-label="Identity job output"></pre>
+</section>

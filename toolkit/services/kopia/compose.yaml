@@ -1,0 +1,94 @@
+services:
+  kopia:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-kopia
+    image: kopia/kopia:0.23.1@sha256:89fd95ee2942880ca00eae964266958a394421ddbdf69bca62e38afc55f5900e
+    container_name: kopia
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - DAC_READ_SEARCH
+    tmpfs:
+    - /tmp
+    - /source
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    command: >-
+      server start
+      --address=https://0.0.0.0:51515
+      --tls-cert-file=/run/kopia-tls/server.crt
+      --tls-key-file=/run/kopia-tls/server.key
+      --server-control-username=${KOPIA_ADMIN_USER:-admin}
+    environment:
+      TZ: ${TZ:-UTC}
+      KOPIA_PASSWORD: ${KOPIA_REPOSITORY_PASSWORD}
+      KOPIA_CONFIG_PATH: /app/config/repository.config
+      KOPIA_SERVER_CONTROL_PASSWORD: ${KOPIA_ADMIN_PASSWORD}
+      USER: root
+    expose:
+    - 51515
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:51515:51515
+    volumes:
+    - ${KOPIA_CONFIG_SOURCE:-./data/kopia/config}:/app/config
+    - ${KOPIA_CACHE_SOURCE:-./data/kopia/cache}:/app/cache
+    - ${KOPIA_LOGS_SOURCE:-./data/kopia/logs}:/app/logs
+    - ${KOPIA_DUMPS_SOURCE:-./data/kopia/dumps}:/source/backup-dumps:ro
+    - ${KOPIA_REPOSITORY_SOURCE:-./data/kopia/repository}:/repository
+    - ${KOPIA_TLS_CERT_SOURCE:-./generated/kopia/tls/server.crt}:/run/kopia-tls/server.crt:ro
+    - ${KOPIA_TLS_PRIVATE_SOURCE:-./generated/kopia/tls/server.key}:/run/kopia-tls/server.key:ro
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -ksf -o /dev/null -w '%{http_code}' https://127.0.0.1:51515/ | grep -qE '200|401' || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+  kopia-agent:
+    image: kopia/kopia:0.23.1@sha256:89fd95ee2942880ca00eae964266958a394421ddbdf69bca62e38afc55f5900e
+    container_name: kopia-agent
+    restart: unless-stopped
+    profiles:
+    - monitoring-agent
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - DAC_READ_SEARCH
+    tmpfs:
+    - /tmp
+    - /source
+    entrypoint:
+    - /bin/sh
+    - -c
+    - trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $$!; done
+    environment:
+      TZ: ${TZ:-UTC}
+      KOPIA_PASSWORD: ${KOPIA_AGENT_PASSWORD}
+      KOPIA_CONFIG_PATH: /app/config/repository.config
+      KOPIA_SERVER_HOST: ${KOPIA_SERVER_HOST}
+      KOPIA_SERVER_CERT_FINGERPRINT: ${KOPIA_SERVER_CERT_FINGERPRINT}
+      HOMELAB_NODE: ${HOMELAB_NODE}
+    volumes:
+    - ${KOPIA_AGENT_CONFIG_SOURCE:-./data/kopia-agent/config}:/app/config
+    - ${KOPIA_AGENT_CACHE_SOURCE:-./data/kopia-agent/cache}:/app/cache
+    - ${KOPIA_AGENT_LOGS_SOURCE:-./data/kopia-agent/logs}:/app/logs
+    - ${KOPIA_DUMPS_SOURCE:-./data/kopia/dumps}:/source/backup-dumps:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 128

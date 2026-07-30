@@ -1,0 +1,23 @@
+name: immich-machine-learning
+label: Immich ML
+description: "Face detection + search (GPU-adaptive: CUDA/OpenVINO/CPU)"
+icon: 🧠
+category: cloud
+placement: apps
+priority: 30
+restart_policy: safe
+depends_on:
+- immich-server
+memory_tier: heavy
+health:
+  starting_policy: pending
+host_sources:
+  IMMICH_ML_CACHE_SOURCE:
+    path: data/immich-ml
+stateful: true
+data_specs:
+- name: model-cache
+  source_env: IMMICH_ML_CACHE_SOURCE
+  target: /cache
+  size_estimate_gb: 20
+  snapshot: false

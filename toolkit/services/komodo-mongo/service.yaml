@@ -1,0 +1,40 @@
+name: komodo-mongo
+label: Komodo MongoDB
+description: Database for Komodo
+icon: 🍃
+category: management
+placement: control
+priority: 5
+restart_policy: careful
+depends_on: []
+memory_tier: medium
+memory_floor_mb: 384
+host_sources:
+  KOMODO_MONGO_DATA_SOURCE:
+    path: data/komodo/mongo
+stateful: true
+data_specs:
+- name: komodo-database
+  source_env: KOMODO_MONGO_DATA_SOURCE
+  target: /data/db
+  size_estimate_gb: 10
+  snapshot: false
+  host_uid: 999
+  host_gid: 999
+backup_exports:
+- artifact: komodo-mongo.archive.gz
+  strategy: container
+  command:
+  - sh
+  - -ec
+  - >-
+    exec mongodump --archive
+    --username="$MONGO_INITDB_ROOT_USERNAME"
+    --password="$MONGO_INITDB_ROOT_PASSWORD"
+    --authenticationDatabase=admin
+required_secrets:
+- name: KOMODO_DATABASE_PASSWORD
+  tier: generated
+  length: 32
+  description: MongoDB database password
+  rotation: reconcile

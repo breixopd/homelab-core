@@ -1,0 +1,13 @@
+---
+# ntfy push for high-severity Wazuh alerts (native manager reaches ntfy via host-published port)
+wazuh_ntfy_enabled: true
+wazuh_ntfy_url: "http://127.0.0.1:8090"
+wazuh_ntfy_topic: "wazuh-alerts"
+wazuh_alert_level: 10
+
+# Email via ossec.conf global + email_alerts (Docker-Mailserver relay on apps VM by default)
+wazuh_alert_email: ""
+wazuh_email_enabled: "{{ wazuh_alert_email | length > 0 }}"
+wazuh_smtp_host: "{{ service_ips.get('mailserver', control_ip) }}"
+wazuh_smtp_port: 25
+wazuh_mail_from: "wazuh@{{ base_domain | default('localhost') }}"

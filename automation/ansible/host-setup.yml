@@ -1,0 +1,707 @@
+---
+# Prepare Proxmox host for homelab LXC deployment.
+#
+# Inlines: host repositories/packages, private bridge network, ZFS mirror pool,
+# LXC template download, kernel modules for Docker-in-LXC, and sysctl tuning.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml host-setup.yml
+#
+# WARNING: ZFS creation is destructive — wipes data on target disks.
+# Run only on a fresh install or after backing up all LXCs.
+
+- name: Prepare Proxmox host for LXC homelab
+  hosts: proxmox_hosts
+  become: true
+  vars:
+    homelab_controller_root: "{{ playbook_dir }}/../.."
+    zfs_pool_name: "{{ zfs_pool | default('data') }}"
+    zfs_disks: "{{ zfs_disk_list | default('sda,sdb') }}"
+    zfs_ashift: "{{ zfs_sector_shift | default('12') }}"
+    zfs_compression: "{{ zfs_compress | default('lz4') }}"
+    zfs_dedup: "{{ zfs_enable_dedup | default('off') }}"
+    zfs_mountpoint: "/{{ zfs_pool_name }}"
+    zfs_vms_reservation: "{{ zfs_vms_reservation_gb | default(1400) }}G"
+    proxmox_storage_id: "{{ zfs_proxmox_id | default('zfs-mirror') }}"
+    proxmox_zfs_enabled: "{{ zfs_enabled | default(false) }}"
+
+  tasks:
+    # The workstation-only Proxmox key is deliberately not synced to the
+    # control node.  Authorize the controller-owned identity while this host
+    # is reachable with the configured bootstrap key, enabling later
+    # controller-driven guest operations without copying a private key.
+    - name: Check controller automation public key is available locally
+      ansible.builtin.stat:
+        path: "{{ homelab_controller_root }}/ssh/homelab_admin_ed25519.pub"
+      delegate_to: localhost
+      connection: local
+      become: false
+      vars:
+        ansible_become: false
+      register: controller_automation_public_key
+
+    - name: Require controller automation public key for host setup
+      ansible.builtin.assert:
+        that:
+          - controller_automation_public_key.stat.exists
+          - controller_automation_public_key.stat.isreg
+          - machine_specs is defined
+          - machine_specs | default({}) | length > 0
+        fail_msg: >-
+          Controller automation identity or generated machine targets are
+          missing; run homelab-toolkit generate before host setup.
+
+    - name: Build controller SSH forwarding allow-list
+      ansible.builtin.set_fact:
+        controller_permitopen_options: >-
+          {{ (controller_permitopen_options | default([]))
+             + ['permitopen="' + item.value.address + ':' + (item.value.ssh_port | default(22) | string) + '"'] }}
+      loop: "{{ machine_specs | default({}) | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Authorize controller automation identity on Proxmox SSH account
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ lookup('ansible.builtin.file', homelab_controller_root + '/ssh/homelab_admin_ed25519.pub') | trim }}"
+        key_options: >-
+          {{ (['command="/usr/bin/false"', 'restrict', 'port-forwarding'] + controller_permitopen_options) | join(',') }}
+        state: present
+        manage_dir: true
+        comment: homelab-controller
+
+    # ─────────────────────────────────────────────────
+    # 1. Proxmox repositories + base packages
+    # ─────────────────────────────────────────────────
+    - name: Disable enterprise Proxmox repository if present
+      ansible.builtin.replace:
+        path: /etc/apt/sources.list.d/pve-enterprise.list
+        regexp: '^(deb .*)$'
+        replace: '# \1'
+      failed_when: false
+
+    - name: Enable Proxmox no-subscription repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/pve-no-subscription.list
+        content: |
+          deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription
+        mode: "0644"
+
+    - name: Install base host utilities
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - vim
+          - htop
+          - jq
+          - ifupdown2
+          - iptables-persistent
+          - locales
+        state: present
+        update_cache: true
+        install_recommends: false
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Upgrade packages
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # ─────────────────────────────────────────────────
+    # Locale configuration
+    # ─────────────────────────────────────────────────
+    - name: Generate C.UTF-8 locale
+      ansible.builtin.command: locale-gen C.UTF-8
+      changed_when: false
+
+    - name: Set system locale to C.UTF-8
+      ansible.builtin.command: update-locale LC_ALL=C.UTF-8 LANG=C.UTF-8
+      changed_when: false
+
+    - name: Persist locale in /etc/environment
+      ansible.builtin.lineinfile:
+        path: /etc/environment
+        line: "{{ item }}"
+        create: true
+        mode: "0644"
+      loop:
+        - 'LC_ALL=C.UTF-8'
+        - 'LANG=C.UTF-8'
+
+    # ─────────────────────────────────────────────────
+    # 2. Machine-declared private bridge network
+    # ─────────────────────────────────────────────────
+    - name: Validate generated private bridge desired state
+      ansible.builtin.assert:
+        that:
+          - proxmox_private_network is defined
+          - proxmox_private_network | length > 0
+          - proxmox_private_bridge_name is defined
+          - proxmox_private_bridge_name | length > 0
+          - proxmox_private_bridge_cidr is defined
+          - proxmox_private_bridge_cidr | length > 0
+          - proxmox_public_bridge_name is defined
+          - proxmox_public_bridge_name | length > 0
+        fail_msg: "Private bridge settings are missing; run homelab-toolkit generate first"
+      when: proxmox_private_network_enabled | bool
+
+    - name: Skip bridge automation when disabled
+      ansible.builtin.debug:
+        msg: "proxmox_private_network_enabled=false; skipping bridge automation"
+      when: not (proxmox_private_network_enabled | default(false))
+
+    - name: Ensure Proxmox private bridge is present in interfaces file
+      ansible.builtin.blockinfile:
+        path: /etc/network/interfaces
+        marker: "# {mark} SERVER-TOOLKIT PRIVATE BRIDGE"
+        block: |
+          auto {{ proxmox_private_bridge_name }}
+          iface {{ proxmox_private_bridge_name }} inet static
+              address {{ proxmox_private_bridge_cidr }}
+              bridge-ports none
+              bridge-stp off
+              bridge-fd 0
+              mtu {{ proxmox_private_bridge_mtu | default(1500) }}
+      when: proxmox_private_network_enabled | default(false)
+      register: private_bridge_config
+
+    - name: Reload network configuration
+      ansible.builtin.command: ifreload -a
+      when:
+        - proxmox_private_network_enabled | default(false)
+        - private_bridge_config is changed
+      changed_when: true
+
+    - name: Assert bridge exists after reload
+      ansible.builtin.command: ip -o link show {{ proxmox_private_bridge_name }}
+      when: proxmox_private_network_enabled | default(false)
+      changed_when: false
+
+    # ─────────────────────────────────────────────────
+    # 3. Kernel modules for Docker-in-LXC
+    # ─────────────────────────────────────────────────
+    - name: Load kernel modules required by Docker-in-LXC
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+        - ip_vs
+        - ip_vs_rr
+        - ip_vs_wrr
+        - ip_vs_sh
+        - nf_conntrack
+
+    - name: Ensure modules load at boot
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/docker-lxc.conf
+        line: "{{ item }}"
+        create: true
+        mode: "0644"
+      loop:
+        - overlay
+        - br_netfilter
+        - ip_vs
+        - ip_vs_rr
+        - ip_vs_wrr
+        - ip_vs_sh
+        - nf_conntrack
+
+    - name: Enable IPv4 forwarding for Docker networking
+      ansible.builtin.shell: |
+        if [ "$(sysctl -n net.ipv4.ip_forward)" != "1" ]; then
+          sysctl -w net.ipv4.ip_forward=1
+          echo changed
+        else
+          echo ok
+        fi
+      register: _ip_fwd
+      changed_when: "'changed' in _ip_fwd.stdout"
+
+    - name: Enable bridge-netfilter call-iptables for Docker
+      ansible.builtin.shell: |
+        if [ "$(sysctl -n net.bridge.bridge-nf-call-iptables)" != "1" ]; then
+          sysctl -w net.bridge.bridge-nf-call-iptables=1
+          echo changed
+        else
+          echo ok
+        fi
+      register: _br_ipt
+      changed_when: "'changed' in _br_ipt.stdout"
+
+    - name: Enable bridge-netfilter call-ip6tables for Docker
+      ansible.builtin.shell: |
+        if [ "$(sysctl -n net.bridge.bridge-nf-call-ip6tables)" != "1" ]; then
+          sysctl -w net.bridge.bridge-nf-call-ip6tables=1
+          echo changed
+        else
+          echo ok
+        fi
+      register: _br_ip6t
+      changed_when: "'changed' in _br_ip6t.stdout"
+
+    # ─────────────────────────────────────────────────
+    # 4. NAT masquerading for LXC internet access
+    #    Managed machines on the declared private bridge need NAT for internet access.
+    # ─────────────────────────────────────────────────
+    - name: Enable iptables NAT for LXC internet access
+      ansible.builtin.iptables:
+        table: nat
+        chain: POSTROUTING
+        source: "{{ proxmox_private_network }}"
+        out_interface: "{{ proxmox_public_bridge_name }}"
+        jump: MASQUERADE
+        comment: LXC internet access
+      when: proxmox_private_network_enabled | bool
+
+    - name: Allow forwarding from private bridge to public
+      ansible.builtin.iptables:
+        chain: FORWARD
+        in_interface: "{{ proxmox_private_bridge_name }}"
+        out_interface: "{{ proxmox_public_bridge_name }}"
+        jump: ACCEPT
+      when: proxmox_private_network_enabled | bool
+
+    - name: Allow return traffic from public to private bridge
+      ansible.builtin.iptables:
+        chain: FORWARD
+        in_interface: "{{ proxmox_public_bridge_name }}"
+        out_interface: "{{ proxmox_private_bridge_name }}"
+        match: state
+        ctstate: RELATED,ESTABLISHED
+        jump: ACCEPT
+      when: proxmox_private_network_enabled | bool
+
+    - name: Persist iptables rules across reboots
+      ansible.builtin.shell: iptables-save > /etc/iptables/rules.v4
+      changed_when: true
+      when: proxmox_private_network_enabled | bool
+
+    # ─────────────────────────────────────────────────
+    # 4b. DNAT public HTTP/HTTPS to the manifest-owned ingress node.
+    # ─────────────────────────────────────────────────
+    - name: Create managed homelab DNAT chain
+      ansible.builtin.iptables:
+        table: nat
+        chain: HOMELAB_DNAT
+        chain_management: true
+
+    - name: Route public bridge ingress through managed homelab DNAT chain
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        jump: HOMELAB_DNAT
+        comment: Homelab managed public ingress
+        action: insert
+        rule_num: "1"
+
+    - name: Flush managed homelab DNAT chain
+      ansible.builtin.iptables:
+        table: nat
+        chain: HOMELAB_DNAT
+        flush: true
+
+    - name: DNAT HTTP from public bridge to ingress
+      when: internet_ingress_enabled | bool
+      ansible.builtin.iptables:
+        table: nat
+        chain: HOMELAB_DNAT
+        in_interface: "{{ proxmox_public_bridge_name }}"
+        protocol: tcp
+        destination_port: "80"
+        jump: DNAT
+        to_destination: "{{ ingress_ip }}:80"
+        comment: Homelab HTTP to manifest ingress
+
+    - name: DNAT HTTPS from public bridge to ingress
+      when: internet_ingress_enabled | bool
+      ansible.builtin.iptables:
+        table: nat
+        chain: HOMELAB_DNAT
+        in_interface: "{{ proxmox_public_bridge_name }}"
+        protocol: tcp
+        destination_port: "443"
+        jump: DNAT
+        to_destination: "{{ ingress_ip }}:443"
+        comment: Homelab HTTPS to manifest ingress
+
+    # ─────────────────────────────────────────────────
+    # 4c. DNAT plugin-owned public listeners to their resolved service nodes.
+    # ─────────────────────────────────────────────────
+    - name: DNAT manifest-declared public listeners
+      ansible.builtin.iptables:
+        table: nat
+        chain: HOMELAB_DNAT
+        in_interface: "{{ proxmox_public_bridge_name }}"
+        protocol: "{{ item.protocol }}"
+        destination_port: "{{ item.port | string }}"
+        jump: DNAT
+        to_destination: "{{ item.target_ip }}:{{ item.port }}"
+        comment: "Homelab {{ item.service }} {{ item.id }}"
+      loop: "{{ public_listener_forwards }}"
+      loop_control:
+        label: "{{ item.service }} {{ item.protocol }}/{{ item.port }}"
+
+    - name: Persist reconciled homelab DNAT rules
+      ansible.builtin.shell: iptables-save > /etc/iptables/rules.v4
+      changed_when: true
+
+    # ─────────────────────────────────────────────────
+    # 5. ZFS mirror pool (optional)
+    # ─────────────────────────────────────────────────
+    - name: Destroy ZFS pool and Proxmox storage (full wipe)
+      when: zfs_wipe_enabled | default(false) | bool
+      tags: [zfs-wipe, never]
+      block:
+        - name: Check if pool exists
+          ansible.builtin.command:
+            cmd: "zpool status {{ zfs_pool_name }}"
+          register: _wipe_check
+          failed_when: false
+          changed_when: false
+
+        - name: Destroy ZFS pool
+          ansible.builtin.command:
+            cmd: "zpool destroy -f {{ zfs_pool_name }}"
+          when: _wipe_check.rc == 0
+          changed_when: true
+
+        - name: Remove Proxmox storage entries
+          ansible.builtin.command: "pvesm remove {{ item }}"
+          failed_when: false
+          changed_when: true
+          loop:
+            - "{{ proxmox_storage_id }}"
+            - zfs-backups
+
+    - name: End playbook if ZFS is not enabled
+      ansible.builtin.meta: end_play
+      when: not (proxmox_zfs_enabled | bool)
+
+    - name: Auto-detect unused disks for ZFS when zfs_disk_list is not set
+      when: (zfs_disk_list | default('') | trim | length) == 0
+      block:
+        - name: Discover available unused block devices
+          ansible.builtin.shell: |
+            set -euo pipefail
+            ROOT_DISK=$(findmnt -n -o SOURCE / 2>/dev/null | sed 's/p[0-9]*$//;s/[0-9]*$//' | xargs -r basename 2>/dev/null || echo "")
+            CANDIDATES=""
+            while read -r disk _type; do
+              [ -z "${disk}" ] && continue
+              [ "${disk}" = "${ROOT_DISK}" ] && continue
+              case "${disk}" in sr*|zd*|ram*|loop*|dm-*) continue ;; esac
+              [ -b "/dev/${disk}" ] || continue
+              SIZE_BYTES=$(lsblk -ndo SIZE -b "/dev/${disk}" 2>/dev/null || echo 0)
+              [ "${SIZE_BYTES}" -lt 53687091200 ] && continue
+              if lsblk -ndo NAME "/dev/${disk}" 2>/dev/null | grep -qE '^'"${disk}"'[0-9]+'; then
+                continue
+              fi
+              CANDIDATES="${CANDIDATES} ${disk}"
+            done < <(lsblk -dno NAME,TYPE 2>/dev/null | awk '$2=="disk" {print $1, $2}')
+            echo "${CANDIDATES}" | tr ' ' '\n' | sed '/^$/d' | paste -sd, -
+          register: detected_disks
+          changed_when: false
+
+        - name: Override zfs_disks with auto-detected devices
+          ansible.builtin.set_fact:
+            zfs_disks: "{{ detected_disks.stdout | trim }}"
+          when: detected_disks.stdout | trim | length > 0
+
+        - name: Fail when ZFS enabled but no suitable disks found
+          ansible.builtin.fail:
+            msg: >-
+              zfs_enabled but no spare block devices >= 50GB found.
+              Set storage.zfs_disk_list in config.yaml (e.g. sda,sdb) or disable zfs_enabled.
+          when:
+            - proxmox_zfs_enabled | bool
+            - detected_disks.stdout | trim | length == 0
+            - (zfs_disk_list | default('') | trim | length) == 0
+
+    - name: Install ZFS utilities
+      ansible.builtin.apt:
+        name:
+          - zfsutils-linux
+          - zfs-zed
+        state: present
+        update_cache: true
+
+    - name: Load ZFS kernel module
+      community.general.modprobe:
+        name: zfs
+        state: present
+
+    - name: Check if pool already exists
+      ansible.builtin.command:
+        cmd: "zpool status {{ zfs_pool_name }}"
+      register: zpool_check
+      failed_when: false
+      changed_when: false
+
+    - name: Record whether ZFS pool must be created
+      ansible.builtin.set_fact:
+        zfs_pool_missing: "{{ (zpool_check.rc | default(1) | int) != 0 }}"
+
+    - name: List ZFS pools when configured pool name is missing
+      ansible.builtin.command:
+        cmd: zpool list -H -o name
+      register: zfs_pool_names
+      changed_when: false
+      when:
+        - zfs_pool_missing | bool
+        - (zfs_disk_list | default('') | trim | length) == 0
+
+    - name: Adopt existing ZFS pool on host (e.g. Proxmox default pool "data")
+      ansible.builtin.set_fact:
+        zfs_pool_name: "{{ zfs_pool_names.stdout_lines[0] | trim }}"
+      when:
+        - zfs_pool_missing | bool
+        - zfs_pool_names.stdout_lines | default([]) | length > 0
+
+    - name: Re-check ZFS pool after adopting existing pool
+      ansible.builtin.command:
+        cmd: "zpool status {{ zfs_pool_name }}"
+      register: zpool_recheck
+      failed_when: false
+      changed_when: false
+      when:
+        - zfs_pool_missing | bool
+        - zfs_pool_names.stdout_lines | default([]) | length > 0
+
+    - name: Mark ZFS pool present after adopting existing pool
+      ansible.builtin.set_fact:
+        zfs_pool_missing: false
+      when:
+        - zpool_recheck is not skipped
+        - (zpool_recheck.rc | default(1) | int) == 0
+
+    - name: Build ZFS device list
+      ansible.builtin.set_fact:
+        zfs_device_paths: "{{ zfs_disks.split(',') | map('trim') | reject('equalto', '') | map('regex_replace', '^(.+)$', '/dev/\\1') | list }}"
+      when: zfs_pool_missing | bool
+
+    - name: Validate ZFS devices exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ zfs_device_paths | default([]) }}"
+      register: zfs_dev_stat
+      when: zfs_pool_missing | bool
+
+    - name: Require at least two ZFS devices for mirror
+      ansible.builtin.fail:
+        msg: "zfs_disk_list must name two or more block devices (got {{ zfs_disks | default('') }})"
+      when:
+        - zfs_pool_missing | bool
+        - (zfs_device_paths | default([]) | length) < 2
+
+    - name: Remove stale mountpoint directory left after pool destroy
+      ansible.builtin.file:
+        path: "{{ zfs_mountpoint }}"
+        state: absent
+      when:
+        - zfs_pool_missing | bool
+
+    - name: Create ZFS mirror pool
+      ansible.builtin.command:
+        cmd: >-
+          zpool create
+          -f
+          -o ashift={{ zfs_ashift }}
+          -O compression={{ zfs_compression }}
+          -O atime=off
+          -O xattr=sa
+          -O acltype=posixacl
+          {{ zfs_pool_name }}
+          mirror {{ zfs_device_paths | join(' ') }}
+      when:
+        - zfs_pool_missing | bool
+        - zfs_device_paths is defined
+        - zfs_device_paths | length >= 2
+      changed_when: true
+
+    - name: Configure dedup (if enabled)
+      ansible.builtin.command:
+        cmd: "zfs set dedup={{ zfs_dedup }} {{ zfs_pool_name }}"
+      when: zfs_dedup != 'off'
+      changed_when: true
+
+    - name: Create LXC storage dataset
+      ansible.builtin.command:
+        cmd: "zfs create -o mountpoint=legacy {{ zfs_pool_name }}/lxcs"
+      register: zfs_create_lxcs
+      failed_when: zfs_create_lxcs.rc != 0 and 'already exists' not in zfs_create_lxcs.stderr
+      changed_when: zfs_create_lxcs.rc == 0
+
+    - name: Create backups dataset
+      ansible.builtin.command:
+        cmd: "zfs create {{ zfs_pool_name }}/backups"
+      register: zfs_create_backups
+      failed_when: zfs_create_backups.rc != 0 and 'already exists' not in zfs_create_backups.stderr
+      changed_when: zfs_create_backups.rc == 0
+
+    - name: Create media dataset for worker bind mounts
+      ansible.builtin.command:
+        cmd: "zfs create {{ zfs_pool_name }}/media"
+      register: zfs_create_media
+      failed_when: zfs_create_media.rc != 0 and 'already exists' not in zfs_create_media.stderr
+      changed_when: zfs_create_media.rc == 0
+
+    - name: Create templates dataset for LXC templates
+      ansible.builtin.command:
+        cmd: "zfs create {{ zfs_pool_name }}/templates"
+      register: zfs_create_templates
+      failed_when: zfs_create_templates.rc != 0 and 'already exists' not in zfs_create_templates.stderr
+      changed_when: zfs_create_templates.rc == 0
+
+    - name: Set LXC dataset reservation
+      ansible.builtin.command:
+        cmd: "zfs set reservation={{ zfs_vms_reservation }} {{ zfs_pool_name }}/lxcs"
+      changed_when: true
+
+    - name: Add ZFS storage to Proxmox for LXCs
+      ansible.builtin.command:
+        cmd: >-
+          pvesm add zfspool {{ proxmox_storage_id }}
+          --pool {{ zfs_pool_name }}
+          --content images,rootdir
+          --sparse true
+      register: pvesm_add
+      failed_when: >-
+        pvesm_add.rc != 0
+        and 'already exists' not in (pvesm_add.stderr | default(''))
+        and 'already defined' not in (pvesm_add.stderr | default(''))
+        and 'already exists' not in (pvesm_add.stdout | default(''))
+        and 'already defined' not in (pvesm_add.stdout | default(''))
+      changed_when: pvesm_add.rc == 0
+
+    - name: Add backup storage to Proxmox
+      ansible.builtin.command:
+        cmd: >-
+          pvesm add dir zfs-backups
+          --path /{{ zfs_pool_name }}/backups
+          --content backup,snippets
+          --prune-backups keep-last=3
+      register: pvesm_backup
+      failed_when: >-
+        pvesm_backup.rc != 0
+        and 'already exists' not in (pvesm_backup.stderr | default(''))
+        and 'already defined' not in (pvesm_backup.stderr | default(''))
+        and 'already exists' not in (pvesm_backup.stdout | default(''))
+        and 'already defined' not in (pvesm_backup.stdout | default(''))
+      changed_when: pvesm_backup.rc == 0
+
+    - name: Create docker dataset with Docker-optimized settings
+      ansible.builtin.shell: |
+        zfs create {{ zfs_pool_name }}/docker 2>/dev/null || true
+        zfs set recordsize=64k {{ zfs_pool_name }}/docker
+        zfs set compression=lz4 {{ zfs_pool_name }}/docker
+        zfs set atime=off {{ zfs_pool_name }}/docker
+        zfs set xattr=sa {{ zfs_pool_name }}/docker
+        zfs set dnodesize=auto {{ zfs_pool_name }}/docker
+        zfs set sync=standard {{ zfs_pool_name }}/docker
+      changed_when: true
+
+    - name: Create databases dataset optimized for PostgreSQL
+      ansible.builtin.shell: |
+        zfs create {{ zfs_pool_name }}/databases 2>/dev/null || true
+        zfs set recordsize=16k {{ zfs_pool_name }}/databases
+        zfs set compression=lz4 {{ zfs_pool_name }}/databases
+        zfs set atime=off {{ zfs_pool_name }}/databases
+        zfs set sync=standard {{ zfs_pool_name }}/databases
+      changed_when: true
+
+    - name: Set ARC max (6GB on 32GB host)
+      ansible.builtin.lineinfile:
+        path: /etc/modprobe.d/zfs.conf
+        line: "options zfs zfs_arc_max=6442450944"
+        create: true
+        mode: "0644"
+
+    - name: Set swappiness
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-swappiness.conf
+        content: "vm.swappiness=10\n"
+        mode: "0644"
+
+    - name: Apply sysctl swappiness
+      ansible.builtin.command: sysctl -p /etc/sysctl.d/99-swappiness.conf
+      changed_when: false
+
+    - name: Update initramfs after ZFS config changes
+      ansible.builtin.command: update-initramfs -u -k all
+      changed_when: false
+
+    - name: Install cron for ZFS scrub schedule
+      ansible.builtin.apt:
+        name: cron
+        state: present
+        update_cache: false
+
+    - name: Install sanoid for ZFS snapshot automation
+      ansible.builtin.apt:
+        name: sanoid
+        state: present
+        update_cache: false
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Ensure sanoid config directory exists
+      ansible.builtin.file:
+        path: /etc/sanoid
+        state: directory
+        mode: "0755"
+
+    - name: Write sanoid configuration
+      ansible.builtin.copy:
+        dest: /etc/sanoid/sanoid.conf
+        mode: "0644"
+        content: |
+          [{{ zfs_pool_name }}/docker]
+            use_template = production
+
+          [{{ zfs_pool_name }}/databases]
+            use_template = production
+
+          [{{ zfs_pool_name }}/media]
+            use_template = production
+
+          [{{ zfs_pool_name }}/backups]
+            use_template = production
+
+          [template_production]
+            frequently = 4
+            hourly = 24
+            daily = 7
+            weekly = 4
+            monthly = 3
+            autosnap = yes
+            autoprune = yes
+
+    - name: Enable and start sanoid timer
+      ansible.builtin.systemd:
+        name: sanoid.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Configure ZFS auto-scrub (weekly)
+      ansible.builtin.cron:
+        name: "ZFS weekly scrub"
+        job: "/sbin/zpool scrub {{ zfs_pool_name }}"
+        weekday: "0"
+        hour: "3"
+        minute: "0"
+
+    - name: Show pool status
+      ansible.builtin.command:
+        cmd: "zpool status {{ zfs_pool_name }}"
+      register: pool_status
+      changed_when: false
+
+    - name: Display pool info
+      ansible.builtin.debug:
+        msg: "{{ pool_status.stdout_lines }}"

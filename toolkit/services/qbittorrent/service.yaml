@@ -1,0 +1,105 @@
+name: qbittorrent
+label: qBittorrent
+description: BitTorrent client (optionally behind gluetun VPN)
+icon: 🌊
+category: media
+placement: media
+priority: 25
+restart_policy: safe
+depends_on:
+- gluetun
+memory_tier: light
+memory_floor_mb: 256
+host_sources:
+  QBITTORRENT_CONFIG_SOURCE:
+    path: data/qbittorrent/config
+stateful: true
+runtimes:
+  # When VPN protection is enabled qBittorrent runs in Gluetun's network
+  # namespace.  Declaring the alternate runtime keeps its plugin hooks and
+  # health checks active instead of treating the service as absent merely
+  # because the canonical `qbittorrent` container is not running.
+  qbittorrent-vpn:
+    compose_profile: media-vpn
+data_specs:
+- name: qbittorrent-config
+  source_env: QBITTORRENT_CONFIG_SOURCE
+  target: /config
+  size_estimate_gb: 1
+  snapshot: true
+  host_uid: 1000
+  host_gid: 1000
+- name: media-library
+  source_env: INSTALL_ROOT
+  source_subpath: media
+  target: /data
+  size_estimate_gb: 0
+  snapshot: false
+  manage_permissions: false
+  shared: true
+variables:
+  QBITTORRENT_PORT_BIND: '{setting.listen-port}'
+management:
+  panels:
+  - id: access
+    title: Transfer client
+    description: qBittorrent is protected by Homelab SSO; its native administrator account is managed separately.
+    items:
+    - label: Web interface
+      value: https://qbt.{domain}
+      href: https://qbt.{domain}
+    - label: Native username
+      value: admin
+      copyable: true
+    - label: Native password
+      value: Managed credential available from the credential vault
+    - label: Network path
+      value: Routed through Gluetun when VPN protection is enabled
+  settings:
+  - key: listen-port
+    label: Torrent listen port
+    description: TCP and UDP port published for incoming peer connections.
+    type: number
+    default: 6881
+    minimum: 1
+    maximum: 65535
+    step: 1
+routes:
+- subdomain: qbt
+  upstream: qbittorrent:8080
+  published_port: 8080
+  compose_service: qbittorrent
+  exposure: private
+  auth:
+    mode: forward_auth
+  variants:
+  - when:
+      setting: gluetun.enabled
+      equals: true
+    upstream: gluetun:8080
+    compose_service: qbittorrent-vpn
+identity:
+  access_groups: [homelab-admin]
+operator_bookmark:
+  section: Media administration
+  priority: 10
+  description: Torrent client and transfer status
+required_secrets:
+- name: QBITTORRENT_USER
+  tier: generated
+  length: 32
+  default: admin
+  description: Web interface administrator username
+  rotation: persistent
+- name: QBITTORRENT_PASSWORD
+  tier: generated
+  length: 24
+  description: Web interface administrator password
+  rotation: reconcile
+credentials:
+- name: qBittorrent
+  url: '{proto}://qbt.{domain}'
+  username_env: QBITTORRENT_USER
+  username: admin
+  password_env: QBITTORRENT_PASSWORD
+  tags: [qbittorrent, media, admin]

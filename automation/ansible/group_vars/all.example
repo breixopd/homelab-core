@@ -1,0 +1,56 @@
+repo_dest: /opt/homelab
+
+# Proxmox private bridge (used by LXC containers)
+proxmox_private_network_enabled: true
+proxmox_private_network: 10.10.10.0/24
+proxmox_private_bridge_name: vmbr1
+proxmox_private_bridge_cidr: 10.10.10.1/24
+
+# ZFS Storage (Proxmox host)
+zfs_pool: tank
+zfs_disk_list: "sda,sdb"
+zfs_compress: lz4
+zfs_enable_dedup: "off"
+zfs_proxmox_id: "zfs-mirror"
+base_domain: example.com
+adguard_admin_user: admin
+adguard_upstream_dns:
+  - https://dns10.quad9.net/dns-query
+  - https://1.1.1.1/dns-query
+  - https://1.0.0.1/dns-query
+adguard_bootstrap_dns:
+  - 9.9.9.9
+  - 1.1.1.1
+cloudflare_enabled: false
+cloudflare_zone_id: ""
+
+# Machine and service placement are generated from config and service manifests.
+machine_ips:
+  control: "10.10.10.10"
+control_node: control
+control_ip: "{{ machine_ips[control_node] }}"
+service_nodes: {}
+service_ips: {}
+ingress_node: "{{ control_node }}"
+ingress_ip: "{{ control_ip }}"
+private_network: "10.10.10.0/24"
+
+lldap_base_dn: "dc=example,dc=com"     # ldap-client (LDAP base DN)
+headscale_url: "https://vpn.example.com"  # vpn-client (Headscale server)
+headscale_auth_key: ""                 # vpn-client (Headscale enrollment key)
+ssh_port: 22                           # security-agent (Fail2ban SSH port)
+
+# VPN configuration (used by deploy-server-toolkit.yml / vpn_client role)
+vpn_enabled: false
+vpn_provider: ""
+vpn_user: ""
+vpn_password: ""
+vpn_wg_private_key: ""
+vpn_wg_addresses: ""
+
+# Host locale/contact defaults
+timezone: "Europe/Madrid"
+admin_email: "admin@example.com"
+
+# Derived from config.yaml network.* (toolkit syncs via iac_sync)
+public_listener_forwards: []

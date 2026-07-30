@@ -1,0 +1,103 @@
+{% if flash %}
+<div class="alert {% if flash_ok %}alert-info{% else %}alert-warning{% endif %}" role="status">{{ flash }}</div>
+{% endif %}
+
+{% if unavailable_nodes %}
+<div class="alert alert-warning" role="status">Inventory unavailable for {{ unavailable_nodes|join(', ') }}</div>
+{% endif %}
+
+{% if not docker_ok and not containers %}
+<div class="empty-state">Container inventory is unavailable.</div>
+{% elif not containers %}
+<div class="empty-state">No containers were reported.</div>
+{% else %}
+{% set inventory = namespace(attention=0) %}
+{% for container in containers %}
+{% if not container.completed and (container.state != 'running' or container.health in ('unhealthy', 'starting')) %}{% set inventory.attention = inventory.attention + 1 %}{% endif %}
+{% endfor %}
+<div class="table-toolbar container-toolbar">
+  <div class="table-filter-cluster">
+    <label class="sr-only" for="container-filter">Filter containers</label>
+    <input id="container-filter" class="table-filter" type="search" placeholder="Filter containers"
+           autocomplete="off" aria-controls="container-table-body"
+           data-table-filter="container-table-body">
+    <div class="table-options" role="group" aria-label="Filter containers by status">
+      <button type="button" class="table-option active" data-table-option="container-table-body" data-filter-value="attention" aria-pressed="true">Attention <span>{{ inventory.attention }}</span></button>
+      <button type="button" class="table-option" data-table-option="container-table-body" data-filter-value="all" aria-pressed="false">All <span>{{ containers|length }}</span></button>
+    </div>
+  </div>
+  <span class="table-count" data-filter-count="container-table-body" aria-live="polite">{{ inventory.attention }} shown</span>
+</div>
+<div class="responsive-table container-table-wrap">
+  <table class="data-table container-table" aria-labelledby="service-runtime-heading">
+    <thead>
+      <tr>
+        <th scope="col">Service</th>
+        <th scope="col">Node</th>
+        <th scope="col">State</th>
+        <th scope="col">Health</th>
+        <th scope="col">Image</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody id="container-table-body" data-filter-default="attention">
+      {% for container in containers %}
+      <tr data-filter-row data-filter-value="{% if not container.completed and (container.state != 'running' or container.health in ('unhealthy', 'starting')) %}attention{% else %}normal{% endif %}">
+        <td data-label="Service">
+          <strong class="container-name">{{ container.name }}</strong>
+          <span class="muted text-xs container-status">{{ container.status }}</span>
+        </td>
+        <td data-label="Node"><code>{{ container.node }}</code></td>
+        <td data-label="State"><span class="badge {% if container.state == 'running' or container.completed %}ok{% else %}warn{% endif %}">{{ 'completed' if container.completed else container.state }}</span></td>
+        <td data-label="Health">
+          {% if container.completed %}
+          <span class="badge ok">Successful</span>
+          {% elif container.health and container.health != 'none' %}
+          <span class="badge health-{{ container.health }}">{{ container.health }}</span>
+          {% else %}
+          <span class="muted">Not reported</span>
+          {% endif %}
+        </td>
+        <td data-label="Image"><code class="container-image">{{ container.image }}</code></td>
+        <td data-label="Actions">
+          <div class="row-actions container-actions">
+            {% if container.state == 'running' %}
+            <button class="btn btn-ghost btn-xs" title="Restart {{ container.name }}"
+                    hx-post="/services/docker/restart/{{ container.name }}"
+                    hx-target="#containers-panel"
+                    hx-indicator="#spinner"
+                    hx-swap="innerHTML"
+                    hx-confirm="Restart this service?">
+              <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#refresh-cw"></use></svg>
+              <span class="sr-only">Restart {{ container.name }}</span>
+            </button>
+            <button class="btn btn-ghost btn-xs container-stop" title="Stop {{ container.name }}"
+                    hx-post="/services/docker/stop/{{ container.name }}"
+                    hx-target="#containers-panel"
+                    hx-indicator="#spinner"
+                    hx-swap="innerHTML"
+                    hx-confirm="Stop this service?">
+              <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#square"></use></svg>
+              <span class="sr-only">Stop {{ container.name }}</span>
+            </button>
+            {% elif not container.completed %}
+            <button class="btn btn-ghost btn-xs" title="Start {{ container.name }}"
+                    hx-post="/services/docker/start/{{ container.name }}"
+                    hx-target="#containers-panel"
+                    hx-indicator="#spinner"
+                    hx-swap="innerHTML">
+              <svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#play"></use></svg>
+              <span class="sr-only">Start {{ container.name }}</span>
+            </button>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      <tr data-filter-empty hidden>
+        <td colspan="6" class="people-empty">No containers need attention. Select All to manage individual containers.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% endif %}

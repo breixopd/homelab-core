@@ -1,0 +1,27 @@
+---
+# Deploy selected services to external hosts (NAS, VPS, etc.) via direct SSH.
+#
+# Host vars are compiled from manifest-owned host integrations into
+# external_service_roles. Controller-only integrations do not emit a role.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/deploy-external-host.yml --limit nas-01
+
+- name: Deploy services to external hosts
+  hosts: external_hosts
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Require selected host integrations
+      ansible.builtin.assert:
+        that:
+          - external_services | default([]) | length > 0
+        fail_msg: "No services configured for {{ inventory_hostname }}"
+
+    - name: Apply manifest-selected host agent roles
+      ansible.builtin.include_role:
+        name: "{{ host_agent_role }}"
+      loop: "{{ external_service_roles | default([]) }}"
+      loop_control:
+        loop_var: host_agent_role
+        label: "{{ host_agent_role }}"

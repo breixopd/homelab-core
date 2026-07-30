@@ -1,0 +1,50 @@
+services:
+  radarr:
+    restart: unless-stopped
+    profiles:
+    - media
+    - svc-radarr
+    image: lscr.io/linuxserver/radarr:6.3.0@sha256:2b2c1c05eb3f648d2c80dfab9486147dd7bb0ad4d77fa972fc1c5de8f1da3738
+    container_name: radarr
+    depends_on:
+      prowlarr:
+        condition: service_healthy
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    tmpfs:
+    - /tmp
+    - /run:exec
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ:-UTC}
+      RADARR__Auth__ApiKey: ${RADARR_API_KEY}
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:7878:7878
+    volumes:
+    - ${RADARR_CONFIG_SOURCE:-./data/radarr/config}:/config
+    - ${INSTALL_ROOT}/media:/data
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -sf
+      - http://localhost:7878/ping
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 512

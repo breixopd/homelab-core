@@ -1,0 +1,44 @@
+---
+- name: Install NFS utilities
+  ansible.builtin.apt:
+    name: nfs-common
+    state: present
+    update_cache: true
+  when: mount_fstype | default('nfs') == 'nfs'
+
+- name: Install CIFS utilities
+  ansible.builtin.apt:
+    name: cifs-utils
+    state: present
+    update_cache: true
+  when: mount_fstype | default('nfs') == 'cifs'
+
+- name: Create mount point
+  ansible.builtin.file:
+    path: "{{ mount_path }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ mount_owner }}"
+    group: "{{ mount_group }}"
+
+- name: Mount NFS share
+  ansible.posix.mount:
+    src: "{{ mount_src }}"
+    path: "{{ mount_path }}"
+    fstype: nfs
+    opts: "{{ mount_opts }}"
+    state: mounted
+  when:
+    - mount_src | default('') | length > 0
+    - mount_fstype | default('nfs') == 'nfs'
+
+- name: Mount CIFS share
+  ansible.posix.mount:
+    src: "{{ mount_src }}"
+    path: "{{ mount_path }}"
+    fstype: cifs
+    opts: "{{ mount_opts }}"
+    state: mounted
+  when:
+    - mount_src | default('') | length > 0
+    - mount_fstype | default('nfs') == 'cifs'

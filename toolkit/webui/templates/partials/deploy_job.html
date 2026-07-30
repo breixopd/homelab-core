@@ -1,0 +1,29 @@
+<section class="surface deploy-job" data-job-id="{{ job_id }}" data-stream-url="/deploy/stream/{{ job_id }}"
+         aria-labelledby="deploy-job-title-{{ job_id }}">
+  <header class="deploy-job-header">
+    <strong id="deploy-job-title-{{ job_id }}">{{ action|title }}</strong>
+    <div class="row-actions">
+      <span class="badge running" id="job-status-{{ job_id }}">running</span>
+      {% if cancellable %}
+      <button class="btn btn-ghost btn-xs deploy-cancel"
+              data-job-cancel
+              hx-post="/deploy/jobs/{{ job_id }}/cancel"
+              hx-target="this"
+              hx-swap="outerHTML"
+              hx-confirm="Cancel this deployment job?">Cancel</button>
+      {% endif %}
+    </div>
+  </header>
+  <div class="progress-bar-wrap" role="progressbar" aria-label="Pipeline progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <div id="progress-bar-{{ job_id }}" class="progress-bar"></div>
+  </div>
+  <dl id="progress-{{ job_id }}" class="deploy-progress">
+    <div><dt>Pipeline</dt><dd id="progress-percent-{{ job_id }}">0%</dd></div>
+    <div><dt>Step</dt><dd id="progress-step-{{ job_id }}">Not started</dd></div>
+    <div><dt>Node</dt><dd id="progress-node-{{ job_id }}">Pending</dd></div>
+    <div><dt>Task or wave</dt><dd id="progress-task-{{ job_id }}">Pending</dd></div>
+    <div><dt>Log file</dt><dd><code id="progress-log-{{ job_id }}" class="mono text-sm">Pending</code></dd></div>
+    <div><dt>Detail</dt><dd id="progress-detail-{{ job_id }}">None</dd></div>
+  </dl>
+  <pre id="log-{{ job_id }}" class="log-viewer deploy-log" aria-label="Deployment job output"></pre>
+</section>

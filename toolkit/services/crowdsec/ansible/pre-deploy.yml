@@ -1,0 +1,19 @@
+---
+# CrowdSec reads the Caddy access log through a shared read-only bind mount.
+# Create it before either container starts so acquisition never warns about a
+# missing source on a fresh deployment.
+- name: Ensure shared Caddy access log exists for CrowdSec acquisition
+  block:
+    - name: Ensure shared Caddy access-log directory exists
+      ansible.builtin.file:
+        path: "{{ repo_dest }}/data/caddy-access"
+        state: directory
+        mode: "0775"
+    - name: Touch shared Caddy access log
+      ansible.builtin.file:
+        path: "{{ repo_dest }}/data/caddy-access/access.log"
+        state: touch
+        mode: "0664"
+        access_time: preserve
+        modification_time: preserve
+  when: homelab_node_id == service_nodes['crowdsec']

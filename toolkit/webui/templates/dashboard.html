@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block page_actions %}
+{% if not uninitialized %}
+<a href="/operations" class="btn btn-ghost btn-sm"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#activity"></use></svg>Operations</a>
+<a href="/deploy" class="btn btn-primary btn-sm"><svg class="btn-icon" aria-hidden="true"><use href="/static/icons/sprite.svg#rocket"></use></svg>Deployments</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if uninitialized %}
+<div class="empty-state">Configuration has not been initialized.</div>
+{% else %}
+
+{% if status_text %}<div class="status-bar warn" role="status">{{ status_text }}</div>{% endif %}
+
+<section class="overview-summary" aria-label="Operational status">
+  <div class="overview-summary-item"><span>Health</span><strong><span class="badge health-{{ health }}">{{ health|title }}</span></strong><small>{{ domain }}</small></div>
+  <div class="overview-summary-item"><span>Containers</span><strong><span id="summary-containers">{{ runtime.running }}</span> / {{ runtime.total }} running</strong><small>{{ runtime.healthy }} healthy · {{ runtime.unhealthy }} unhealthy</small></div>
+  <div class="overview-summary-item"><span>Targets</span><strong><span id="summary-targets-up">{{ metrics.targets_up if metrics.targets_up is not none else 0 }}</span> up · <span id="summary-targets-down">{{ metrics.targets_down if metrics.targets_down is not none else 0 }}</span> down</strong><small>Metrics scrape health</small></div>
+  <div class="overview-summary-item"><span>Jobs</span><strong>{{ active_jobs }} active</strong><small>{{ attention_jobs }} need attention</small></div>
+  <div class="overview-summary-item"><span>Nodes</span><strong>{{ enabled_nodes|length }} enabled</strong><small>{{ enabled_nodes|join(', ') }}</small></div>
+  <div class="overview-summary-item"><span>Services</span><strong>{{ total_services }} configured</strong><small>{{ state|replace('_', ' ')|title }}</small></div>
+</section>
+
+{% if next_action %}
+<section class="content-band overview-next-action" aria-labelledby="next-action-heading">
+  <div class="overview-next-copy"><span class="overview-eyebrow">Next action</span><h2 id="next-action-heading">{{ next_action.title }}</h2></div>
+  <div class="overview-next-meta"><span class="badge neutral">{{ next_action.category }}</span><code>{{ next_action.service }}</code></div>
+</section>
+{% endif %}
+
+<section class="content-band overview-attention" aria-label="Attention and recent activity">
+  <div id="overview-attention-panel" hx-get="/partials/dashboard/attention" hx-trigger="every 15s" hx-swap="innerHTML">
+    {% include "partials/dashboard_attention.html" %}
+  </div>
+</section>
+
+<section class="content-band overview-resources" id="overview-metrics"
+         data-cpu="{{ metrics.cpu if metrics.cpu is not none else '' }}"
+         data-memory="{{ metrics.mem if metrics.mem is not none else '' }}"
+         data-disk="{{ metrics.disk if metrics.disk is not none else '' }}"
+         data-cpu-history="{{ metrics.cpu_history_data|tojson|forceescape }}"
+         data-memory-history="{{ metrics.memory_history_data|tojson|forceescape }}"
+         data-disk-history="{{ metrics.disk_history_data|tojson|forceescape }}"
+         aria-labelledby="overview-resources-heading">
+  <div class="section-head"><div><h2 id="overview-resources-heading">Resource load</h2><p class="muted text-sm overview-section-note">Live host metrics</p></div><a href="{{ metrics_dashboard_href }}" class="btn btn-ghost btn-sm">Open metrics</a></div>
+  <div class="overview-resource-grid">
+    {% for name, label, value in [('cpu', 'CPU', metrics.cpu), ('memory', 'Memory', metrics.mem), ('disk', 'Disk', metrics.disk)] %}
+    <div class="resource-meter" data-metric="{{ name }}">
+      <div class="resource-meter-head"><span>{{ label }}</span><strong id="metric-{{ name }}">{{ (value|string + '%') if value is not none else 'Unavailable' }}</strong></div>
+      <div class="resource-track" role="progressbar" aria-label="{{ label }} usage" aria-valuemin="0" aria-valuemax="100"{% if value is not none %} aria-valuenow="{{ value }}"{% else %} aria-valuetext="Unavailable"{% endif %}><span class="resource-fill" id="metric-bar-{{ name }}"></span></div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="overview-history-grid">
+    {% for name, label, history in [('cpu', 'CPU', metrics.cpu_history_data), ('memory', 'Memory', metrics.memory_history_data), ('disk', 'Disk', metrics.disk_history_data)] %}
+    <div class="overview-history">
+      <div class="overview-history-head"><span>{{ label }} history</span><span class="muted">1 hour</span></div>
+      <canvas id="{{ name }}-history" width="480" height="128" role="img" aria-label="{{ label }} usage history"></canvas>
+      <p id="{{ name }}-history-empty" class="inline-status"{% if history %} hidden{% endif %}>No {{ label|lower }} history samples</p>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="content-band overview-readiness" aria-labelledby="overview-readiness-heading">
+  <div class="section-head"><div><h2 id="overview-readiness-heading">Operational readiness</h2><p class="muted text-sm overview-section-note">Maintenance, recovery, and managed hosts</p></div><a href="/operations" class="btn btn-ghost btn-sm">Manage</a></div>
+  <div class="overview-readiness-grid">
+    <div><span>Maintenance</span><strong>{% if not operations.maintenance_enabled %}Disabled{% elif operations.maintenance_ok is none %}Not run{% elif operations.maintenance_ok %}Passed{% else %}Failed{% endif %}</strong><small>{% if operations.maintenance_last_run_at %}{{ operations.maintenance_last_run_at.strftime('%Y-%m-%d %H:%M') }}{% else %}No completed run{% endif %}</small></div>
+    <div><span>Backups</span><strong>{{ 'Enabled' if operations.backups_enabled else 'Disabled' }}</strong><small>{{ operations.backup_target|title }} target</small></div>
+    <div><span>Restore points</span><strong>{{ operations.restore_points }}</strong><small>Database snapshots</small></div>
+    <div><span>Managed hosts</span><strong>{{ operations.managed_hosts }}</strong><small>{{ operations.pending_hosts }} pending reconciliation</small></div>
+  </div>
+</section>
+
+{% if last_verify %}
+<section class="content-band overview-verification" aria-labelledby="overview-verification-heading">
+  <div class="section-head"><div><h2 id="overview-verification-heading">Node verification</h2><p class="muted text-sm overview-section-note">Latest completed verification</p></div><a href="/deploy" class="btn btn-ghost btn-sm">Run verification</a></div>
+  <div class="responsive-table overview-verification-wrap">
+    <table class="data-table overview-verification-table" aria-labelledby="overview-verification-heading">
+      <thead><tr><th scope="col">Node</th><th scope="col">Result</th><th scope="col">Healthy</th><th scope="col">Issues</th><th scope="col">Pending</th></tr></thead>
+      <tbody>{% for node, data in last_verify.items() %}<tr><td><code>{{ node }}</code></td><td><span class="badge {% if data.ok %}ok{% else %}critical{% endif %}">{{ 'Passed' if data.ok else 'Failed' }}</span></td><td>{{ data.healthy }}</td><td>{{ data.unhealthy }}</td><td>{{ data.pending }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}{% if not uninitialized %}<script src="/static/js/dashboard.js?v={{ static_revision }}"></script>{% endif %}{% endblock %}

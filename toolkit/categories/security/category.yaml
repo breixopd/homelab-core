@@ -1,0 +1,11 @@
+name: security
+label: Security
+placement: control
+priority: 15
+description: VPN, intrusion detection, and security monitoring
+service_group: homelab-admin
+compose_profiles:
+- security-headscale
+- security-wazuh-ui
+depends_on:
+- management

@@ -1,0 +1,14 @@
+name: media
+label: Media
+placement: media
+priority: 20
+description: "Media streaming, downloads, and library management"
+service_group: homelab-media
+access_group:
+  name: homelab-media
+  label: Media
+  description: Media streaming, music, and content requests
+  default_invite: true
+compose_profiles: [media]
+depends_on: [management]
+selected_compose_profiles: media_selected_compose_profiles

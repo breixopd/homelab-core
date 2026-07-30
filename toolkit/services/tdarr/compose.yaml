@@ -1,0 +1,52 @@
+services:
+  tdarr:
+    restart: unless-stopped
+    profiles:
+    - media-tdarr
+    - svc-tdarr
+    image: ghcr.io/haveagitgat/tdarr:2.77.01@sha256:e317124469a2f500add53733e2c501be5e23ca0a4a18e9606f4f80cb3d63370d
+    container_name: tdarr
+    read_only: false
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      TZ: ${TZ:-UTC}
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      UMASK_SET: '002'
+      serverIP: 0.0.0.0
+      serverPort: 8266
+      webUIPort: 8265
+      internalNode: 'true'
+      inContainer: 'true'
+      ffmpegVersion: '7'
+      nodeName: homelab-media-node
+      auth: 'false'
+      transcodecpuWorkers: ${TDARR_CPU_WORKERS:-2}
+      transcodegpuWorkers: ${TDARR_GPU_WORKERS:-0}
+      healthcheckcpuWorkers: ${TDARR_HEALTH_CPU_WORKERS:-1}
+      healthcheckgpuWorkers: 0
+      startPaused: ${TDARR_START_PAUSED:-false}
+      cronPluginUpdate: 0 4 * * *
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8265:8265
+    volumes:
+    - ${TDARR_SERVER_DATA_SOURCE:-./data/tdarr/server}:/app/server
+    - ${TDARR_CONFIG_SOURCE:-./data/tdarr/configs}:/app/configs
+    - ${TDARR_LOGS_SOURCE:-./data/tdarr/logs}:/app/logs
+    - ${INSTALL_ROOT}/media:/data
+    - ${INSTALL_ROOT}/data/transcodes:/temp
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://127.0.0.1:8266/api/v2/status >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    mem_limit: 2048m
+    cpus: 2.0
+    pids_limit: 256

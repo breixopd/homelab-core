@@ -1,0 +1,114 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "Europe/Madrid",
+  "schedule": ["before 6am on Monday"],
+  "labels": ["dependencies", "auto-update"],
+  "pep621": {
+    "enabled": true
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update service-owned standalone image releases with their immutable digest.",
+      "managerFilePatterns": ["/toolkit/services/[^/]+/service\\.yaml$/"],
+      "matchStrings": [
+        "image_release:\\n\\s+compose_service:\\s+[^\\n]+\\n\\s+repository:\\s+(?<depName>\\S+)\\n\\s+version:\\s+(?<currentValue>\\S+)\\n\\s+digest:\\s+(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep the CI uv version aligned with the toolkit image.",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": ["UV_VERSION:\\s+\"(?<currentValue>[0-9.]+)\""],
+      "depNameTemplate": "ghcr.io/astral-sh/uv",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update checksummed toolkit binaries from official releases.",
+      "managerFilePatterns": ["/^toolkit/Dockerfile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\nARG [A-Z0-9_]+_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "extractVersionTemplate": "^v?(?<version>.*)$",
+      "versioningTemplate": "semver-coerced"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Keep every service-owned runtime image pinned to an immutable digest.",
+      "matchManagers": ["custom.regex", "docker-compose"],
+      "pinDigests": true
+    },
+    {
+      "description": "Pin floating Docker tags so updates arrive as explicit pull requests.",
+      "matchManagers": ["custom.regex", "docker-compose", "dockerfile"],
+      "matchCurrentValue": "/^latest$/",
+      "pinDigests": true
+    },
+    {
+      "description": "Group management and infrastructure image updates.",
+      "matchManagers": ["custom.regex", "docker-compose", "dockerfile"],
+      "matchPackageNames": [
+        "/caddy/", "/authelia/", "/postgres/", "/redis/", "/lldap/",
+        "/adguard/", "/kopia/", "/prometheus/", "/loki/", "/alloy/",
+        "/grafana/", "/node-exporter/", "/postgres-exporter/",
+        "/redis-exporter/", "/cadvisor/", "/registry/", "/crowdsec/",
+        "/headscale/", "/uptime-kuma/", "/wazuh/",
+        "/komodo/", "/docker-mailserver/"
+      ],
+      "groupName": "infrastructure images"
+    },
+    {
+      "description": "Group media stack image updates.",
+      "matchManagers": ["custom.regex", "docker-compose", "dockerfile"],
+      "matchPackageNames": [
+        "/gluetun/", "/qbittorrent/", "/prowlarr/", "/sonarr/", "/radarr/",
+        "/bazarr/", "/seerr/", "/recyclarr/", "/flaresolverr/",
+        "/jellyfin/", "/plex/", "/tautulli/", "/navidrome/", "/tdarr/",
+        "/rclone/", "/media-cache/", "/music-sync/"
+      ],
+      "groupName": "media images"
+    },
+    {
+      "description": "Group cloud and development image updates.",
+      "matchManagers": ["custom.regex", "docker-compose", "dockerfile"],
+      "matchPackageNames": [
+        "/nextcloud/", "/immich/", "/vaultwarden/", "/seaweedfs/", "/gitea/",
+        "/fmd/", "/roundcube/"
+      ],
+      "groupName": "cloud/dev images"
+    },
+    {
+      "description": "Require deliberate approval for stateful database updates.",
+      "matchManagers": ["custom.regex", "docker-compose"],
+      "matchPackageNames": [
+        "/postgres/", "/redis/", "/mariadb/", "/wazuh.*indexer/"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Automerge reviewed patch and minor updates for first-party images.",
+      "matchManagers": ["custom.regex", "docker-compose", "dockerfile"],
+      "matchPackageNames": ["/breixopd/", "/homelab/", "/caddy/"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on Monday"]
+  },
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2
+}

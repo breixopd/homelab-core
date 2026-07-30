@@ -1,0 +1,26 @@
+---
+# Onboard a manifest-configured fleet node.
+#
+# Usage:
+#   homelab-toolkit fleet onboard vps-01
+#   ansible-playbook -i inventory/hosts.yml playbooks/onboard-fleet-node.yml --limit vps-01
+#
+# Extra vars are supplied by the owning service plugins. Core only merges
+# collision-free plugin contributions and selected host integration variables.
+
+- name: Onboard fleet node
+  hosts: external_hosts
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Apply manifest-selected fleet agent roles
+      ansible.builtin.include_role:
+        name: "{{ host_agent_role }}"
+        apply:
+          tags:
+            - "{{ host_agent_role }}"
+      tags: [always]
+      loop: "{{ external_service_roles | default([]) }}"
+      loop_control:
+        loop_var: host_agent_role
+        label: "{{ host_agent_role }}"

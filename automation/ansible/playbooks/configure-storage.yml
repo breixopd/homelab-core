@@ -1,0 +1,15 @@
+---
+# Dispatch storage ownership to enabled service plugins.  The core playbook
+# deliberately contains no media, database, or application-specific paths.
+- name: Apply manifest-selected service storage tasks
+  hosts: guest_hosts
+  become: true
+  vars:
+    homelab_controller_root: "{{ playbook_dir }}/../../.."
+  tasks:
+    - name: Apply service-owned storage task file
+      ansible.builtin.include_tasks: "{{ homelab_controller_root }}/{{ service_task_file }}"
+      loop: "{{ service_storage_task_files | default([]) }}"
+      loop_control:
+        loop_var: service_task_file
+        label: "{{ service_task_file }}"

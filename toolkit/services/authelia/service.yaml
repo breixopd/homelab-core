@@ -1,0 +1,86 @@
+name: authelia
+label: Authelia
+description: SSO + 2FA gateway
+icon: 🔐
+category: management
+placement: control
+priority: 10
+essential: true
+internal_aliases: [auth]
+restart_policy: careful
+depends_on:
+- lldap
+- postgres
+- redis
+databases:
+- provider: postgres
+  database: authelia
+  username: authelia
+  host_env: AUTHELIA_DB_HOST
+  port_env: AUTHELIA_DB_PORT
+  database_env: AUTHELIA_DB_NAME
+  username_env: AUTHELIA_DB_USER
+  password_env: AUTHELIA_DB_PASSWORD
+integrations:
+- service: redis
+  host_env: AUTHELIA_REDIS_HOST
+  port_env: AUTHELIA_REDIS_PORT
+- service: mailserver
+  required: false
+  address_env: AUTHELIA_SMTP_ADDRESS
+memory_tier: medium
+host_sources:
+  AUTHELIA_CONFIG_SOURCE:
+    path: generated/authelia
+generated_artifacts:
+- path: generated/authelia/jwks/rsa.2048.key
+  sensitive: true
+- path: generated/authelia/oidc-client-hashes.yml
+  sensitive: true
+- path: generated/authelia.yml
+  sensitive: true
+- path: generated/authelia/configuration.yml
+  sensitive: true
+host_paths:
+- path: generated/authelia
+  uid: 1000
+  gid: 1000
+routes:
+- subdomain: auth
+  upstream: authelia:9091
+  published_port: 9091
+  exposure: public
+  auth:
+    mode: native
+health:
+  public_probe_path: /.well-known/openid-configuration
+operator_bookmark:
+  section: Quick actions
+  priority: 10
+  description: SSO login, sessions, and multi-factor authentication
+required_secrets:
+- name: AUTHELIA_JWT_SECRET
+  tier: generated
+  length: 64
+  description: JWT signing key
+  rotation: restart
+- name: AUTHELIA_SESSION_SECRET
+  tier: generated
+  length: 64
+  description: Session encryption key
+  rotation: restart
+- name: AUTHELIA_STORAGE_KEY
+  tier: generated
+  length: 64
+  description: Storage encryption key
+  rotation: persistent
+- name: AUTHELIA_OIDC_HMAC_SECRET
+  tier: generated
+  length: 64
+  description: OIDC HMAC signing secret
+  rotation: restart
+- name: AUTHELIA_DB_PASSWORD
+  tier: generated
+  length: 32
+  description: PostgreSQL database password
+  rotation: reconcile

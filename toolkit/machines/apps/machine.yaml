@@ -1,0 +1,26 @@
+kind: lxc
+provider: proxmox
+enabled: true
+managed: true
+hostname: apps-01
+address: 10.10.10.12
+vmid: 802
+description: Cloud applications, development services, and personal data
+labels: [apps, personal-data]
+cores: 4
+memory_mb: 10365
+root_disk_gb: 32
+root_datastore: zfs-mirror
+data_disks:
+  - path: /data
+    size_gb: 1274
+    datastore: zfs-mirror
+    backup: true
+private_bridge: vmbr1
+public_bridge: ''
+gateway: 10.10.10.1
+cidr: 24
+startup_order: 30
+nesting: true
+keyctl: true
+fuse: false

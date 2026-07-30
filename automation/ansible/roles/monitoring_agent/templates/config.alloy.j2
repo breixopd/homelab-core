@@ -1,0 +1,30 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+loki.relabel "journal" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
+  }
+}
+
+loki.source.journal "system" {
+  labels        = { job = "systemd-journal", host = "{{ inventory_hostname }}" }
+  relabel_rules = loki.relabel.journal.rules
+  forward_to    = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://{{ service_ips['loki'] }}:3100/loki/api/v1/push"
+  }
+}

@@ -1,0 +1,26 @@
+kind: lxc
+provider: proxmox
+enabled: true
+managed: true
+hostname: media-01
+address: 10.10.10.11
+vmid: 801
+description: Media acquisition, processing, streaming, and synchronization
+labels: [media, storage-client]
+cores: 2
+memory_mb: 7078
+root_disk_gb: 32
+root_datastore: zfs-mirror
+data_disks:
+  - path: /data
+    size_gb: 588
+    datastore: zfs-mirror
+    backup: true
+private_bridge: vmbr1
+public_bridge: ''
+gateway: 10.10.10.1
+cidr: 24
+startup_order: 20
+nesting: true
+keyctl: true
+fuse: true

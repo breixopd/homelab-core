@@ -1,0 +1,29 @@
+apiVersion: 1
+
+contactPoints:
+- orgId: 1
+  name: homelab
+  receivers:
+  - uid: homelab-email
+    type: email
+    settings:
+      addresses: $__env{ALERT_EMAIL}
+      singleEmail: false
+    disableResolveMessage: false
+  - uid: homelab-ntfy
+    type: webhook
+    settings:
+      url: $__env{NTFY_INTERNAL_URL}/grafana-alerts
+      httpMethod: POST
+    disableResolveMessage: false
+  - uid: homelab-autoheal
+    type: webhook
+    settings:
+      url: http://homelab-ui:8080/api/webhooks/grafana-alert
+      httpMethod: POST
+      maxAlerts: '16'
+      hmacConfig:
+        secret: $__env{GRAFANA_WEBHOOK_HMAC_SECRET}
+        header: X-Grafana-Alerting-Signature
+        timestampHeader: X-Grafana-Alerting-Signature-Timestamp
+    disableResolveMessage: true

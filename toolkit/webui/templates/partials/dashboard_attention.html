@@ -1,0 +1,19 @@
+<div class="overview-attention-grid">
+  <section class="overview-attention-pane" aria-labelledby="overview-alerts-heading">
+    <h3 id="overview-alerts-heading">Attention</h3>
+    <div class="overview-alert-list">{% include "partials/alerts.html" %}</div>
+  </section>
+  <section class="overview-attention-pane" aria-labelledby="overview-activity-heading">
+    <div class="overview-pane-head"><h3 id="overview-activity-heading">Recent activity</h3><a href="/jobs">All jobs</a></div>
+    {% if recent_jobs %}
+    <div class="overview-job-list">
+      {% for job in recent_jobs[:5] %}
+      <a href="/jobs/{{ job.job_id }}" class="overview-job-row">
+        <span><strong>{{ job.kind.value|replace('_', ' ')|title }}</strong><small>{{ job.updated_at.strftime('%Y-%m-%d %H:%M') }}</small></span>
+        <span class="badge {% if job.state.value == 'SUCCEEDED' %}ok{% elif job.state.value in ('FAILED', 'PARTIAL_FAILURE', 'CANCELLED') %}critical{% elif job.state.value in ('RUNNING', 'CANCEL_REQUESTED') %}running{% else %}neutral{% endif %}">{{ job.state.value|replace('_', ' ')|title }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}<p class="muted text-sm">No controller jobs recorded.</p>{% endif %}
+  </section>
+</div>

@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+IPT="iptables -w 10"
+CHAIN="HOMELAB-INGRESS"
+ORIGIN_IP={{ ansible_facts['default_ipv4']['address'] | quote }}
+
+$IPT -N "$CHAIN" 2>/dev/null || true
+$IPT -F "$CHAIN"
+$IPT -C DOCKER-USER -j "$CHAIN" 2>/dev/null || $IPT -I DOCKER-USER 1 -j "$CHAIN"
+
+$IPT -A "$CHAIN" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+{% for item in homelab_firewall_rules | default([]) %}
+{% if item.roles | intersect(group_names) | length > 0 %}
+$IPT -A "$CHAIN"{% if item.from_ip != 'any' %} -s {{ item.from_ip | quote }}{% endif %} -p {{ item.proto | quote }} -m conntrack --ctorigdst "$ORIGIN_IP" --ctorigdstport {{ item.port }} -j RETURN
+{% endif %}
+{% endfor %}
+{% for item in homelab_published_ports | default([]) %}
+{% if item.roles | intersect(group_names) | length > 0 %}
+$IPT -A "$CHAIN" -p {{ item.proto | quote }} -m conntrack --ctorigdst "$ORIGIN_IP" --ctorigdstport {{ item.port }} -j DROP
+{% endif %}
+{% endfor %}
+$IPT -A "$CHAIN" -i {{ ansible_facts['default_ipv4']['interface'] | default('eth0') | quote }} -j DROP
+$IPT -A "$CHAIN" -j RETURN

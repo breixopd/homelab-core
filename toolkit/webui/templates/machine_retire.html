@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block page_actions %}<a class="btn btn-ghost btn-sm" href="/machines">Back to machines</a>{% endblock %}
+
+{% block content %}
+{% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
+
+<section class="content-band" aria-labelledby="retirement-impact-heading">
+  <div class="section-head"><div><h2 id="retirement-impact-heading">Retirement impact</h2><p class="muted text-sm">The guest and its machine-scoped OpenTofu resources will be permanently removed.</p></div></div>
+  <div class="retirement-facts">
+    <div><small>Machine</small><strong>{{ machine.machine_id }}</strong><span>{{ machine.spec.hostname }}</span></div>
+    <div><small>Resource</small><strong>{{ machine.spec.kind|upper }} · VMID {{ machine.spec.vmid }}</strong><span>{{ machine.spec.address }}</span></div>
+    <div><small>Placement</small><strong>{{ machine.services|length }} services · {{ machine.projects|length }} projects</strong><span>{{ 'Eligible' if machine.can_retire else 'Blocked' }}</span></div>
+  </div>
+  {% if machine.retirement_blockers %}<div class="alert alert-error" role="alert">{{ machine.retirement_blockers|join(' · ') }}</div>{% endif %}
+</section>
+
+{% if not plan %}
+<section class="content-band" aria-labelledby="retirement-plan-heading">
+  <div class="section-head"><div><h2 id="retirement-plan-heading">Recovery proof</h2><p class="muted text-sm">A fresh restore-drill checkpoint is required before a retirement plan can be issued.</p></div></div>
+  <form method="post" action="/machines/{{ machine.machine_id }}/retirement-plan" class="action-bar">
+    <button type="submit" class="btn btn-danger" {% if not machine.can_retire %}disabled{% endif %}>Create retirement plan</button>
+  </form>
+</section>
+{% else %}
+<section class="content-band" aria-labelledby="retirement-approval-heading">
+  <div class="section-head"><div><h2 id="retirement-approval-heading">Approve retirement</h2><p class="muted text-sm">Review the immutable plan and type the exact confirmation phrase. Any desired-state change invalidates this plan.</p></div></div>
+  <dl class="retirement-plan-details">
+    <div><dt>Checkpoint</dt><dd><code>{{ plan.spec.checkpoint_id }}</code></dd></div>
+    <div><dt>Verified</dt><dd>{{ plan.spec.checkpoint_verified_at.strftime('%Y-%m-%d %H:%M UTC') }}</dd></div>
+    <div><dt>Config revision</dt><dd><code>{{ plan.spec.config_revision }}</code></dd></div>
+    <div><dt>Plan hash</dt><dd><code>{{ plan.plan_hash }}</code></dd></div>
+  </dl>
+  <form method="post" action="/machines/{{ machine.machine_id }}/retire" class="field-grid retirement-confirm-form">
+    <input type="hidden" name="plan_id" value="{{ plan.plan_id }}">
+    <label class="form-field span-12" for="retirement-confirmation"><span>Type <code>{{ expected_confirmation }}</code></span><input id="retirement-confirmation" name="confirmation" autocomplete="off" required></label>
+    <div class="action-bar span-12"><a class="btn btn-ghost" href="/machines">Cancel</a><button type="submit" class="btn btn-danger">Retire machine</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

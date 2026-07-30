@@ -1,0 +1,22 @@
+"""Stable controller API errors that do not expose internal exceptions."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from toolkit.controller.contracts import ErrorCode
+
+
+class ControllerAPIError(RuntimeError):
+    def __init__(
+        self,
+        status_code: int,
+        code: ErrorCode,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.details = details or {}

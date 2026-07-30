@@ -1,0 +1,137 @@
+services:
+  jellyfin:
+    restart: unless-stopped
+    profiles:
+    - media-jellyfin
+    - svc-jellyfin
+    image: lscr.io/linuxserver/jellyfin:10.11.11@sha256:32aa0d4565c633db95af29a58e8a5dc9becdfa58564a3aea68436623fd45f5a1
+    container_name: jellyfin
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    tmpfs:
+    - /tmp
+    - /run:exec
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ:-UTC}
+      JELLYFIN_PublishedServerUrl: ${JELLYFIN_HOST:-jellyfin.localhost}
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8096:8096
+    volumes:
+    - ${JELLYFIN_CONFIG_SOURCE:-./data/jellyfin/config}:/config
+    - ${MEDIA_LIBRARY_ROOT:-./media}:/data/media
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:8096/health || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 1024
+  jellyfin-nvidia:
+    restart: unless-stopped
+    profiles:
+    - media-jellyfin-nvidia
+    image: lscr.io/linuxserver/jellyfin:10.11.11@sha256:32aa0d4565c633db95af29a58e8a5dc9becdfa58564a3aea68436623fd45f5a1
+    container_name: jellyfin-nvidia
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    tmpfs:
+    - /tmp
+    - /run:exec
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ:-UTC}
+      JELLYFIN_PublishedServerUrl: ${JELLYFIN_HOST:-jellyfin.localhost}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: all
+    runtime: nvidia
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8096:8096
+    volumes:
+    - ${JELLYFIN_CONFIG_SOURCE:-./data/jellyfin/config}:/config
+    - ${MEDIA_LIBRARY_ROOT:-./media}:/data/media
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:8096/health || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 1024
+  jellyfin-vaapi:
+    restart: unless-stopped
+    profiles:
+    - media-jellyfin-vaapi
+    image: lscr.io/linuxserver/jellyfin:10.11.11@sha256:32aa0d4565c633db95af29a58e8a5dc9becdfa58564a3aea68436623fd45f5a1
+    container_name: jellyfin-vaapi
+    read_only: true
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    tmpfs:
+    - /tmp
+    - /run:exec
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ:-UTC}
+      JELLYFIN_PublishedServerUrl: ${JELLYFIN_HOST:-jellyfin.localhost}
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:8096:8096
+    volumes:
+    - ${JELLYFIN_CONFIG_SOURCE:-./data/jellyfin/config}:/config
+    - ${MEDIA_LIBRARY_ROOT:-./media}:/data/media
+    devices:
+    - /dev/dri:/dev/dri
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:8096/health || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 1024

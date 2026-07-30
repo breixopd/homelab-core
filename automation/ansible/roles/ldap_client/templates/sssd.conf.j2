@@ -1,0 +1,20 @@
+[sssd]
+services = nss, pam
+config_file_version = 2
+domains = lldap
+
+[domain/lldap]
+id_provider = ldap
+auth_provider = ldap
+ldap_uri = ldap://{{ service_ips['lldap'] }}:{{ lldap_port | default(3890) }}
+ldap_search_base = {{ lldap_base_dn | default('dc=example,dc=com') }}
+ldap_default_bind_dn = cn=ldap-bind,ou=people,{{ lldap_base_dn | default('dc=example,dc=com') }}
+ldap_default_authtok = {{ lldap_bind_password }}
+ldap_id_use_start_tls = false
+ldap_user_search_base = ou=people,{{ lldap_base_dn | default('dc=example,dc=com') }}
+ldap_group_search_base = ou=groups,{{ lldap_base_dn | default('dc=example,dc=com') }}
+cache_credentials = true
+enumerate = false
+
+[pam]
+offline_credentials_expiration = {{ ldap_offline_expiration | default(7) }}

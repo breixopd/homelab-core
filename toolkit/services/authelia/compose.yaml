@@ -1,0 +1,58 @@
+services:
+  authelia:
+    restart: unless-stopped
+    profiles:
+    - management
+    - svc-authelia
+    image: authelia/authelia:4.39.20@sha256:1b363e9279e742397966333f364e0876ae02bf5c876de73e83af6d48c57ff51b
+    container_name: authelia
+    cap_drop:
+    - ALL
+    cap_add:
+    - SETUID
+    - SETGID
+    tmpfs:
+    - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      lldap:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-UTC}
+      PUID: "1000"
+      PGID: "1000"
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET: ${AUTHELIA_JWT_SECRET}
+      AUTHELIA_SESSION_SECRET: ${AUTHELIA_SESSION_SECRET}
+      AUTHELIA_STORAGE_ENCRYPTION_KEY: ${AUTHELIA_STORAGE_KEY}
+      AUTHELIA_STORAGE_POSTGRES_ADDRESS: tcp://${AUTHELIA_DB_HOST}:${AUTHELIA_DB_PORT}
+      AUTHELIA_STORAGE_POSTGRES_DATABASE: ${AUTHELIA_DB_NAME}
+      AUTHELIA_STORAGE_POSTGRES_USERNAME: ${AUTHELIA_DB_USER}
+      AUTHELIA_STORAGE_POSTGRES_PASSWORD: ${AUTHELIA_DB_PASSWORD}
+      AUTHELIA_SESSION_REDIS_HOST: ${AUTHELIA_REDIS_HOST}
+      AUTHELIA_SESSION_REDIS_PORT: ${AUTHELIA_REDIS_PORT}
+      AUTHELIA_SESSION_REDIS_PASSWORD: ${REDIS_PASSWORD}
+    expose:
+    - 9091
+    - 9959
+    ports:
+    - ${PRIVATE_IP:-127.0.0.1}:9091:9091
+    volumes:
+    - ${AUTHELIA_CONFIG_SOURCE:-./generated/authelia}:/config:ro
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -qO- http://localhost:9091/api/health >/dev/null || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 256

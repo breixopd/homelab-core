@@ -1,0 +1,38 @@
+---
+- name: Require remote backup storage inputs
+  ansible.builtin.assert:
+    that:
+      - host_integrations['backup-storage']['path'] | default('') | length > 0
+      - kopia_backup_public_key | default('') | length > 0
+    fail_msg: Backup storage requires a path and generated Kopia public key
+
+- name: Resolve backup storage account home
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ ansible_user }}"
+
+- name: Create restricted backup repository directory
+  ansible.builtin.file:
+    path: "{{ host_integrations['backup-storage']['path'] }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_facts.getent_passwd[ansible_user][2] }}"
+    mode: "0700"
+
+- name: Create backup account SSH directory
+  ansible.builtin.file:
+    path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.ssh"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_facts.getent_passwd[ansible_user][2] }}"
+    mode: "0700"
+
+- name: Authorize restricted Kopia SFTP identity
+  ansible.builtin.lineinfile:
+    path: "{{ ansible_facts.getent_passwd[ansible_user][4] }}/.ssh/authorized_keys"
+    create: true
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_facts.getent_passwd[ansible_user][2] }}"
+    mode: "0600"
+    regexp: ' homelab-kopia-backup$'
+    line: 'restrict,command="internal-sftp -d {{ host_integrations[''backup-storage''][''path''] }}" {{ kopia_backup_public_key }}'

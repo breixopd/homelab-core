@@ -1,0 +1,74 @@
+{
+  "_id": "homelab-hevc-auto",
+  "name": "Homelab — HEVC + health (auto HW)",
+  "description": "Health check, then transcode to H.265/HEVC only when not already HEVC. Hardware encoder auto-detected (NVENC/QSV/VAAPI) with CPU x265 fallback; all audio and subtitle streams preserved. Smaller files = more fits in the media-cache local tier and remote. Seeded by homelab-toolkit.",
+  "tags": ["homelab", "hevc", "jellyfin"],
+  "flowPlugins": [
+    {
+      "name": "Input File",
+      "sourceRepo": "Community",
+      "pluginName": "inputFile",
+      "version": "1.0.0",
+      "id": "input1",
+      "position": {"x": 100, "y": 100},
+      "fpEnabled": true,
+      "inputsDB": {}
+    },
+    {
+      "name": "Check File Health",
+      "sourceRepo": "Community",
+      "pluginName": "checkFileHealth",
+      "version": "1.0.0",
+      "id": "health1",
+      "position": {"x": 100, "y": 250},
+      "fpEnabled": true,
+      "inputsDB": {}
+    },
+    {
+      "name": "Begin Command",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandStart",
+      "version": "1.0.0",
+      "id": "start1",
+      "position": {"x": 100, "y": 400},
+      "fpEnabled": true,
+      "inputsDB": {}
+    },
+    {
+      "name": "Set Video Encoder",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandSetVideoEncoder",
+      "version": "1.0.0",
+      "id": "venc1",
+      "position": {"x": 100, "y": 550},
+      "fpEnabled": true,
+      "inputsDB": {
+        "outputCodec": "hevc",
+        "ffmpegPresetEnabled": "true",
+        "ffmpegPreset": "medium",
+        "ffmpegQualityEnabled": "true",
+        "ffmpegQuality": "24",
+        "hardwareEncoding": "true",
+        "hardwareType": "auto",
+        "hardwareDecoding": "true",
+        "forceEncoding": "false"
+      }
+    },
+    {
+      "name": "Execute",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandExecute",
+      "version": "1.0.0",
+      "id": "exec1",
+      "position": {"x": 100, "y": 700},
+      "fpEnabled": true,
+      "inputsDB": {}
+    }
+  ],
+  "flowEdges": [
+    {"source": "input1", "sourceHandle": "1", "target": "health1", "targetHandle": null, "id": "e1"},
+    {"source": "health1", "sourceHandle": "1", "target": "start1", "targetHandle": null, "id": "e2"},
+    {"source": "start1", "sourceHandle": "1", "target": "venc1", "targetHandle": null, "id": "e3"},
+    {"source": "venc1", "sourceHandle": "1", "target": "exec1", "targetHandle": null, "id": "e4"}
+  ]
+}
