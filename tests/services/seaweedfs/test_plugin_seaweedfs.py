@@ -107,6 +107,80 @@ def test_s3_auth_probe_does_not_put_credentials_in_command(monkeypatch, tmp_path
     }
 
 
+def test_s3_auth_probe_fails_when_configured_credentials_are_rejected(monkeypatch, tmp_path):
+    from toolkit.services.seaweedfs.plugin import _check_seaweedfs_s3_auth
+
+    monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_args, **_kwargs: (1, "Forbidden"))
+    monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", lambda *_args, **_kwargs: (1, "InvalidAccessKeyId"))
+
+    check = _check_seaweedfs_s3_auth(
+        Config(domain="example.com", services=ServicesConfig(cloud=True)),
+        "10.10.10.12",
+        tmp_path,
+        {"SEAWEEDFS_S3_ACCESS_KEY": "configured", "SEAWEEDFS_S3_SECRET_KEY": "incorrect"},
+    )
+
+    assert not check.passed
+    assert "InvalidAccessKeyId" in check.detail
+
+
+def test_s3_auth_probe_fails_when_anonymous_access_is_allowed(monkeypatch, tmp_path):
+    from toolkit.services.seaweedfs.plugin import _check_seaweedfs_s3_auth
+
+    monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_args, **_kwargs: (0, "bucket"))
+    monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", lambda *_args, **_kwargs: (0, "bucket"))
+
+    check = _check_seaweedfs_s3_auth(
+        Config(domain="example.com", services=ServicesConfig(cloud=True)),
+        "10.10.10.12",
+        tmp_path,
+        {"SEAWEEDFS_S3_ACCESS_KEY": "configured", "SEAWEEDFS_S3_SECRET_KEY": "configured"},
+    )
+
+    assert not check.passed
+    assert "anonymous access" in check.detail
+
+
+def test_s3_status_never_falls_back_to_the_filer(monkeypatch, tmp_path):
+    from toolkit.services.seaweedfs import plugin
+
+    urls: list[str] = []
+
+    def fake_ready(_cfg, _vm_ip, url, _root):
+        urls.append(url)
+        return (0, "filer") if ":8888/" in url else (1, "")
+
+    monkeypatch.setattr(plugin, "_docker_curl_ready", fake_ready)
+
+    check = plugin._check_seaweedfs_s3(
+        Config(domain="example.com", services=ServicesConfig(cloud=True)),
+        "10.10.10.12",
+        tmp_path,
+    )
+
+    assert not check.passed
+    assert urls
+    assert all(":8333/" in url for url in urls)
+
+
+def test_s3_host_exposure_requires_both_peer_ports_to_be_blocked(monkeypatch, tmp_path):
+    from toolkit.services.seaweedfs.plugin import _check_seaweedfs_s3_host_exposure
+
+    cfg = Config(domain="example.com", services=ServicesConfig(cloud=True))
+
+    def fake_ssh(_cfg, source_ip, *_args, **_kwargs):
+        if source_ip == cfg.node_ip("infra"):
+            return 0, "8333=OPEN\n8888=OPEN\n", ""
+        return 0, "8333=CLOSED\n8888=OPEN\n", ""
+
+    monkeypatch.setattr("toolkit.services.sdk.ssh_on_vm", fake_ssh)
+
+    check = _check_seaweedfs_s3_host_exposure(cfg, cfg.node_ip("apps"), tmp_path)
+
+    assert not check.passed
+    assert "open" in check.detail
+
+
 class TestSeaweedfsVerify:
     def test_skips_localhost(self, tmp_path):
         cfg = Config(domain="localhost", services=ServicesConfig(cloud=True))
@@ -131,12 +205,12 @@ class TestSeaweedfsVerify:
 
         monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
         monkeypatch.setattr("toolkit.services.sdk.docker_curl", fake_curl)
-        monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", lambda *_a, **_k: (1, "no aws"))
+        monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", lambda *_a, **_k: (0, "bucket"))
         monkeypatch.setattr(
             "toolkit.services.sdk.ssh_on_vm",
             lambda _cfg, source_ip, *_a, **_k: (
                 0,
-                "OPEN" if source_ip == cfg.node_ip("infra") else "CLOSED",
+                "8333=OPEN\n8888=OPEN\n" if source_ip == cfg.node_ip("infra") else "8333=CLOSED\n8888=CLOSED\n",
                 "",
             ),
         )

@@ -75,29 +75,6 @@ def _hash_admin_token_if_needed(secrets: dict[str, str], root: Path) -> None:
     _ = secrets, root
 
 
-def _admin_delete_user(base: str, cookies: httpx.Cookies, email: str) -> bool:
-    """Remove an existing vault user so automation can re-register with the SOPS master password."""
-    try:
-        resp = httpx.get(f"{base}/admin/users", cookies=cookies, timeout=15)
-        if resp.status_code != 200:
-            return False
-        users = resp.json()
-        if not isinstance(users, list):
-            return False
-        target = email.strip().lower()
-        for user in users:
-            if (user.get("email") or "").strip().lower() != target:
-                continue
-            uid = user.get("id")
-            if not uid:
-                continue
-            del_resp = httpx.post(f"{base}/admin/users/{uid}/delete", cookies=cookies, json={}, timeout=15)
-            return del_resp.status_code in (200, 204)
-    except httpx.HTTPError as exc:
-        log.warning("Vaultwarden admin delete user failed: %s", exc)
-    return False
-
-
 def ensure_vaultwarden_account(
     config: Config,
     secrets: dict[str, str],
@@ -166,17 +143,11 @@ def ensure_vaultwarden_account(
         elif reg.status_code in (400, 422) and "already" in (reg.text or "").lower():
             logs.append("Vaultwarden: account already exists")
             if not vaultwarden_login_access_token(base, email, master, kdf=vaultwarden_fetch_kdf(base, email)):
-                if _admin_delete_user(base, cookies, email):
-                    logs.append("Vaultwarden: removed stale account (master password mismatch)")
-                    reg2 = httpx.post(
-                        f"{_identity_base(base)}/accounts/register",
-                        json=register_payload(master, email),
-                        timeout=30,
-                    )
-                    if reg2.status_code == 200:
-                        logs.append("Vaultwarden: re-registered account with SOPS master password")
-                    else:
-                        logs.append(f"Vaultwarden: re-register returned {reg2.status_code}")
+                logs.append(
+                    "Vaultwarden: configured master password does not unlock the existing account; "
+                    "vault preserved — update the configured password or reset the account manually"
+                )
+                return logs
         else:
             logs.append(f"Vaultwarden: register returned {reg.status_code}")
     except httpx.HTTPError as exc:

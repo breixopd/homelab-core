@@ -312,7 +312,7 @@ def test_private_fqdns_not_in_cloudflare_detects_leak(monkeypatch):
     assert "grafana" in check.detail
 
 
-def test_mesh_client_access_skips_without_lan_route(monkeypatch):
+def test_mesh_client_access_fails_without_lan_route(monkeypatch):
     cfg = Config(
         domain="example.com",
         machines=machines_with_addresses(infra="10.10.10.10", media="10.10.10.11", apps="10.10.10.12"),
@@ -321,8 +321,8 @@ def test_mesh_client_access_skips_without_lan_route(monkeypatch):
     monkeypatch.setattr(HEADSCALE_MESH, "_mesh_routes_reachable", lambda _cfg: False)
     checks = HEADSCALE_MESH.controller_mesh_access_checks(cfg, Path("."))
     assert len(checks) == 1
-    assert checks[0].passed
-    assert "skipped" in checks[0].detail
+    assert not checks[0].passed
+    assert "no route" in checks[0].detail
 
 
 def test_mesh_client_access_uses_probes(monkeypatch):

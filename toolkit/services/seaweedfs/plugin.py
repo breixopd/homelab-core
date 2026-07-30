@@ -36,15 +36,15 @@ def _docker_curl_ready(cfg: Config, vm_ip: str, url: str, root: Path) -> tuple[i
 
 
 def _check_seaweedfs_s3(cfg: Config, vm_ip: str, root: Path) -> VerifyCheck:
-    """SeaweedFS S3 API is reachable (status / healthz / filer root)."""
+    """SeaweedFS S3 API is reachable on the S3 gateway itself."""
     import httpx
     from toolkit.services.sdk import VerifyCheck
 
     if cfg.is_multi_node:
-        for port, path in ((8333, "/status"), (8333, "/healthz"), (8888, "/")):
-            rc, body = _docker_curl_ready(cfg, vm_ip, f"http://localhost:{port}{path}", root)
+        for path in ("/status", "/healthz"):
+            rc, body = _docker_curl_ready(cfg, vm_ip, f"http://localhost:8333{path}", root)
             if rc == 0:
-                detail = f"S3 API ok ({port}{path})"
+                detail = f"S3 API ok (8333{path})"
                 if (body or "").strip():
                     detail += f" ({len(body.strip())} bytes)"
                 return VerifyCheck("seaweedfs", "s3_status", True, detail)
@@ -120,15 +120,15 @@ def _check_seaweedfs_s3_auth(cfg: Config, vm_ip: str, root: Path, secrets: dict[
             "AWS_SECRET_ACCESS_KEY": secret,
         },
     )
-    if rc_auth == 0:
-        ok = True
-        detail = "authenticated S3 list ok"
-    elif anon_blocked:
-        ok = True
-        detail = "anonymous S3 blocked (auth enforced)"
-    else:
+    if rc_auth != 0:
         ok = False
-        detail = (out or "S3 auth probe failed")[:120]
+        detail = (out or "authenticated S3 probe failed")[:120]
+    elif not anon_blocked:
+        ok = False
+        detail = "authenticated S3 list succeeded but anonymous access was also allowed"
+    else:
+        ok = True
+        detail = "authenticated S3 list ok; anonymous access blocked"
     return VerifyCheck("seaweedfs", "s3_auth", ok, detail)
 
 
@@ -147,9 +147,11 @@ def _check_seaweedfs_s3_host_exposure(cfg: Config, vm_ip: str, root: Path) -> Ve
     if not cfg.category_enabled("cloud"):
         return VerifyCheck("seaweedfs", "s3_host_exposure", True, "cloud not enabled")
     shell = (
-        "result=OPEN; for port_path in 8333/status 8888/; do "
-        f"curl -sf --max-time 3 http://{vm_ip}:$port_path >/dev/null 2>&1 || result=CLOSED; "
-        "done; echo $result"
+        "for port_path in 8333/status 8888/; do "
+        'port="${port_path%%/*}"; '
+        f'if curl -sf --max-time 3 "http://{vm_ip}:$port_path" >/dev/null 2>&1; '
+        'then printf "%s=OPEN\\n" "$port"; else printf "%s=CLOSED\\n" "$port"; fi; '
+        "done"
     )
     ingress_service = provider_service_name("ingress")
     ingress_node = service_node(cfg, ingress_service)
@@ -159,8 +161,27 @@ def _check_seaweedfs_s3_host_exposure(cfg: Config, vm_ip: str, root: Path) -> Ve
         return VerifyCheck("seaweedfs", "s3_host_exposure", True, "single ingress node")
     peer_rc, peer_out, _ = ssh_on_vm(cfg, cfg.node_ip(peer_node), shell, root=root, timeout=15)
     ingress_rc, ingress_out, _ = ssh_on_vm(cfg, ingress_ip, shell, root=root, timeout=15)
-    peer_blocked = peer_rc == 0 and "CLOSED" in (peer_out or "")
-    ingress_allowed = ingress_rc == 0 and "OPEN" in (ingress_out or "")
+    peer_states = dict(
+        line.split("=", 1)
+        for line in (peer_out or "").splitlines()
+        if "=" in line and line.split("=", 1)[0] in {"8333", "8888"}
+    )
+    ingress_states = dict(
+        line.split("=", 1)
+        for line in (ingress_out or "").splitlines()
+        if "=" in line and line.split("=", 1)[0] in {"8333", "8888"}
+    )
+    expected_ports = {"8333", "8888"}
+    peer_blocked = (
+        peer_rc == 0
+        and peer_states.keys() == expected_ports
+        and all(state == "CLOSED" for state in peer_states.values())
+    )
+    ingress_allowed = (
+        ingress_rc == 0
+        and ingress_states.keys() == expected_ports
+        and all(state == "OPEN" for state in ingress_states.values())
+    )
     passed = peer_blocked and ingress_allowed
     return VerifyCheck(
         "seaweedfs",

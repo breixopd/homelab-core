@@ -353,8 +353,8 @@ def controller_mesh_access_checks(cfg: Config, root: Path):
             VerifyCheck(
                 "mesh",
                 "client",
-                True,
-                "skipped - controller has no route to homelab LAN (join mesh + accept routes)",
+                False,
+                "controller has no route to homelab LAN (join mesh and accept subnet routes)",
             )
         ]
     checks = [VerifyCheck("mesh", label, ok, detail) for label, ok, detail in probe_mesh_internal(cfg)]

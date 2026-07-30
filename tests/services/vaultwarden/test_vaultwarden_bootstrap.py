@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from tests.helpers.machines import single_control_machines
@@ -64,30 +64,24 @@ def test_catalog_excludes_gitea_local_password_credentials():
     assert "Gitea" not in {entry.name for entry in credential_entries(config)}
 
 
-def test_admin_delete_user_uses_vaultwarden_1_36_route() -> None:
-    users = MagicMock(status_code=200)
-    users.json.return_value = [{"id": "user-uuid", "email": "owner@example.com"}]
-    deleted = MagicMock(status_code=200)
+def test_existing_account_password_mismatch_preserves_vault(cfg: Config, secrets: dict[str, str]) -> None:
+    healthy = MagicMock(status_code=200)
+    invited = MagicMock(status_code=200)
+    existing = MagicMock(status_code=400, text="Account already exists")
 
     with (
-        patch.object(vw.httpx, "get", return_value=users),
-        patch.object(vw.httpx, "post", return_value=deleted) as post,
-        patch.object(vw.httpx, "delete") as unsupported_delete,
+        patch.object(vw.httpx, "get", return_value=healthy),
+        patch.object(vw.httpx, "post", side_effect=[invited, existing]) as post,
+        patch.object(vw, "vaultwarden_fetch_kdf", return_value=object()),
+        patch.object(vw, "vaultwarden_login_access_token", return_value="") as login,
+        patch.object(vw, "vaultwarden_admin_session", return_value=MagicMock()),
     ):
-        result = vw._admin_delete_user(
-            "http://vaultwarden",
-            MagicMock(),
-            " OWNER@example.com ",
-        )
+        logs = vw.ensure_vaultwarden_account(cfg, secrets, base_url="http://vaultwarden")
 
-    assert result is True
-    post.assert_called_once_with(
-        "http://vaultwarden/admin/users/user-uuid/delete",
-        cookies=ANY,
-        json={},
-        timeout=15,
-    )
-    unsupported_delete.assert_not_called()
+    assert login.call_count == 2
+    assert "Vaultwarden: account already exists" in logs
+    assert any("vault preserved" in line for line in logs)
+    assert not any("/delete" in call.args[0] for call in post.call_args_list)
 
 
 def test_password_login_identifies_as_current_web_vault_client() -> None:
