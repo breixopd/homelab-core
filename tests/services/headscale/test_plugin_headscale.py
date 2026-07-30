@@ -9,6 +9,7 @@ import pytest
 import yaml
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config, ExternalHost, ServicesConfig
+from toolkit.core.verify.models import VerifyStatus
 
 
 def _plugin():
@@ -101,6 +102,19 @@ def test_deselecting_mesh_integration_runs_revocation(tmp_path, monkeypatch):
 
     assert plugin.reconcile_host_integration("vpn-client", _cfg(), host, tmp_path, selected=False) == ["revoked"]
     cleanup.assert_called_once_with("vpn-client", _cfg(), host, tmp_path)
+
+
+def test_optional_subnet_router_and_acl_checks_are_not_applicable(tmp_path, monkeypatch):
+    module = load_plugin("headscale")
+    cfg = _cfg()
+    monkeypatch.setattr(type(cfg), "is_multi_node", property(lambda _self: False))
+    cfg.services = ServicesConfig(security=False)
+
+    router = module.check_subnet_router(cfg, "10.10.10.10", tmp_path)
+    acl = module.check_acl(cfg, tmp_path)
+
+    assert router.status is VerifyStatus.NOT_APPLICABLE
+    assert acl.status is VerifyStatus.NOT_APPLICABLE
 
 
 def test_management_status_and_resources_expose_mesh_inventory(tmp_path, monkeypatch):

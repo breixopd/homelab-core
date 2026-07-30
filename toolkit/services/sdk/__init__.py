@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from toolkit.core.secrets.bootstrap_passwords import resolve_bootstrap_password  # noqa: E402
-from toolkit.core.verify.models import VerifyCheck  # noqa: E402
+from toolkit.core.verify.models import VerifyCheck, VerifyStatus  # noqa: E402
 from toolkit.services.sdk._vmexec import (
     container_exists_on_vm,
     docker_curl,
@@ -103,6 +103,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "VerifyCheck",
+    "VerifyStatus",
     "Config",
     "resolve_bootstrap_password",
     "http_check",

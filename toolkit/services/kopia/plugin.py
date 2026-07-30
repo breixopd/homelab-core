@@ -199,11 +199,19 @@ class KopiaPlugin(ServicePlugin):
 
     def verify(self, cfg: Config, secrets: dict[str, str], vm_ip: str, root: Path) -> list[VerifyCheck]:
         """Verify the Kopia repository is connected and has recent snapshots."""
-        from toolkit.services.sdk import VerifyCheck, container_exists_on_vm
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus, container_exists_on_vm
 
         try:
             if not cfg.backups.enabled:
-                return [VerifyCheck("kopia", "repository", True, "backups disabled")]
+                return [
+                    VerifyCheck(
+                        "kopia",
+                        "repository",
+                        True,
+                        "backups disabled",
+                        status=VerifyStatus.NOT_APPLICABLE,
+                    )
+                ]
             if cfg.domain == "localhost":
                 return [VerifyCheck("kopia", "repository", True, "skipped (localhost)")]
             if not container_exists_on_vm(cfg, vm_ip, "kopia", root):
