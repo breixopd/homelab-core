@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,6 +15,10 @@ __all__ = [
     "wazuh_list_agents",
     "wazuh_parse_agent_lines",
 ]
+
+_MAX_AGENT_OUTPUT_BYTES = 512 * 1024
+_AGENT_RECORD = re.compile(r"^ID:\s*(\d+)\s*,", re.IGNORECASE)
+_ACTIVE_AGENT_STATUS = re.compile(r"(?:^|,)\s*active\s*$", re.IGNORECASE)
 
 
 def wazuh_agent_control_cmd() -> str:
@@ -32,12 +37,15 @@ class WazuhAgentSummary:
 
 def wazuh_parse_agent_lines(output: str) -> WazuhAgentSummary:
     """Parse ``agent_control -l`` output into agent counts."""
-    lines = [
-        line
-        for raw_line in (output or "").splitlines()
-        if (line := raw_line.strip()) and not line.lower().startswith("available agents")
-    ]
-    active = sum(1 for ln in lines if "Active" in ln or "active" in ln.lower())
+    lines: list[str] = []
+    for raw_line in (output or "").splitlines():
+        line = raw_line.strip()
+        record = _AGENT_RECORD.match(line)
+        # ID 000 is the manager itself (Active/Local), not a managed endpoint.
+        if not record or record.group(1) == "000":
+            continue
+        lines.append(line)
+    active = sum(1 for line in lines if _ACTIVE_AGENT_STATUS.search(line))
     return WazuhAgentSummary(total=len(lines), active=active, lines=lines)
 
 
@@ -68,6 +76,11 @@ def wazuh_list_agents(
                 check=False,
             )
             out = proc.stdout
+            if proc.returncode != 0:
+                return None, (proc.stderr or out or "agent_control failed")[:120]
         except (OSError, subprocess.TimeoutExpired) as exc:
             return None, str(exc)[:120]
-    return wazuh_parse_agent_lines(out or ""), ""
+    output = out or ""
+    if len(output.encode("utf-8", errors="replace")) > _MAX_AGENT_OUTPUT_BYTES:
+        return None, "agent_control output exceeds the safety limit"
+    return wazuh_parse_agent_lines(output), ""

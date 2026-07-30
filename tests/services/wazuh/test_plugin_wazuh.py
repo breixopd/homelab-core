@@ -7,10 +7,11 @@ from base64 import b64decode
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config, ServicesConfig
-from toolkit.services.sdk.wazuh import WazuhAgentSummary, wazuh_parse_agent_lines
+from toolkit.services.sdk.wazuh import WazuhAgentSummary, wazuh_list_agents, wazuh_parse_agent_lines
 
 
 def _indexer():
@@ -55,11 +56,78 @@ def test_dashboard_post_start_marks_inactive_manager_critical(monkeypatch):
 
 def test_agent_parser_keeps_id_prefixed_records() -> None:
     summary = wazuh_parse_agent_lines(
-        "Available agents:\n  ID: 001, Name: apps, IP: any, Active\n  ID: 002, Name: media, IP: any, Disconnected\n"
+        "Wazuh agent_control. List of available agents:\n"
+        "  ID: 000, Name: manager, IP: 127.0.0.1, Active/Local\n"
+        "  ID: 001, Name: apps, IP: any, Active\n"
+        "  ID: 002, Name: media, IP: any, Disconnected\n"
     )
 
     assert summary.total == 2
     assert summary.active == 1
+
+
+def test_agent_parser_does_not_count_inactive_as_active() -> None:
+    summary = wazuh_parse_agent_lines(
+        "ID: 001, Name: apps, IP: any, Active\n"
+        "ID: 002, Name: old, IP: any, Inactive\n"
+        "ID: 003, Name: media, IP: any, Disconnected\n"
+    )
+
+    assert summary.total == 3
+    assert summary.active == 1
+
+
+def test_dashboard_management_reports_safe_agent_counts_and_inventory(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "toolkit.services.sdk.wazuh_list_agents",
+        lambda *_a, **_k: (
+            WazuhAgentSummary(
+                total=3,
+                active=1,
+                lines=[
+                    "ID: 001, Name: apps, IP: 10.0.0.5, Active",
+                    "ID: 002, Name: media, IP: 10.0.0.6, Disconnected",
+                    "ID: 003, Name: retired, IP: any, Inactive",
+                ],
+            ),
+            "",
+        ),
+    )
+    plugin = _dashboard()
+
+    assert plugin.status(_cfg(), {"WAZUH_API_PASSWORD": "must-not-escape"}, tmp_path) == {
+        "agents_total": 3,
+        "agents_active": 1,
+        "agents_disconnected": 1,
+    }
+    rows = plugin.resources(_cfg(), {"WAZUH_API_PASSWORD": "must-not-escape"}, tmp_path)["agents"]
+    assert rows == [
+        {"id": "001", "name": "apps", "address": "10.0.0.5", "status": "Active"},
+        {"id": "002", "name": "media", "address": "10.0.0.6", "status": "Disconnected"},
+        {"id": "003", "name": "retired", "address": "any", "status": "Inactive"},
+    ]
+    assert "must-not-escape" not in str(rows)
+
+
+def test_dashboard_management_marks_agent_inventory_unavailable(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("toolkit.services.sdk.wazuh_list_agents", lambda *_a, **_k: (None, "manager unavailable"))
+    plugin = _dashboard()
+
+    assert plugin.status(_cfg(), {}, tmp_path) == {}
+    with pytest.raises(RuntimeError, match="inventory is unavailable"):
+        plugin.resources(_cfg(), {}, tmp_path)
+
+
+def test_wazuh_agent_list_rejects_oversized_output(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "toolkit.services.sdk._vmexec.ssh_on_vm",
+        lambda *_a, **_k: (0, "x" * (512 * 1024 + 1), ""),
+    )
+
+    summary, error = wazuh_list_agents(_cfg(), "10.10.10.10", tmp_path)
+
+    assert summary is None
+    assert error == "agent_control output exceeds the safety limit"
 
 
 def test_wazuh_dashboard_uses_dedicated_upstream_service_accounts() -> None:
