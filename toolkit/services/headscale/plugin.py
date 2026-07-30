@@ -475,10 +475,16 @@ def check_nodes(cfg: Config, infra_ip: str, root: Path) -> VerifyCheck:
 
 def check_subnet_router(cfg: Config, infra_ip: str, root: Path) -> VerifyCheck:
     """Infra host tailscale advertises homelab LAN routes for mesh clients."""
-    from toolkit.services.sdk import VerifyCheck
+    from toolkit.services.sdk import VerifyCheck, VerifyStatus
 
     if not cfg.is_multi_node or not getattr(cfg.fleet, "mesh_subnet_router", True):
-        return VerifyCheck("headscale", "subnet_router", True, "not required")
+        return VerifyCheck(
+            "headscale",
+            "subnet_router",
+            True,
+            "not required",
+            status=VerifyStatus.NOT_APPLICABLE,
+        )
     import json
 
     from toolkit.core.ansible.ansible_ssh import ssh_run_on_vm
@@ -518,10 +524,16 @@ def check_subnet_router(cfg: Config, infra_ip: str, root: Path) -> VerifyCheck:
 
 def check_acl(cfg: Config, root: Path) -> VerifyCheck:
     """Tags-only ACL policy rendered with tagOwners + no allow-all rule."""
-    from toolkit.services.sdk import VerifyCheck
+    from toolkit.services.sdk import VerifyCheck, VerifyStatus
 
     if not cfg.category_enabled("security"):
-        return VerifyCheck("headscale", "acl", True, "security not enabled — skip")
+        return VerifyCheck(
+            "headscale",
+            "acl",
+            True,
+            "security not enabled",
+            status=VerifyStatus.NOT_APPLICABLE,
+        )
     acl_file = root / "generated" / "headscale" / "acl.hujson"
     if not acl_file.is_file():
         return VerifyCheck("headscale", "acl", False, "generated/headscale/acl.hujson missing (run generate)")

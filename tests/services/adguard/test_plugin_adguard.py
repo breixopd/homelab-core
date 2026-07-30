@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config, ServicesConfig
+from toolkit.core.verify.models import VerifyStatus
 
 
 def _plugin():
@@ -60,6 +61,13 @@ def test_post_start_retries_transient_connect_error(tmp_path, monkeypatch):
 
 
 class TestAdguardVerify:
+    def test_disabled_public_dns_is_not_applicable(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("toolkit.core.ops.dns.dns_public_access_enabled", lambda _cfg: False)
+
+        check = _plugin()._check_dns_public(_cfg(), "10.10.10.10", tmp_path)
+
+        assert check.status is VerifyStatus.NOT_APPLICABLE
+
     def test_protection_status_and_dns_resolve(self, tmp_path, monkeypatch):
         rewrites = [
             {"domain": "auth.example.com", "answer": "10.10.10.10"},

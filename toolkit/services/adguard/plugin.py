@@ -244,10 +244,16 @@ class AdguardPlugin(ServicePlugin):
     def _check_dns_public(self, cfg: Config, infra_ip: str, root: Path) -> VerifyCheck:
         """AdGuard DNS must listen privately and publish its resolver record when enabled."""
         from toolkit.core.ops.dns import dns_public_access_enabled, dns_resolver_fqdn, resolve_public_dns_ip
-        from toolkit.services.sdk import VerifyCheck
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus
 
         if not dns_public_access_enabled(cfg):
-            return VerifyCheck("adguard", "dns_public", True, "dns_public_access disabled")
+            return VerifyCheck(
+                "adguard",
+                "dns_public",
+                True,
+                "dns_public_access disabled",
+                status=VerifyStatus.NOT_APPLICABLE,
+            )
 
         rc, out, _ = ssh_on_vm(
             cfg,

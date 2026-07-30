@@ -170,7 +170,7 @@ class GiteaPlugin(ServicePlugin):
         )
 
     def _check_reverse_proxy_auth(self, cfg, vm_ip, root, docker_exec_on_vm) -> VerifyCheck:
-        from toolkit.services.sdk import VerifyCheck
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus
 
         rc, out = docker_exec_on_vm(
             cfg,
@@ -181,7 +181,13 @@ class GiteaPlugin(ServicePlugin):
             timeout=15,
         )
         if rc != 0:
-            return VerifyCheck("gitea", "oidc_auth", True, "reverse-proxy auth check skipped")
+            return VerifyCheck(
+                "gitea",
+                "oidc_auth",
+                False,
+                "reverse-proxy authentication state is not readable",
+                status=VerifyStatus.NOT_READY,
+            )
         enabled = (out or "").strip().lower() in ("true", "1", "yes")
         return VerifyCheck(
             "gitea",
@@ -191,7 +197,7 @@ class GiteaPlugin(ServicePlugin):
         )
 
     def _check_ssh_port(self, cfg, vm_ip, root, docker_exec_on_vm, ssh_on_vm) -> VerifyCheck:
-        from toolkit.services.sdk import VerifyCheck
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus
 
         rc, out = docker_exec_on_vm(
             cfg,
@@ -202,7 +208,13 @@ class GiteaPlugin(ServicePlugin):
             timeout=15,
         )
         if rc == 0 and (out or "").strip().lower() in ("true", "1", "yes"):
-            return VerifyCheck("gitea", "ssh_port", True, "SSH disabled (HTTPS clone only)")
+            return VerifyCheck(
+                "gitea",
+                "ssh_port",
+                True,
+                "SSH disabled (HTTPS clone only)",
+                status=VerifyStatus.NOT_APPLICABLE,
+            )
         shell = "nc -z 127.0.0.1 2222 2>/dev/null && echo SSH_OK || nc -z 127.0.0.1 22 2>/dev/null && echo SSH_OK"
         rc2, out2, _ = ssh_on_vm(cfg, vm_ip, shell, root=root, timeout=12)
         ok = rc2 == 0 and "SSH_OK" in (out2 or "")

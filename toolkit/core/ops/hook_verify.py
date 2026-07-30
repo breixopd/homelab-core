@@ -21,7 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from toolkit.core.verify.models import HookVerifyResult, VerifyCheck, format_verify_report
+from toolkit.core.verify.models import HookVerifyResult, VerifyCheck, VerifyStatus, format_verify_report
 
 if TYPE_CHECKING:
     from toolkit.core.config.config import Config
@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "HookVerifyResult",
     "VerifyCheck",
+    "VerifyStatus",
     "format_verify_report",
     "verify_hooks",
 ]

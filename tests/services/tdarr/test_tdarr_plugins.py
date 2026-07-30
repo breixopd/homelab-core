@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config, ServicesConfig
+from toolkit.core.verify.models import VerifyStatus
 from toolkit.services.tdarr.bootstrap import ensure_tdarr_plugins
 
 
@@ -46,3 +47,16 @@ def test_tdarr_post_start_degrades_to_warning(tmp_path):
         logs = load_plugin("tdarr").TdarrPlugin().post_start(cfg, {}, root=tmp_path)
 
     assert logs == ["WARNING: Tdarr setup failed: warming up"]
+
+
+def test_disabled_tdarr_verification_is_not_counted_as_passed(tmp_path):
+    cfg = Config(
+        domain="test.local",
+        services=ServicesConfig(management=True, media=True),
+        service_settings={"tdarr": {"enabled": False}},
+    )
+
+    checks = load_plugin("tdarr").TdarrPlugin().verify(cfg, {}, "127.0.0.1", tmp_path)
+
+    assert len(checks) == 4
+    assert all(check.status is VerifyStatus.NOT_APPLICABLE for check in checks)
