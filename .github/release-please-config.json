@@ -1,6 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.6.0/schemas/config.json",
   "bootstrap-sha": "d44d7d49ae415ca76dcb7929323bc4c8005d4733",
+  "always-update": true,
+  "draft-pull-request": true,
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
