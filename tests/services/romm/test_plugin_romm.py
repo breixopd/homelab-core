@@ -51,7 +51,7 @@ def test_romm_status_exposes_heartbeat_and_counts(tmp_path, monkeypatch):
         "toolkit.services.sdk.docker_curl",
         lambda *_a, **_k: (
             0,
-            '{"roms":12,"users":2,"show_setup_wizard":false,'
+            '{"roms":12,"platforms":4,"users":2,"show_setup_wizard":false,'
             '"METADATA_SOURCES":{"HASHEOUS_API_ENABLED":true,"HLTB_API_ENABLED":true}}',
         ),
     )
@@ -59,6 +59,7 @@ def test_romm_status_exposes_heartbeat_and_counts(tmp_path, monkeypatch):
     assert _plugin().status(cfg, {}, tmp_path) == {
         "heartbeat": 1,
         "roms": 12,
+        "platforms": 4,
         "users": 2,
         "metadata_providers_enabled": 2,
     }
@@ -67,6 +68,12 @@ def test_romm_status_exposes_heartbeat_and_counts(tmp_path, monkeypatch):
 def test_romm_library_permissions_are_scoped_to_app_directory() -> None:
     service_root = Path(__file__).parents[3] / "toolkit/services/romm"
     manifest = yaml.safe_load((service_root / "service.yaml").read_text(encoding="utf-8"))
+    assert {metric["key"] for metric in manifest["management"]["metrics"]} >= {
+        "roms",
+        "platforms",
+        "users",
+        "metadata_providers_enabled",
+    }
     library = next(spec for spec in manifest["data_specs"] if spec["name"] == "romm-library")
     assert library["host_subdirs"] == ["roms"]
     assert library["manage_permissions"] is False

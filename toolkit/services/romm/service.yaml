@@ -251,3 +251,18 @@ management:
     source: status
     field: metadata_providers_enabled
     unit: count
+  - key: roms
+    label: ROMs
+    source: status
+    field: roms
+    unit: count
+  - key: platforms
+    label: Platforms
+    source: status
+    field: platforms
+    unit: count
+  - key: users
+    label: Users
+    source: status
+    field: users
+    unit: count

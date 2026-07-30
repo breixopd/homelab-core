@@ -11,7 +11,7 @@ from toolkit.controller.service_management_api import (
     read_service_management,
     update_service_settings,
 )
-from toolkit.core.config.config import Config, load_config, save_config
+from toolkit.core.config.config import Config, ServicesConfig, load_config, save_config
 from toolkit.core.config.storage import config_path
 from toolkit.services import get_service_plugin
 
@@ -151,12 +151,30 @@ def test_service_secret_fields_expose_only_configuration_state(tmp_path: Path, m
     )
     monkeypatch.setattr("toolkit.controller.service_management_api.read_service_metrics", lambda *_args, **_kwargs: {})
 
-    view = read_service_management(root, "romm")
+    view = read_service_management(root, "romm", collect_status=False)
 
     fields = {field.name: field.is_configured for field in view.secrets}
     assert fields["IGDB_CLIENT_ID"] is True
     assert fields["IGDB_CLIENT_SECRET"] is False
     assert canary not in view.model_dump_json()
+
+
+def test_disabled_service_keeps_configured_credential_state_visible(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path
+    save_config(Config(domain="example.com", services=ServicesConfig(cloud=False)), config_path(root))
+    from toolkit.core.config.storage import secrets_path
+
+    secrets_path(root).write_text("placeholder", encoding="utf-8")
+    monkeypatch.setattr(
+        "toolkit.controller.service_management_api.load_secrets_plaintext",
+        lambda _path: {"IGDB_CLIENT_ID": "configured-but-never-returned"},
+    )
+
+    view = read_service_management(root, "romm", collect_status=False)
+
+    assert not view.enabled
+    assert next(field for field in view.secrets if field.name == "IGDB_CLIENT_ID").is_configured
+    assert "configured-but-never-returned" not in view.model_dump_json()
 
 
 def test_declared_prometheus_metric_is_selected_by_manifest_id(tmp_path: Path, monkeypatch) -> None:

@@ -179,7 +179,10 @@ def read_service_management(
     resources_available = False
     secrets: dict[str, str] = {}
     secrets_available = True
-    if collect_status and enabled and (status_metrics or capabilities.resources or capabilities.secrets):
+    needs_secrets = bool(capabilities.secrets) or (
+        enabled and collect_status and bool(status_metrics or capabilities.resources)
+    )
+    if needs_secrets:
         try:
             secret_file = secrets_path(root)
             secrets = load_secrets_plaintext(secret_file) if secret_file.exists() else {}
