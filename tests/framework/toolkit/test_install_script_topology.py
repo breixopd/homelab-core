@@ -24,6 +24,9 @@ def test_install_script_uses_repeatable_compose_topology() -> None:
     assert 'docker compose -f "${COMPOSE_FILE}" up -d --force-recreate --wait' in script
     assert 'docker compose -f "${COMPOSE_CANDIDATE}" config --quiet' in script
     assert script.count("/var/run/docker.sock:/var/run/docker.sock:ro") == 1
+    assert ":/root/.ssh:ro" not in script
+    assert "HOMELAB_SSH_KEY_FILE:" not in script
+    assert "PROXMOX_SSH_KEY_FILE:" not in script
     assert "no-new-privileges:true" in script
     assert '"127.0.0.1:8080:8080"' in script
     assert 'WEBUI_SECURE_COOKIES: "false"' in script

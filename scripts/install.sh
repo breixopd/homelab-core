@@ -130,14 +130,6 @@ echo "==> Writing managed bootstrap topology"
 COMPOSE_FILE="${INSTALL_ROOT}/docker-compose.bootstrap.yml"
 COMPOSE_CANDIDATE="$(mktemp "${INSTALL_ROOT}/.docker-compose.bootstrap.XXXXXX")"
 trap 'rm -f "${COMPOSE_CANDIDATE:-}"' EXIT
-SSH_VOLUME_LINE=""
-if [[ -d "${HOME}/.ssh" ]]; then
-    SSH_DIR="${HOME}/.ssh"
-    if [[ -n "${HOMELAB_SSH_KEY_FILE:-}" ]] && [[ -f "${HOMELAB_SSH_KEY_FILE}" ]]; then
-        SSH_DIR="$(dirname "${HOMELAB_SSH_KEY_FILE}")"
-    fi
-    SSH_VOLUME_LINE="      - \"${SSH_DIR}:/root/.ssh:ro\""
-fi
 SSH_AUTH_SOCK="${SSH_AUTH_SOCK:-}"
 AGENT_VOLUME_LINE=""
 AGENT_ENV_LINE=""
@@ -165,7 +157,6 @@ services:
       - controller-payload-key:/run/secrets/homelab-controller
       - controller-runtime:/run/homelab-controller
       - /var/run/docker.sock:/var/run/docker.sock:ro
-${SSH_VOLUME_LINE}
 ${AGENT_VOLUME_LINE}
     environment:
       HOMELAB_ROOT: "${CONTAINER_HOMELAB_ROOT}"

@@ -39,7 +39,6 @@ services:
       - controller-socket:/run/homelab-controller
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent:ro
-      - ${HOMELAB_SSH_KEY_FILE:-/dev/null}:/ssh_key:ro
     working_dir: /app/repo
     environment:
       HOMELAB_ROOT: /app/repo
