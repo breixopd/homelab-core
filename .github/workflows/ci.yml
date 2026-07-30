@@ -79,6 +79,8 @@ jobs:
     name: Service plugin tests
     needs: quality
     runs-on: ubuntu-latest
+    env:
+      HOMELAB_CADDY_SKIP_IMAGE_PULL: "1"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
