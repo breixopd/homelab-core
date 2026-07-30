@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from toolkit.core.config.config import Config
     from toolkit.core.deploy.deploy_workflow import DeployWorkflowResult
+    from toolkit.core.infra.host_capacity import HostCapacity, MachineResourcePlan
 
 
 async def run_dry_run_workflow(
@@ -21,9 +22,9 @@ async def run_dry_run_workflow(
     essential_guard_fn: Callable[[Config], None],
     load_all_fn: Callable[[], None],
     enabled_plugin_runtimes_fn: Callable[..., list],
-    build_machine_resource_plans_fn: Callable[..., dict],
-    format_resource_plan_fn: Callable[[dict], str],
-    configured_capacity_estimate_fn: Callable[..., object],
+    build_machine_resource_plans_fn: Callable[..., dict[str, MachineResourcePlan]],
+    format_resource_plan_fn: Callable[[dict[str, MachineResourcePlan]], str],
+    configured_capacity_estimate_fn: Callable[[Config], HostCapacity | None],
 ) -> DeployWorkflowResult:
     """Show resource allocation plan and service list without making changes."""
     from toolkit.core.deploy.deploy_workflow import DeployWorkflowResult

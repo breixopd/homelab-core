@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -47,7 +47,7 @@ async def run_recover_workflow(
     operation_lease: OperationLease | None = None,
     run_preflight_fn: Callable[..., list] = run_preflight,
     preflight_passed_fn: Callable[[list], bool] = preflight_passed,
-    ensure_guest_custom_images_fn: Callable[..., object] = _ensure_guest_custom_images,
+    ensure_guest_custom_images_fn: Callable[..., Awaitable[DeployWorkflowResult | None]] = _ensure_guest_custom_images,
     run_post_start_hooks_remote_fn: Callable[..., tuple[dict[str, list[str]], bool]] = run_post_start_hooks_remote,
     reconcile_runtime_credentials_fn: Callable[..., list[str]] = reconcile_runtime_credentials,
     verify_remote_fn: Callable[..., dict] = verify_remote,

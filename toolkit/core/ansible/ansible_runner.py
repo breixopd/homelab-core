@@ -239,7 +239,8 @@ async def run_playbook_streaming(
                 limit=_ANSIBLE_STREAM_LIMIT,
                 start_new_session=True,
             )
-            if proc.stdout is None:
+            stdout_reader = proc.stdout
+            if stdout_reader is None:
                 proc.kill()
                 await proc.wait()
                 raise RuntimeError("Ansible output pipe was not created")
@@ -247,9 +248,9 @@ async def run_playbook_streaming(
             async def consume() -> None:
                 while True:
                     try:
-                        raw = await proc.stdout.readline()
+                        raw = await stdout_reader.readline()
                     except ValueError:
-                        raw = await proc.stdout.read(65536)
+                        raw = await stdout_reader.read(65536)
                         if not raw:
                             break
                     if not raw:
