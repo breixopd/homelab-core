@@ -287,10 +287,12 @@ def write_env(config: Config, vm: str, secrets: dict[str, str], root: Path | Non
 
 def generate_all(root: Path) -> dict[str, Path]:
     """Generate .env files for all enabled VMs. Returns map of vm→path."""
+    from toolkit.core.bootstrap.runtime_assets import ensure_runtime_assets
     from toolkit.core.config.storage import config_path
     from toolkit.core.config.storage import secrets_path as _secrets_path
     from toolkit.core.secrets.secrets import save_secrets_plaintext
 
+    ensure_runtime_assets(root)
     config = load_config(config_path(root))
     load_all()
 
@@ -328,6 +330,9 @@ def generate_configs(
     on_progress: Callable[[int, int, str], None] | None = None,
 ) -> list[Path]:
     """Dispatch generated runtime artifacts to enabled service owners."""
+    from toolkit.core.bootstrap.runtime_assets import ensure_runtime_assets
+
+    ensure_runtime_assets(root)
     load_all()
     from toolkit.core.generate.artifacts import generate_service_artifacts
 

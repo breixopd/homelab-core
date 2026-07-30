@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -88,7 +89,7 @@ def test_capability_is_hashed_at_rest_and_exchanges_once(tmp_path: Path) -> None
         ttl=timedelta(minutes=10),
     )
 
-    with sqlite3.connect(store.path) as connection:
+    with closing(sqlite3.connect(store.path)) as connection, connection:
         row = connection.execute(
             "SELECT token_hash, exchanged_at, failed_attempts FROM bootstrap_capabilities"
         ).fetchone()

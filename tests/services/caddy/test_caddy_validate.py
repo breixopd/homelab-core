@@ -97,6 +97,28 @@ def test_format_generated_caddyfile_defers_without_docker(tmp_path: Path, caplog
     assert "formatting deferred" in caplog.text.lower()
 
 
+def test_format_generated_caddyfile_defers_when_image_pull_is_disabled(tmp_path: Path, caplog) -> None:
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    caddyfile = generated / "Caddyfile"
+    original = "example.com { respond ok }\n"
+    caddyfile.write_text(original, encoding="utf-8")
+
+    with (
+        patch("toolkit.services.caddy.artifacts.shutil.which", return_value="/usr/bin/docker"),
+        patch(
+            "toolkit.services.caddy.artifacts.subprocess.run",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+        ) as run,
+        patch("toolkit.services.caddy.artifacts._resolve_caddy_validate_image", return_value=""),
+    ):
+        format_generated_caddyfile(generated)
+
+    assert run.call_count == 1
+    assert caddyfile.read_text(encoding="utf-8") == original
+    assert "pulls are disabled" in caplog.text.lower()
+
+
 def test_validate_generated_caddyfile_defers_when_docker_daemon_is_unavailable(tmp_path, caplog):
     generated = tmp_path / "generated"
     generated.mkdir()
@@ -207,6 +229,26 @@ def test_caddy_validation_pulls_configured_runtime_before_building(tmp_path: Pat
     assert image == image_ref
     run.assert_called_once()
     assert run.call_args.args[0] == ["docker", "pull", image_ref]
+
+
+def test_generation_defers_configured_image_pull_when_explicitly_disabled(tmp_path: Path, monkeypatch) -> None:
+    caddyfile = tmp_path / "Caddyfile"
+    caddyfile.write_text("{\n  acme_dns cloudflare {env.CF_API_TOKEN}\n}\n", encoding="utf-8")
+    monkeypatch.setenv("HOMELAB_CADDY_SKIP_IMAGE_PULL", "1")
+    monkeypatch.delenv("HOMELAB_CADDY_IMAGE", raising=False)
+
+    with (
+        patch(
+            "toolkit.services.caddy.artifacts._configured_caddy_image",
+            return_value="ghcr.io/example/caddy:configured",
+        ),
+        patch("toolkit.services.caddy.artifacts._docker_image_supports", return_value=False),
+        patch("toolkit.services.caddy.artifacts.subprocess.run") as run,
+    ):
+        image = _resolve_caddy_validate_image(caddyfile, ROOT)
+
+    assert image == ""
+    assert not any(call.args[0][:2] == ["docker", "pull"] for call in run.call_args_list)
 
 
 def test_caddy_validation_rejects_stale_cached_image_and_requires_security_modules(tmp_path: Path) -> None:

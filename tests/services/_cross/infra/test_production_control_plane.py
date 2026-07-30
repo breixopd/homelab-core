@@ -666,7 +666,9 @@ def test_ci_generation_uses_ephemeral_operator_identity() -> None:
     fixture = (ROOT / "scripts" / "prepare-ci-config.sh").read_text(encoding="utf-8")
 
     assert workflow.count("./scripts/prepare-ci-config.sh") == 2
+    assert "config set dns.public_ip=192.0.2.10" in workflow
     assert "ssh-keygen" in fixture
+    assert "dns.public_ip=192.0.2.10" in fixture
     assert "proxmox.ssh_public_key=" in fixture
     assert "proxmox.ssh.key_file=" in fixture
     assert "age-keygen" in fixture

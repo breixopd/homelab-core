@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -119,7 +120,7 @@ def test_identity_handler_rejects_conflicting_mutation_lease(tmp_path: Path, mon
 def test_identity_handler_rejects_tampered_invite_ciphertext(tmp_path: Path, monkeypatch) -> None:
     store = ControllerStore(tmp_path / "controller.db")
     job = store.create_job(_request(), principal="local:operator")
-    with sqlite3.connect(store.path) as connection:
+    with closing(sqlite3.connect(store.path)) as connection, connection:
         raw = connection.execute("SELECT request_json FROM jobs WHERE job_id = ?", (job.job_id,)).fetchone()[0]
         request = json.loads(raw)
         ciphertext = request["operation"]["command"]["ciphertext"]

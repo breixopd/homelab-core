@@ -94,6 +94,7 @@ def test_fetch_tags_follows_bearer_challenge() -> None:
 
     assert result.tags == ("v1.0.0", "v1.1.0")
     assert result.error is None
+    assert unauthorized.fp is not None and unauthorized.fp.closed
     retry_request = urlopen.call_args_list[2].args[0]
     assert retry_request.get_header("Authorization") == "Bearer registry-token"
 
@@ -112,6 +113,7 @@ def test_registry_requests_retry_transient_rate_limits() -> None:
         assert module._read_json(request, 5) == {"tags": ["1.0"]}
 
     sleep.assert_called_once()
+    assert rate_limited.fp is not None and rate_limited.fp.closed
 
 
 def test_check_images_surfaces_registry_failure(tmp_path: Path) -> None:

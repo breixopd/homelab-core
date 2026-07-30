@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.6.0/schemas/config.json",
-  "bootstrap-sha": "4961b32c487fb29c75a552264ad4d6717b40831e",
+  "bootstrap-sha": "d44d7d49ae415ca76dcb7929323bc4c8005d4733",
   "packages": {
     ".": {
       "changelog-path": "CHANGELOG.md",
@@ -8,6 +8,12 @@
       "include-component-in-tag": false,
       "include-v-in-tag": true,
       "bump-minor-pre-major": false,
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "uv.lock"
+        }
+      ],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },

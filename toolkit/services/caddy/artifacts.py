@@ -14,6 +14,7 @@ _CADDY_VALIDATE_LOCAL_TAG = "homelab-caddy-validate:local"
 _CADDY_FALLBACK_IMAGE = "caddy:2.11.4-alpine"
 _CADDY_CF_PLACEHOLDER = "cfut_caddy_validate_placeholder000000000000000"
 _CADDY_BOUNCER_PLACEHOLDER = "caddy_validate_bouncer_key_000000000000000000000000"
+_SKIP_IMAGE_PULL_ENV = "HOMELAB_CADDY_SKIP_IMAGE_PULL"
 
 
 def _caddyfile_required_modules(caddyfile: Path) -> frozenset[str]:
@@ -108,7 +109,11 @@ def _resolve_caddy_validate_image(caddyfile: Path, repo_root: Path | None) -> st
     if not required_modules and not configured_image:
         return _CADDY_FALLBACK_IMAGE
 
-    if configured_image:
+    # Unit and clean-root integration tests explicitly opt out of cold image
+    # pulls. Normal generation still validates with the configured runtime so
+    # production cannot silently drift from its Caddy module set.
+    skip_image_pull = os.environ.get(_SKIP_IMAGE_PULL_ENV, "").strip().lower() in {"1", "true", "yes"}
+    if configured_image and not skip_image_pull:
         pull = subprocess.run(
             ["docker", "pull", configured_image],
             capture_output=True,
@@ -123,6 +128,11 @@ def _resolve_caddy_validate_image(caddyfile: Path, repo_root: Path | None) -> st
         else:
             detail = (pull.stderr or pull.stdout or "registry pull failed").strip()
             logger.info("Configured Caddy image unavailable; using local fallback: %s", detail[:300])
+    elif configured_image:
+        logger.info("Configured Caddy image pull deferred because %s is enabled", _SKIP_IMAGE_PULL_ENV)
+
+    if configured_image and skip_image_pull:
+        return ""
 
     caddy_image = None
     caddy_context = None
@@ -202,6 +212,9 @@ def format_generated_caddyfile(
         return
 
     image = _resolve_caddy_validate_image(caddyfile, repo_root)
+    if not image:
+        logger.warning("Caddyfile formatting deferred because configured image pulls are disabled")
+        return
     proc = subprocess.run(
         [
             "docker",
@@ -279,6 +292,9 @@ def validate_generated_caddyfile(
             logger.warning("Caddyfile validation deferred because Docker is unavailable: %s", detail[:300])
             return
         image = _resolve_caddy_validate_image(caddyfile, repo_root)
+        if not image:
+            logger.warning("Caddyfile validation deferred because configured image pulls are disabled")
+            return
         validation_input = caddyfile.read_text(encoding="utf-8")
         if image == _CADDY_FALLBACK_IMAGE:
             import re

@@ -1,0 +1,26 @@
+# Fixed deployment resources. Runtime services live in toolkit/services/*/compose.yaml.
+networks:
+  caddy-egress:
+    driver: bridge
+    name: homelab_caddy_egress
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.31.250.0/24}
+          ip_range: ${EDGE_DYNAMIC_RANGE:-172.31.250.128/25}
+  prometheus-egress:
+    driver: bridge
+    name: homelab_prometheus_egress
+    ipam:
+      config:
+        - subnet: ${PROMETHEUS_EGRESS_SUBNET:-172.31.249.0/24}
+
+volumes:
+  controller-data:
+  controller-payload-key:
+  controller-socket:
+  homelab-ui-state:
+  media-cache-state:
+  docker_mirror_cache:
+  wazuh-dashboard-config:
+  wazuh-dashboard-custom:
+  komodo-keys:

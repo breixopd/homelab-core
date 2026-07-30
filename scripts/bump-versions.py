@@ -154,14 +154,17 @@ def _read_json(request: urllib.request.Request, timeout: int) -> dict[str, Any]:
                 payload = json.loads(response.read().decode())
             break
         except urllib.error.HTTPError as exc:
-            if exc.code not in {429, 500, 502, 503, 504} or attempt == 2:
-                raise
-            retry_after = exc.headers.get("Retry-After", "")
             try:
-                delay = min(max(float(retry_after), 0.0), 5.0)
-            except ValueError:
-                delay = 0.25 * (2**attempt)
-            time.sleep(delay)
+                if exc.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                    raise
+                retry_after = exc.headers.get("Retry-After", "")
+                try:
+                    delay = min(max(float(retry_after), 0.0), 5.0)
+                except ValueError:
+                    delay = 0.25 * (2**attempt)
+                time.sleep(delay)
+            finally:
+                exc.close()
     if not isinstance(payload, dict):
         raise ValueError("registry response is not a JSON object")
     return payload

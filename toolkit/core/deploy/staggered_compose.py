@@ -79,10 +79,9 @@ def _local_ip_bindable(ip: str) -> bool:
     except OSError:
         pass
     try:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        probe.bind((ip, 0))
-        probe.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind((ip, 0))
         return True
     except OSError:
         return False

@@ -30,5 +30,6 @@ if [[ ! -f "$REPO_ROOT/config.yaml" ]]; then
 fi
 
 uv run --locked homelab-toolkit --root "$REPO_ROOT" config set \
+  "dns.public_ip=192.0.2.10" \
   "proxmox.ssh_public_key=$PUBLIC_KEY" \
   "proxmox.ssh.key_file=$KEY_DIR/operator"

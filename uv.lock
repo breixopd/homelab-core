@@ -854,7 +854,7 @@ wheels = [
 
 [[package]]
 name = "homelab-toolkit"
-version = "1.0.0"
+version = "1.0.0" # x-release-please-version
 source = { editable = "." }
 dependencies = [
     { name = "ansible", version = "12.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },

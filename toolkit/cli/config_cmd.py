@@ -54,6 +54,8 @@ def show(ctx: click.Context):
 def init(ctx, preset, yes):
     """Create default config.yaml (optionally from a preset)."""
     root = Path(ctx.obj["root"])
+    from toolkit.core.bootstrap.runtime_assets import ensure_runtime_assets
+
     path = config_path(root)
     from toolkit.cli.config_mutation import cli_configuration_mutation
 
@@ -71,6 +73,7 @@ def init(ctx, preset, yes):
         else:
             cfg = Config()
         save_config(cfg, path)
+        ensure_runtime_assets(root)
     click.echo(f"Created: {path}")
 
 
