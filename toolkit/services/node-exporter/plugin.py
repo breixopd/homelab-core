@@ -25,9 +25,7 @@ class NodeExporterPlugin(ServicePlugin):
         for node in nodes:
             address = cfg.node_ip(node) if cfg.is_multi_node else vm_ip
             container = (
-                "node-exporter"
-                if not cfg.is_multi_node or node == self.runtime_node(cfg)
-                else "node-exporter-agent"
+                "node-exporter" if not cfg.is_multi_node or node == self.runtime_node(cfg) else "node-exporter-agent"
             )
             if not container_exists_on_vm(cfg, address, container, root):
                 checks.append(VerifyCheck("node-exporter", f"{node}_host_metrics", False, f"{container} missing"))

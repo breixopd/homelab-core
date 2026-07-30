@@ -171,9 +171,7 @@ def read_service_management(
         if collect_status and enabled
         else {}
     )
-    container_history = (
-        read_service_metric_history(root, cfg, plugin.service) if collect_status and enabled else {}
-    )
+    container_history = read_service_metric_history(root, cfg, plugin.service) if collect_status and enabled else {}
     status_metrics = [metric for metric in capabilities.metrics if metric.source == "status"]
     status: dict[str, object] = {}
     status_available = False

@@ -486,9 +486,7 @@ def _prowlarr_flaresolverr_tag_and_proxy(
             None,
         )
         if proxy is None:
-            response = httpx.post(
-                f"{prowlarr_url}/api/v1/indexerproxy", json=desired, headers=headers, timeout=15
-            )
+            response = httpx.post(f"{prowlarr_url}/api/v1/indexerproxy", json=desired, headers=headers, timeout=15)
             if response.status_code not in (200, 201, 202):
                 return None
         else:

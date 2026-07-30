@@ -143,9 +143,7 @@ def test_ensure_owner_checks_admin_conflict_before_moving_email():
     client = LLDAPClient(admin_password="admin")
     admin = LLDAPUser(id="admin", email="brei@example.com")
     client.find_user = MagicMock(return_value=admin)
-    client.list_users = MagicMock(
-        return_value=[admin, LLDAPUser(id="brei", email="someone@example.com")]
-    )
+    client.list_users = MagicMock(return_value=[admin, LLDAPUser(id="brei", email="someone@example.com")])
     client.update_user_email = MagicMock()
 
     with pytest.raises(RuntimeError, match="already belongs"):
@@ -243,9 +241,7 @@ def test_ensure_owner_moves_admin_email(monkeypatch):
             None,
         ]
     )
-    client.list_users = MagicMock(
-        return_value=[LLDAPUser(id="admin", email="brei@example.com")]
-    )
+    client.list_users = MagicMock(return_value=[LLDAPUser(id="admin", email="brei@example.com")])
     client.update_user_email = MagicMock()
     client.create_user = MagicMock(return_value=LLDAPUser(id="brei", email="brei@example.com"))
     client.set_password = MagicMock()

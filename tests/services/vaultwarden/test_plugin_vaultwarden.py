@@ -59,6 +59,7 @@ class TestVaultwardenVerify:
                 VerifyCheck("vaultwarden", "oidc_token_route", True, "ok"),
             ],
         )
+
         def docker_curl(_cfg, _vm_ip, _container, url, **_kwargs):
             if url.endswith("/accounts/prelogin"):
                 return 0, '{"Kdf":0,"KdfIterations":600000}'

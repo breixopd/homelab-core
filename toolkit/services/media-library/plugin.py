@@ -29,7 +29,7 @@ class MediaLibraryPlugin(ServicePlugin):
         command = (
             f"set -eu; test -d {quoted_root}; "
             f"for directory in tv movies music downloads; do test -d {quoted_root}/$directory; done; "
-            f"probe={quoted_root}/.homelab-verify-$$; : > \"$probe\"; rm -f \"$probe\""
+            f'probe={quoted_root}/.homelab-verify-$$; : > "$probe"; rm -f "$probe"'
         )
         rc, out, err = ssh_on_vm(cfg, vm_ip, command, root=root, timeout=20)
         return [

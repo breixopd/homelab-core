@@ -114,10 +114,7 @@ def parse_snapshot_inventory(
         summary = root_entry.get("summ") if isinstance(root_entry, dict) else None
         failed_count = summary.get("numFailed", 0) if isinstance(summary, dict) else 0
         complete = (
-            isinstance(error_count, int)
-            and error_count == 0
-            and isinstance(failed_count, int)
-            and failed_count == 0
+            isinstance(error_count, int) and error_count == 0 and isinstance(failed_count, int) and failed_count == 0
         )
         by_role[role].append((started, safe_id, safe_root_object, size_bytes, complete))
     nodes: list[BackupNodeState] = []

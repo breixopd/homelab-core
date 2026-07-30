@@ -102,9 +102,7 @@ def test_gluetun_repairs_credentials_from_node_environment(tmp_path: Path) -> No
     node_env = tmp_path / "generated" / "media" / ".env"
     node_env.parent.mkdir()
     node_env.write_text(
-        "VPN_PROVIDER=nordvpn\n"
-        "VPN_TYPE=wireguard\n"
-        "WIREGUARD_PRIVATE_KEY=derived-key\n",
+        "VPN_PROVIDER=nordvpn\nVPN_TYPE=wireguard\nWIREGUARD_PRIVATE_KEY=derived-key\n",
         encoding="utf-8",
     )
     context = MagicMock(root=tmp_path, node="media")

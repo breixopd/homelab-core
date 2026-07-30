@@ -13,9 +13,7 @@ def _result(value: float) -> str:
 
 def _range_result(values: list[tuple[int, float]]) -> str:
     samples = [[timestamp, str(value)] for timestamp, value in values]
-    return json.dumps(
-        {"status": "success", "data": {"result": [{"values": samples}]}}
-    )
+    return json.dumps({"status": "success", "data": {"result": [{"values": samples}]}})
 
 
 def test_container_metrics_use_one_bounded_server_owned_query_batch(monkeypatch, tmp_path: Path) -> None:

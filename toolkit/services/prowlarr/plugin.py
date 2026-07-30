@@ -39,9 +39,7 @@ class ProwlarrPlugin(ServicePlugin):
         flaresolverr_url = resolve_docker_service_url("flaresolverr", 8191)
         wanted_indexers = tuple(
             dict.fromkeys(
-                item.strip().lower()
-                for item in str(self.setting(cfg, "indexers")).split(",")
-                if item.strip()
+                item.strip().lower() for item in str(self.setting(cfg, "indexers")).split(",") if item.strip()
             )
         )
         logs.extend(reconcile_prowlarr_application_urls(prowlarr_url, api_key))

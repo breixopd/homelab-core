@@ -36,9 +36,9 @@ def test_snapshot_runtimes_have_only_the_read_capability_required_for_private_so
         assert runtime["cap_add"] == ["DAC_READ_SEARCH"]
         assert runtime["read_only"] is True
         assert runtime.get("privileged") is not True
-    assert "${KOPIA_AGENT_LOGS_SOURCE:-./data/kopia-agent/logs}:/app/logs" in compose["services"]["kopia-agent"][
-        "volumes"
-    ]
+    assert (
+        "${KOPIA_AGENT_LOGS_SOURCE:-./data/kopia-agent/logs}:/app/logs" in compose["services"]["kopia-agent"]["volumes"]
+    )
 
 
 def test_post_start_bootstraps_once_and_rejects_failed_repository(tmp_path):

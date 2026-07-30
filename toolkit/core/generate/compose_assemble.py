@@ -509,6 +509,7 @@ def _inject_backup_mounts(
     existing = container.get("volumes", [])
     if not isinstance(existing, list):
         raise ValueError(f"{container_name} volumes must be a list")
+
     def is_snapshot_mount(mount: object) -> bool:
         if isinstance(mount, dict):
             return str(mount.get("target", "")).startswith("/source")

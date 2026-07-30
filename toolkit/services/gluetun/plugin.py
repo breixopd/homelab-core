@@ -170,11 +170,7 @@ def _repair_vpn_credentials(vpn_env: Path, node_env: Path) -> bool:
     from toolkit.core.ops.vpn import build_vpn_env
     from toolkit.core.state.files import atomic_write_text
 
-    values = {
-        key: value
-        for key, value in dotenv_values(node_env).items()
-        if isinstance(value, str)
-    }
+    values = {key: value for key, value in dotenv_values(node_env).items() if isinstance(value, str)}
     try:
         vpn_vars, _derived_key = build_vpn_env(values)
     except Exception:

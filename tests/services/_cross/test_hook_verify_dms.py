@@ -52,6 +52,7 @@ def test_check_flaresolverr_prowlarr_wired(monkeypatch):
 
     # Single-host cfg so _servarr_get takes its local httpx branch.
     cfg = _single_vm_cfg()
+
     def fake_get(url, **_kwargs):
         if url.endswith("/indexer"):
             return Resp([{"name": "1337x", "definitionName": "1337x", "tags": [9]}])

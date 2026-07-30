@@ -78,7 +78,7 @@ def test_configure_indexers_preserves_no_proxy_mode(monkeypatch):
     )
     monkeypatch.setattr(
         "httpx.post",
-        lambda url, **kwargs: (posted.append((url, kwargs["json"])) or _Response(201, {})),
+        lambda url, **kwargs: posted.append((url, kwargs["json"])) or _Response(201, {}),
     )
     configure_prowlarr_indexers("http://prowlarr:9696", "key", wanted_indexers=())
     assert not any(url.endswith(("/tag", "/indexerproxy")) for url, _payload in posted)
@@ -125,7 +125,7 @@ def test_existing_proxy_preserves_settings_and_tags(monkeypatch):
     monkeypatch.setattr("httpx.get", fake_get)
     monkeypatch.setattr(
         "httpx.put",
-        lambda url, **kwargs: (updated.append((url, kwargs["json"])) or _Response(202, {})),
+        lambda url, **kwargs: updated.append((url, kwargs["json"])) or _Response(202, {}),
     )
 
     tag_id = _prowlarr_flaresolverr_tag_and_proxy(
@@ -163,7 +163,7 @@ def test_proxy_failure_skips_protected_indexers(monkeypatch):
     monkeypatch.setattr("httpx.get", fake_get)
     monkeypatch.setattr(
         "httpx.post",
-        lambda url, **kwargs: (posted.append((url, kwargs["json"])) or _Response(201, {})),
+        lambda url, **kwargs: posted.append((url, kwargs["json"])) or _Response(201, {}),
     )
 
     logs = configure_prowlarr_indexers(
@@ -219,7 +219,7 @@ def test_configure_indexers_removes_only_unwanted_public_definitions(monkeypatch
     monkeypatch.setattr("httpx.get", fake_get)
     monkeypatch.setattr(
         "httpx.delete",
-        lambda url, **_kwargs: (removed.append(url) or _Response(204)),
+        lambda url, **_kwargs: removed.append(url) or _Response(204),
     )
     monkeypatch.setattr("toolkit.services._arr.trigger_prowlarr_indexer_sync", lambda *_args: True)
 

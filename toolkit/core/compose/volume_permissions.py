@@ -73,7 +73,7 @@ def fix_volume_permissions(root: Path, *, node: str) -> list[str]:
             if asset.manage_permissions:
                 _chown_tree(path, asset.host_uid, asset.host_gid, logs)
 
-        for declared in (manifest.host_paths if manifest_node(cfg, manifest) == node else ()):
+        for declared in manifest.host_paths if manifest_node(cfg, manifest) == node else ():
             path = root / declared.path
             if declared.create:
                 path.mkdir(parents=True, exist_ok=True)

@@ -458,10 +458,7 @@ def _job_summary(jobs: list[JobRecord]) -> tuple[list[DashboardJobView], int, in
     return (
         recent,
         sum(job.state in active_states for job in jobs),
-        sum(
-            job.state in attention_states and job.updated_at >= attention_cutoff
-            for job in latest_by_kind.values()
-        ),
+        sum(job.state in attention_states and job.updated_at >= attention_cutoff for job in latest_by_kind.values()),
     )
 
 

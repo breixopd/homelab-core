@@ -660,9 +660,7 @@ class LLDAPClient:
         if existing and existing.id != desired_user_id:
             conflicting = next((candidate for candidate in self.list_users() if candidate.id == desired_user_id), None)
             if conflicting is not None:
-                raise RuntimeError(
-                    f"LLDAP owner username {desired_user_id} already belongs to {conflicting.email}"
-                )
+                raise RuntimeError(f"LLDAP owner username {desired_user_id} already belongs to {conflicting.email}")
 
         moved_admin_email: str | None = None
         if existing and existing.id == "admin" and existing.email == email:
