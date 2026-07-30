@@ -212,6 +212,9 @@ def test_caddy_validation_uses_packaged_image_from_clean_install_root(tmp_path: 
 
 
 def test_caddy_validation_pulls_configured_runtime_before_building(tmp_path: Path, monkeypatch) -> None:
+    # CI keeps unrelated service tests offline, but this test specifically owns
+    # and verifies the configured-image pull path.
+    monkeypatch.delenv("HOMELAB_CADDY_SKIP_IMAGE_PULL", raising=False)
     caddyfile = tmp_path / "Caddyfile"
     caddyfile.write_text("{\n  acme_dns cloudflare {env.CF_API_TOKEN}\n}\n", encoding="utf-8")
     image_ref = "ghcr.io/example/caddy:sha-123"
