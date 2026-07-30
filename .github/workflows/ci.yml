@@ -349,7 +349,7 @@ jobs:
 
   publish-images:
     name: Publish ${{ matrix.image.name }}
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs:
       - image-plan
       - test
@@ -362,7 +362,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # Publish service-owned images on trusted pushes.
+      packages: write # Publish service-owned images only for an explicit release tag.
       id-token: write # Exchange an OIDC token for provenance signing.
       attestations: write # Attach build provenance to published images.
     strategy:

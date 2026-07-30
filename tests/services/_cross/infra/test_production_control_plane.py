@@ -647,8 +647,12 @@ def test_ci_publishes_immutable_toolkit_commit_tag() -> None:
 
 def test_ci_publishes_images_only_after_the_full_release_gate() -> None:
     workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
-    needs = set(workflow["jobs"]["publish-images"]["needs"])
+    publish = workflow["jobs"]["publish-images"]
+    needs = set(publish["needs"])
 
+    assert publish["if"] == (
+        "github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')"
+    )
     assert needs >= {
         "image-plan",
         "test",
