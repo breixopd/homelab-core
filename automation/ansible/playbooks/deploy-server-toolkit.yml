@@ -305,7 +305,8 @@
           if systemctl is-active --quiet "homelab-staggered-{{ homelab_node }}" 2>/dev/null; then
             COMPOSE_RUNNING=1
           else
-            for pid in $(pgrep -f '{{ repo_dest }}/\.venv/bin/homelab-toolkit --root {{ repo_dest }} deploy up --node {{ homelab_node }}' 2>/dev/null || true); do
+            PROCESS_PATTERN='{{ repo_dest }}/\.venv/bin/homelab-toolkit --root {{ repo_dest }} deploy up'
+            for pid in $(pgrep -f "$PROCESS_PATTERN --node {{ homelab_node }}" 2>/dev/null || true); do
               if [[ "$pid" != "$$" && "$pid" != "$PPID" ]]; then
                 COMPOSE_RUNNING=1
                 break
