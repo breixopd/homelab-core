@@ -12,7 +12,6 @@ from starlette.concurrency import run_in_threadpool
 from toolkit.controller.client import ControllerClientError, ControllerRejectedError
 from toolkit.controller.contracts import GenerateOperation, JobRequest
 from toolkit.controller.read_models import SettingsUpdate, SettingsValues
-from toolkit.core.config.config import DEFAULT_SMTP_PASSWORD_SECRET
 from toolkit.webui.error_pages import render_error
 from toolkit.webui.templates_ctx import page_context
 
@@ -71,11 +70,6 @@ async def settings_index(request: Request):
 def _form_values(form, current: SettingsValues) -> SettingsValues:
     smtp_mode = cast(Literal["auto", "external", "disabled"], _text(form, "smtp_mode", current.smtp_mode))
     smtp_username = _text(form, "smtp_username", current.smtp_username)
-    smtp_password_secret = current.smtp_password_secret
-    if smtp_mode == "external" and smtp_username and not smtp_password_secret:
-        smtp_password_secret = DEFAULT_SMTP_PASSWORD_SECRET
-    elif smtp_mode == "external" and not smtp_username:
-        smtp_password_secret = ""
     return SettingsValues(
         domain=str(form.get("domain") or current.domain).strip(),
         email=str(form.get("email") or current.email).strip(),
@@ -87,7 +81,7 @@ def _form_values(form, current: SettingsValues) -> SettingsValues:
         smtp_port=_integer(form, "smtp_port", current.smtp_port),
         smtp_starttls=_checked(form, "smtp_starttls"),
         smtp_username=smtp_username,
-        smtp_password_secret=smtp_password_secret,
+        smtp_password_secret=current.smtp_password_secret,
         smtp_password_configured=current.smtp_password_configured,
         smtp_from_address=_text(form, "smtp_from_address", current.smtp_from_address),
         ssh_auth=cast(Literal["key", "password"], str(form.get("ssh_auth") or current.ssh_auth)),
