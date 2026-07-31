@@ -30,6 +30,7 @@ from toolkit.controller.contracts import (
     SealedInviteUserCommand,
     SecretRotationOperation,
     ServiceActionOperation,
+    ServiceVerifyOperation,
     UpdateOperation,
     VerifyOperation,
     WebhookHealOperation,
@@ -170,6 +171,41 @@ def _verify_handler(root: Path) -> OperationHandler:
         return {"ok": True, "nodes": summary}
 
     return verify
+
+
+def _service_verify_handler(root: Path) -> OperationHandler:
+    def service_verify(context: OperationContext, operation: OperationPayload) -> dict[str, Any]:
+        if not isinstance(operation, ServiceVerifyOperation):
+            raise OperationExecutionError("invalid service verify operation payload")
+        from toolkit.core.config.config import load_config
+        from toolkit.core.config.storage import config_path, secrets_path
+        from toolkit.core.ops.hook_verify import verify_hooks
+        from toolkit.core.secrets.secrets import load_secrets_plaintext
+
+        cfg = load_config(config_path(root))
+        secret_file = secrets_path(root)
+        secrets = load_secrets_plaintext(secret_file) if secret_file.exists() else {}
+        context.check_cancelled()
+        result = verify_hooks(
+            cfg,
+            secrets,
+            root,
+            only_services=frozenset({operation.service}),
+            include_framework=operation.include_framework,
+            on_progress=lambda message: context.log(message, {"service": operation.service}),
+        )
+        checks = [
+            {"service": check.service, "check": check.check, "status": check.status.value, "detail": check.detail}
+            for check in result.checks
+        ]
+        statuses = [str(item["status"]) for item in checks]
+        overall = "not_applicable" if not statuses or all(item == "not_applicable" for item in statuses) else next(
+            (item for item in ("fail", "not_ready", "degraded", "pass") if item in statuses),
+            "not_applicable",
+        )
+        return {"service": operation.service, "checks": checks, "overall_status": overall}
+
+    return service_verify
 
 
 def _deploy_handler(root: Path) -> OperationHandler:
@@ -1087,6 +1123,7 @@ def build_operation_registry(root: Path) -> OperationRegistry:
     registry = OperationRegistry()
     registry.register(JobKind.GENERATE, _generate_handler(root))
     registry.register(JobKind.VERIFY, _verify_handler(root))
+    registry.register(JobKind.SERVICE_VERIFY, _service_verify_handler(root))
     registry.register(JobKind.DEPLOY, _deploy_handler(root))
     registry.register(JobKind.RECOVER, _recover_handler(root))
     registry.register(JobKind.DESTROY_INFRA, _destroy_handler(root))

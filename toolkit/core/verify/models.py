@@ -9,6 +9,7 @@ Classes: VerifyCheck, HookVerifyResult
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -56,9 +57,9 @@ class VerifyCheck:
         or not applicable are normalized to ``NOT_APPLICABLE`` so they cannot
         be counted as readiness passes.
         """
-        self.service = service
-        self.check = check
-        self.detail = detail
+        self.service = service[:63]
+        self.check = check[:63]
+        self.detail = _sanitize_detail(detail)
         self.retryable = retryable
 
         if status is None:
@@ -89,6 +90,15 @@ class VerifyCheck:
         # remains non-failing to direct callers but is never counted as PASS.
         self.status = resolved_status
         self.passed = passed
+
+
+_CREDENTIAL = re.compile(r"(?i)\b(?:password|passwd|token|secret|api[_-]?key|authorization)\s*[:=]\s*[^\s,;]+")
+
+
+def _sanitize_detail(detail: str) -> str:
+    if not isinstance(detail, str):
+        detail = str(detail)
+    return _CREDENTIAL.sub(lambda m: m.group(0).split(":", 1)[0].split("=", 1)[0] + "=[REDACTED]", detail)[:200]
 
 
 @dataclass

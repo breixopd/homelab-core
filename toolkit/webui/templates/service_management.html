@@ -13,6 +13,16 @@
   <div><span>Status</span><strong id="service-reporting-status">Loading live data</strong></div>
 </section>
 
+<section class="content-band" aria-labelledby="service-verification-heading">
+  <div class="section-head"><div><h2 id="service-verification-heading">Deep verification</h2><p class="muted text-sm">Controller checks run asynchronously and retain the previous result while queued or running.</p></div>
+  <form method="post" action="/services/{{ service.service }}/verification"><button type="submit" class="btn btn-ghost btn-sm">Run verification</button></form></div>
+  {% if verification.state in ['queued', 'running'] %}<p class="notice" role="status">Verification {{ verification.state }}{% if verification.stale %}; previous result is stale{% endif %}.</p>{% endif %}
+  {% if verification.state == 'never' %}<p class="muted">No verification has been run yet.</p>{% else %}
+  <div class="verification-state verification-{{ verification.overall_status or 'not_ready' }}" data-status="{{ verification.overall_status or 'not_ready' }}">{{ (verification.overall_status or 'not_ready')|replace('_', ' ')|title }}</div>
+  {% if verification.checks %}<ul class="verification-checks">{% for check in verification.checks %}<li data-status="{{ check.status }}"><strong>{{ check.check }}</strong> <span>{{ check.status|replace('_', ' ')|title }}</span>{% if check.detail %}<small>{{ check.detail }}</small>{% endif %}</li>{% endfor %}</ul>{% endif %}
+  {% endif %}
+</section>
+
 {% if service.panels %}
 <div class="service-info-grid" aria-label="Service information">
   {% for panel in service.panels %}

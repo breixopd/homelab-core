@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import ValidationError
 
+from toolkit.controller.contracts import JobKind, JobState, ServiceVerifyOperation
 from toolkit.controller.desired_state_api import DesiredStateConflictError
 from toolkit.controller.prometheus_api import read_service_metric_history, read_service_metrics
 from toolkit.controller.read_models import (
@@ -23,8 +25,11 @@ from toolkit.controller.read_models import (
     ManagedServiceSettingView,
     ServiceManagementView,
     ServiceSettingsUpdate,
+    ServiceVerificationCheckView,
+    ServiceVerificationView,
 )
 from toolkit.controller.sanitization import sanitize_message
+from toolkit.controller.store import ControllerStore
 from toolkit.core.config.config import Config, load_config, save_config, save_local_config
 from toolkit.core.config.mutations import config_revision, configuration_lock, configuration_mutation
 from toolkit.core.config.storage import config_path, secrets_path
@@ -81,6 +86,49 @@ class ServiceManagementNotFoundError(RuntimeError):
 
 class ServiceSettingValidationError(RuntimeError):
     pass
+
+
+def aggregate_verification_status(statuses: list[str]) -> str | None:
+    if not statuses:
+        return "not_applicable"
+    if all(status == "not_applicable" for status in statuses):
+        return "not_applicable"
+    for status in ("fail", "not_ready", "degraded", "pass"):
+        if status in statuses:
+            return status
+    return None
+
+
+def read_service_verification(root: Path, store: ControllerStore, service: str) -> ServiceVerificationView:
+    """Project the latest durable service verification without introducing a schema."""
+    jobs = store.recent_jobs(principal=None, limit=200)
+    relevant = [
+        job for job in jobs
+        if job.request.kind is JobKind.SERVICE_VERIFY
+        and isinstance(job.request.operation, ServiceVerifyOperation)
+        and job.request.operation.service == service
+    ]
+    if not relevant:
+        return ServiceVerificationView(service=service, state="never")
+    active = next((job for job in relevant if job.state in {JobState.QUEUED, JobState.RUNNING}), None)
+    terminal_states = {JobState.SUCCEEDED, JobState.PARTIAL_FAILURE, JobState.FAILED}
+    terminal = next((job for job in relevant if job.state in terminal_states), None)
+    source = terminal.result if terminal and isinstance(terminal.result, dict) else {}
+    checks_raw = source.get("checks", []) if isinstance(source, dict) else []
+    checks = [ServiceVerificationCheckView.model_validate(item) for item in checks_raw[:64] if isinstance(item, dict)]
+    statuses = [item.status for item in checks]
+    overall = aggregate_verification_status(statuses)
+    observed_at = terminal.updated_at if terminal and checks else None
+    stale = observed_at is not None and (datetime.now(UTC) - observed_at).total_seconds() > 900
+    return ServiceVerificationView(
+        service=service,
+        state="queued" if active and active.state is JobState.QUEUED else "running" if active else "complete",
+        overall_status=overall,
+        checks=checks,
+        observed_at=observed_at,
+        stale=stale,
+        job_id=active.job_id if active else (terminal.job_id if terminal else None),
+    )
 
 
 def _status_value(status: dict[str, object], path: str) -> object:
