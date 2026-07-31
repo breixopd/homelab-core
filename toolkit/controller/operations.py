@@ -69,7 +69,9 @@ def _safe_verification_text(value: str, secrets: dict[str, str], *, limit: int) 
         if not secret:
             continue
         safe = safe.replace(secret, "[REDACTED]")
-        minimum_fragment = min(len(secret), 8)
+        if len(secret) <= 3:
+            continue
+        minimum_fragment = 8 if len(secret) > 8 else len(secret) - 1
         for length in range(min(len(secret) - 1, limit), minimum_fragment - 1, -1):
             fragment = secret[:length]
             if fragment in safe:
