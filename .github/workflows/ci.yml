@@ -337,17 +337,23 @@ jobs:
   custom-images-gate:
     name: Service-owned image verification
     if: always() && github.event_name == 'pull_request'
-    needs: custom-images
+    needs: [image-plan, custom-images]
     runs-on: ubuntu-latest
     steps:
       - name: Require every declared image check
         env:
           IMAGE_CHECK_RESULT: ${{ needs.custom-images.result }}
+          IMAGE_PLAN: ${{ needs.image-plan.outputs.images }}
         run: |
-          if [[ "$IMAGE_CHECK_RESULT" != "success" ]]; then
-            echo "Service-owned image verification result: $IMAGE_CHECK_RESULT" >&2
-            exit 1
+          if [[ "$IMAGE_CHECK_RESULT" == "success" ]]; then
+            exit 0
           fi
+          if [[ "$IMAGE_CHECK_RESULT" == "skipped" && "$IMAGE_PLAN" == "[]" ]]; then
+            echo "No service-owned images are declared; nothing to verify."
+            exit 0
+          fi
+          echo "Service-owned image verification result: $IMAGE_CHECK_RESULT" >&2
+          exit 1
 
   publish-images:
     name: Publish ${{ matrix.image.name }}

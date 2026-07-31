@@ -45,6 +45,6 @@ def test_run_text_process_group_kills_descendants_on_timeout(tmp_path: Path) -> 
     stat_path = Path(f"/proc/{descendant_pid}/stat")
     try:
         state = stat_path.read_text().split()[2]
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return
     assert state == "Z"
