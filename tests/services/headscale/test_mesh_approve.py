@@ -36,6 +36,9 @@ def test_approve_mesh_registration_creates_user_and_registers(monkeypatch):
     assert len(register_calls) == 1
     command, kwargs = register_calls[0]
     assert secret not in repr(command)
+    assert "headscale auth register" in command[3]
+    assert "--auth-id" in command[3]
+    assert "nodes register" not in command[3]
     assert command[-1] == "brei"
     assert kwargs["stdin"] == f"{secret}\n"
     assert "secret_environment" not in kwargs

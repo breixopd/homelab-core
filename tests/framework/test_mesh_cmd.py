@@ -17,6 +17,14 @@ def test_extract_registration_key_from_legacy_query_url() -> None:
     assert _extract_registration_key(f"https://vpn.example.com/register?key={key}") == key
 
 
+def test_extract_and_redact_legacy_nodekey_registration_url() -> None:
+    key = "nodekey:abcdef0123456789"
+    url = f"https://vpn.example.com/oidc/register/{key}"
+
+    assert _extract_registration_key(url) == key
+    assert mesh_cmd._redact_registration_keys(url) == "https://vpn.example.com/oidc/register/<REDACTED>"
+
+
 def test_extract_registration_key_returns_empty_for_unrelated_output() -> None:
     assert _extract_registration_key("tailscale is already connected") == ""
 

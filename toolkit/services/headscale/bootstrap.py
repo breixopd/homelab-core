@@ -427,8 +427,7 @@ def approve_mesh_registration(
             "/bin/busybox",
             "sh",
             "-ec",
-            "IFS= read -r registration_key; "
-            'exec headscale nodes register --user "$1" --key "$registration_key" --force',
+            'IFS= read -r registration_key; exec headscale auth register --user "$1" --auth-id "$registration_key"',
             "homelab-headscale-register",
             hs_user,
         ],
