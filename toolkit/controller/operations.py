@@ -7,6 +7,7 @@ import shlex
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -177,12 +178,19 @@ def _service_verify_handler(root: Path) -> OperationHandler:
     def service_verify(context: OperationContext, operation: OperationPayload) -> dict[str, Any]:
         if not isinstance(operation, ServiceVerifyOperation):
             raise OperationExecutionError("invalid service verify operation payload")
+        from toolkit.controller.sanitization import sanitize_message
         from toolkit.core.config.config import load_config
         from toolkit.core.config.storage import config_path, secrets_path
         from toolkit.core.ops.hook_verify import verify_hooks
         from toolkit.core.secrets.secrets import load_secrets_plaintext
+        from toolkit.services import get_service_plugin
 
         cfg = load_config(config_path(root))
+        plugin = get_service_plugin(operation.service)
+        if plugin is None:
+            raise OperationExecutionError("service is not managed", code="OPERATION_REJECTED")
+        if not plugin.is_enabled(cfg):
+            raise OperationExecutionError("service is disabled", code="OPERATION_REJECTED")
         secret_file = secrets_path(root)
         secrets = load_secrets_plaintext(secret_file) if secret_file.exists() else {}
         context.check_cancelled()
@@ -191,19 +199,46 @@ def _service_verify_handler(root: Path) -> OperationHandler:
             secrets,
             root,
             only_services=frozenset({operation.service}),
-            include_framework=operation.include_framework,
+            include_framework=False,
             on_progress=lambda message: context.log(message, {"service": operation.service}),
         )
+        if not result.checks:
+            raise OperationExecutionError("service has no verification checks", code="OPERATION_REJECTED")
+        selected_checks = result.checks[:63] if len(result.checks) > 64 else result.checks
         checks = [
-            {"service": check.service, "check": check.check, "status": check.status.value, "detail": check.detail}
-            for check in result.checks
+            {
+                "service": operation.service,
+                "check": sanitize_message(check.check)[:63] or "unnamed",
+                "status": check.status.value,
+                "detail": sanitize_message(check.detail)[:200],
+            }
+            for check in selected_checks
         ]
-        statuses = [str(item["status"]) for item in checks]
-        overall = "not_applicable" if not statuses or all(item == "not_applicable" for item in statuses) else next(
-            (item for item in ("fail", "not_ready", "degraded", "pass") if item in statuses),
-            "not_applicable",
+        statuses = [check.status.value for check in result.checks]
+        if len(result.checks) > 64:
+            checks.append(
+                {
+                    "service": operation.service,
+                    "check": "result_limit",
+                    "status": "degraded",
+                    "detail": f"{len(result.checks) - 63} additional checks were omitted",
+                }
+            )
+            statuses.append("degraded")
+        overall = (
+            "not_applicable"
+            if not statuses or all(item == "not_applicable" for item in statuses)
+            else next(
+                (item for item in ("fail", "not_ready", "degraded", "pass") if item in statuses),
+                "not_applicable",
+            )
         )
-        return {"service": operation.service, "checks": checks, "overall_status": overall}
+        return {
+            "service": operation.service,
+            "checks": checks,
+            "overall_status": overall,
+            "observed_at": datetime.now(UTC).isoformat(),
+        }
 
     return service_verify
 

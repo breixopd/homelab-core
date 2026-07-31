@@ -785,7 +785,10 @@ def create_controller_app(
         principal: ControllerPrincipal = Depends(_principal),
     ) -> ServiceVerificationView:
         _require_ui_or_local(principal)
-        return await run_blocking(read_service_verification, app.state.root, store, service)
+        try:
+            return await run_blocking(read_service_verification, app.state.root, store, service)
+        except ServiceManagementNotFoundError as exc:
+            raise ControllerAPIError(404, "NOT_FOUND", "Service management resource was not found") from exc
 
     @app.get("/v1/operations")
     async def operations_view(
@@ -956,9 +959,9 @@ def create_controller_app(
         elif request.kind is JobKind.VERIFY:
             job, created = store.submit_job(request, principal=principal.identity, active_limit=1)
         elif request.kind is JobKind.SERVICE_VERIFY:
-            # Idempotency keys are service-scoped and deterministic; this keeps
-            # one active verification per service without a global cap.
-            job, created = store.submit_job(request, principal=principal.identity)
+            # Deep checks may open several network connections. Keep one global
+            # slot while allowing a completed service check to be run again.
+            job, created = store.submit_job(request, principal=principal.identity, active_limit=1)
         elif request.kind in _HOST_MUTATION_KINDS:
             job, created = store.submit_job(
                 request,

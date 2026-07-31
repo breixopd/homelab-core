@@ -132,7 +132,6 @@ class VerifyOperation(StrictModel):
 class ServiceVerifyOperation(StrictModel):
     kind: Literal[JobKind.SERVICE_VERIFY] = JobKind.SERVICE_VERIFY
     service: ServiceName
-    include_framework: bool = False
 
 
 class DeployOperation(StrictModel):

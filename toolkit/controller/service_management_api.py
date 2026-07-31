@@ -88,37 +88,63 @@ class ServiceSettingValidationError(RuntimeError):
     pass
 
 
-def aggregate_verification_status(statuses: list[str]) -> str | None:
+ServiceVerificationStatus = Literal["pass", "fail", "not_applicable", "degraded", "not_ready"]
+
+
+def aggregate_verification_status(statuses: list[ServiceVerificationStatus]) -> ServiceVerificationStatus:
     if not statuses:
         return "not_applicable"
     if all(status == "not_applicable" for status in statuses):
         return "not_applicable"
-    for status in ("fail", "not_ready", "degraded", "pass"):
+    precedence: tuple[ServiceVerificationStatus, ...] = ("fail", "not_ready", "degraded", "pass")
+    for status in precedence:
         if status in statuses:
             return status
-    return None
+    return "not_applicable"
 
 
 def read_service_verification(root: Path, store: ControllerStore, service: str) -> ServiceVerificationView:
     """Project the latest durable service verification without introducing a schema."""
+    from toolkit.services import get_service_plugin
+
+    if get_service_plugin(service) is None:
+        raise ServiceManagementNotFoundError(service)
     jobs = store.recent_jobs(principal=None, limit=200)
     relevant = [
-        job for job in jobs
+        job
+        for job in jobs
         if job.request.kind is JobKind.SERVICE_VERIFY
         and isinstance(job.request.operation, ServiceVerifyOperation)
         and job.request.operation.service == service
     ]
     if not relevant:
         return ServiceVerificationView(service=service, state="never")
-    active = next((job for job in relevant if job.state in {JobState.QUEUED, JobState.RUNNING}), None)
-    terminal_states = {JobState.SUCCEEDED, JobState.PARTIAL_FAILURE, JobState.FAILED}
+    active_states = {JobState.QUEUED, JobState.RUNNING, JobState.CANCEL_REQUESTED}
+    active = next((job for job in relevant if job.state in active_states), None)
+    terminal_states = {JobState.SUCCEEDED, JobState.PARTIAL_FAILURE, JobState.FAILED, JobState.CANCELLED}
     terminal = next((job for job in relevant if job.state in terminal_states), None)
     source = terminal.result if terminal and isinstance(terminal.result, dict) else {}
     checks_raw = source.get("checks", []) if isinstance(source, dict) else []
-    checks = [ServiceVerificationCheckView.model_validate(item) for item in checks_raw[:64] if isinstance(item, dict)]
+    checks: list[ServiceVerificationCheckView] = []
+    if isinstance(checks_raw, list):
+        for item in checks_raw[:64]:
+            if not isinstance(item, dict):
+                continue
+            try:
+                checks.append(ServiceVerificationCheckView.model_validate(item))
+            except ValidationError:
+                logger.warning("Ignoring invalid persisted verification check for %s", service)
     statuses = [item.status for item in checks]
-    overall = aggregate_verification_status(statuses)
-    observed_at = terminal.updated_at if terminal and checks else None
+    overall = aggregate_verification_status(statuses) if checks else "not_ready" if terminal is not None else None
+    raw_observed_at = source.get("observed_at") if isinstance(source, dict) else None
+    try:
+        observed_at = datetime.fromisoformat(raw_observed_at) if isinstance(raw_observed_at, str) else None
+    except ValueError:
+        observed_at = None
+    if observed_at is None and terminal and checks:
+        observed_at = terminal.updated_at
+    if observed_at is not None and observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=UTC)
     stale = observed_at is not None and (datetime.now(UTC) - observed_at).total_seconds() > 900
     return ServiceVerificationView(
         service=service,
