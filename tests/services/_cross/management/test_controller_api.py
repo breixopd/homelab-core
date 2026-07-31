@@ -16,6 +16,7 @@ from toolkit.controller.contracts import (
     ServiceActionOperation,
     VerifyOperation,
 )
+from toolkit.controller.desired_state_api import SMTPSettingsValidationError
 from toolkit.controller.read_models import (
     AccountView,
     BootstrapInitializeResult,
@@ -82,6 +83,39 @@ async def _create_maintenance_job(client: AsyncClient, key: str):
         "/v1/jobs",
         json={"idempotency_key": key, "operation": {"kind": "MAINTENANCE"}},
     )
+
+
+@pytest.mark.anyio
+async def test_smtp_settings_rejection_returns_only_safe_structured_stage(
+    tmp_path: Path,
+    controller_client: AsyncClient,
+    monkeypatch,
+) -> None:
+    save_config(Config(domain="example.test"), config_path(tmp_path))
+    current = (await controller_client.get("/v1/settings")).json()
+
+    def reject_smtp(*_args, **_kwargs):
+        raise SMTPSettingsValidationError(
+            "auth",
+            "provider said password=should-never-reach-the-response",
+        )
+
+    monkeypatch.setattr("toolkit.controller.app.update_settings", reject_smtp)
+    response = await controller_client.put(
+        "/v1/settings",
+        json={
+            "expected_revision": current["revision"],
+            "values": current["values"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == {
+        "code": "VALIDATION_ERROR",
+        "message": "SMTP settings could not be verified",
+        "details": {"field": "smtp", "stage": "auth"},
+    }
+    assert "should-never-reach-the-response" not in response.text
 
 
 @pytest.mark.anyio

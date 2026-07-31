@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import json
+import stat
 
 from tests.helpers.plugins import load_plugin
-from toolkit.core.config.config import Config, ServicesConfig
+from toolkit.core.config.config import Config, NotificationsConfig, ServicesConfig, SMTPNotificationConfig
+from toolkit.core.generate.artifacts import ArtifactGenerationContext
+from toolkit.core.ops.notifications import SMTPProbeResult
+from toolkit.services import get_service_plugin
 from toolkit.services.authelia.plugin import _authelia_ldap_url
 
 
@@ -45,6 +49,10 @@ class TestAutheliaVerify:
             return 255, ""
 
         monkeypatch.setattr("toolkit.services.sdk.docker_curl", fake_curl)
+        monkeypatch.setattr(
+            "toolkit.core.ops.notifications.probe_smtp_transport",
+            lambda _transport: SMTPProbeResult(True, "ready", "verified"),
+        )
         bind_calls = []
 
         def fake_bind(*args, **kwargs):
@@ -76,10 +84,15 @@ class TestAutheliaVerify:
         )
         monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_a, **_k: (0, '{"keys": []}'))
         monkeypatch.setattr("toolkit.services.sdk.ldap_bind_search_on_vm", lambda *_a, **_k: (1, "bind failed"))
+        monkeypatch.setattr(
+            "toolkit.core.ops.notifications.probe_smtp_transport",
+            lambda _transport: SMTPProbeResult(True, "ready", "verified"),
+        )
 
         checks = {
             c.check: c for c in _plugin().verify(_cfg(), {"LLDAP_BIND_PASSWORD": "bind"}, "10.10.10.10", tmp_path)
         }
+        assert checks["notifier_smtp"].passed is True
         assert checks["oidc_jwks"].passed is False
 
 
@@ -91,3 +104,87 @@ def test_authelia_heal_delegates_to_service_owned_recovery(tmp_path, monkeypatch
     monkeypatch.setattr("toolkit.services.authelia.bootstrap.heal_authelia", lambda root: [f"healed {root.name}"])
 
     assert _plugin().heal(_cfg(), tmp_path) == [f"healed {tmp_path.name}"]
+
+
+def test_authelia_external_smtp_uses_file_secret_and_verified_tls_config(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "toolkit.core.manifest.oidc.compile_oidc_clients",
+        lambda *_args, **_kwargs: [],
+    )
+    cfg = Config(
+        domain="example.com",
+        notifications=NotificationsConfig(
+            smtp=SMTPNotificationConfig(
+                mode="external",
+                host="smtp.gmail.com",
+                port=587,
+                starttls=True,
+                username="operator@gmail.com",
+                password_secret="OPERATOR_SMTP_PASSWORD",
+                from_address="operator@gmail.com",
+            )
+        ),
+    )
+    plugin = get_service_plugin("authelia")
+    assert plugin is not None
+    context = ArtifactGenerationContext(
+        cfg,
+        tmp_path,
+        {
+            "AUTHELIA_OIDC_HMAC_SECRET": "test-hmac-secret",
+            "OPERATOR_SMTP_PASSWORD": "gmail-app-password-canary",
+        },
+        plugin.manifest,
+    )
+
+    plugin.generate_artifacts(context)
+    context.finish()
+
+    rendered = (tmp_path / "generated/authelia/configuration.yml").read_text()
+    password_file = tmp_path / "generated/authelia/smtp-password"
+    assert 'address: "submission://smtp.gmail.com:587"' in rendered
+    assert 'username: "operator@gmail.com"' in rendered
+    assert 'sender: "Authelia <operator@gmail.com>"' in rendered
+    assert "disable_startup_check: false" in rendered
+    assert "gmail-app-password-canary" not in rendered
+    assert password_file.read_text() == "gmail-app-password-canary"
+    assert stat.S_IMODE(password_file.stat().st_mode) == 0o600
+    assert (tmp_path / "generated/authelia/notifier.env").read_text() == (
+        "AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE=/config/smtp-password\n"
+    )
+
+
+def test_authelia_disabled_smtp_keeps_single_filesystem_notifier(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "toolkit.core.manifest.oidc.compile_oidc_clients",
+        lambda *_args, **_kwargs: [],
+    )
+    cfg = Config(
+        domain="example.com",
+        notifications=NotificationsConfig(
+            smtp=SMTPNotificationConfig(mode="disabled"),
+        ),
+    )
+    plugin = get_service_plugin("authelia")
+    assert plugin is not None
+    context = ArtifactGenerationContext(
+        cfg,
+        tmp_path,
+        {"AUTHELIA_OIDC_HMAC_SECRET": "test-hmac-secret"},
+        plugin.manifest,
+    )
+
+    plugin.generate_artifacts(context)
+    context.finish()
+
+    rendered = (tmp_path / "generated/authelia/configuration.yml").read_text()
+    assert "filesystem:" in rendered
+    assert "smtp:" not in rendered
+    assert (tmp_path / "generated/authelia/smtp-password").read_text() == ""
+    assert (tmp_path / "generated/authelia/notifier.env").read_text() == ""

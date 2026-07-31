@@ -35,6 +35,11 @@ host_sources:
 generated_artifacts:
 - path: generated/authelia/jwks/rsa.2048.key
   sensitive: true
+- path: generated/authelia/smtp-password
+  sensitive: true
+  host_uid: 1000
+  host_gid: 1000
+- path: generated/authelia/notifier.env
 - path: generated/authelia/oidc-client-hashes.yml
   sensitive: true
 - path: generated/authelia.yml
@@ -58,6 +63,24 @@ operator_bookmark:
   section: Quick actions
   priority: 10
   description: SSO login, sessions, and multi-factor authentication
+management:
+  panels:
+  - id: account-security
+    title: Account security
+    description: Manage the Brei account, multi-factor devices, and active sessions in Authelia.
+    items:
+    - label: Sign-in portal
+      value: https://auth.{domain}
+      href: https://auth.{domain}
+      copyable: true
+    - label: Account settings
+      value: https://auth.{domain}/settings
+      href: https://auth.{domain}/settings
+      copyable: true
+    - label: One-time password setup
+      value: https://auth.{domain}/settings/two-factor-authentication
+      href: https://auth.{domain}/settings/two-factor-authentication
+      copyable: true
 required_secrets:
 - name: AUTHELIA_JWT_SECRET
   tier: generated

@@ -25,6 +25,8 @@ services:
         condition: service_healthy
       lldap:
         condition: service_healthy
+    env_file:
+    - ${INSTALL_ROOT:-.}/generated/authelia/notifier.env
     environment:
       TZ: ${TZ:-UTC}
       PUID: "1000"

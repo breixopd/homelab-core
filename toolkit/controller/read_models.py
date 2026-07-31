@@ -756,6 +756,7 @@ class SettingsValues(StrictModel):
     smtp_starttls: bool
     smtp_username: str = Field(max_length=320)
     smtp_password_secret: str = Field(pattern=r"^(?:[A-Z][A-Z0-9_]{0,127})?$")
+    smtp_password_configured: bool = False
     smtp_from_address: str = Field(max_length=254)
     ssh_auth: Literal["key", "password"]
     ssh_key_file: str = Field(max_length=1_024)
@@ -791,6 +792,7 @@ class SettingsView(StrictModel):
 class SettingsUpdate(StrictModel):
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     values: SettingsValues
+    smtp_password: str = Field(default="", max_length=65_536, repr=False)
 
 
 class MachineView(StrictModel):

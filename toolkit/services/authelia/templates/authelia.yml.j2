@@ -50,16 +50,15 @@ storage:
     username: authelia
 
 notifier:
-  disable_startup_check: true
 {% if smtp_address %}
+  disable_startup_check: false
   smtp:
-    address: 'smtp://{{ smtp_address }}'
+    address: {{ smtp_address | json_value }}
     timeout: '15s'
-    sender: 'Authelia <authelia@{{ domain }}>'
-    identifier: 'auth.{{ domain }}'
-    # Docker-Mailserver is TLS-disabled internally; this traffic stays on the
-    # dedicated Authelia-to-mailserver bridge and never crosses a host network.
-    disable_require_tls: true
+    username: {{ smtp_username | json_value }}
+    sender: {{ smtp_sender | json_value }}
+    identifier: {{ ('auth.' ~ domain) | json_value }}
+    disable_require_tls: {{ smtp_disable_require_tls | lower }}
 {% else %}
   filesystem:
     filename: /config/notification.txt
