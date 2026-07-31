@@ -20,6 +20,9 @@ if TYPE_CHECKING:
 
 _READINESS_ATTEMPTS = 3
 _READINESS_DELAY_SECONDS = 2.0
+_BUCKET_OUTPUT_LIMIT = 64 * 1024
+_BUCKET_RC_MARKER = "__HOMELAB_BUCKET_RC__"
+_RESOURCE_LIMIT = 100
 
 
 def _docker_curl_ready(cfg: Config, vm_ip: str, url: str, root: Path) -> tuple[int, str]:
@@ -238,9 +241,66 @@ def _check_seaweedfs_buckets(cfg: Config, vm_ip: str, root: Path) -> VerifyCheck
     return VerifyCheck("seaweedfs", "buckets", True, detail)
 
 
+def _bucket_snapshot(
+    cfg: Config,
+    vm_ip: str,
+    root: Path,
+) -> list[dict[str, object]]:
+    """Read the bucket inventory through SeaweedFS' local read-only shell."""
+    from toolkit.services.sdk import docker_exec_on_vm
+
+    rc, output = docker_exec_on_vm(
+        cfg,
+        "seaweedfs",
+        [
+            "sh",
+            "-c",
+            "{ weed shell; printf '\\n__HOMELAB_BUCKET_RC__%s\\n' \"$?\"; } 2>&1 | head -c 65537",
+        ],
+        vm_ip,
+        root,
+        timeout=8,
+        stdin="s3.bucket.list\n",
+    )
+    if rc != 0 or len(output.encode("utf-8", errors="replace")) > _BUCKET_OUTPUT_LIMIT:
+        raise RuntimeError("SeaweedFS bucket inventory is unavailable")
+    rows: list[dict[str, object]] = []
+    command_rc: int | None = None
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(_BUCKET_RC_MARKER):
+            try:
+                command_rc = int(stripped.removeprefix(_BUCKET_RC_MARKER))
+            except ValueError as exc:
+                raise RuntimeError("SeaweedFS bucket inventory is unavailable") from exc
+            continue
+        if not stripped or stripped.startswith((">", "s3.bucket")):
+            continue
+        if stripped.lower().startswith(("error", "failed", "fatal")):
+            raise RuntimeError("SeaweedFS bucket inventory is unavailable")
+        if "\t" not in stripped:
+            continue
+        raw_name = stripped.split("\t", 1)[0]
+        name = "".join(char for char in raw_name if ord(char) >= 32 and ord(char) != 127)
+        if name:
+            rows.append({"name": name[:120]})
+    if command_rc != 0:
+        raise RuntimeError("SeaweedFS bucket inventory is unavailable")
+    return rows
+
+
 class SeaweedfsPlugin(ServicePlugin):
     service = "seaweedfs"
     category = "cloud"
+
+    def resources(
+        self,
+        cfg: Config,
+        secrets: dict[str, str],
+        root: Path,
+    ) -> dict[str, list[dict[str, object]]]:
+        """Expose a bounded, read-only S3 bucket inventory."""
+        return {"buckets": _bucket_snapshot(cfg, self.runtime_address(cfg), root)[:_RESOURCE_LIMIT]}
 
     def generate_artifacts(self, context: ArtifactGenerationContext) -> None:
         context.render_template(

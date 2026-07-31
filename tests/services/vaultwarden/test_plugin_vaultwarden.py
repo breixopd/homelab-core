@@ -49,6 +49,43 @@ def test_runtime_environment_reuses_matching_admin_hash(tmp_path) -> None:
     assert second == first
 
 
+def test_status_uses_only_the_bounded_readiness_probe(tmp_path, monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def docker_curl(_cfg, _vm_ip, _container, url, **kwargs):
+        calls.append({"url": url, **kwargs})
+        return 0, "OK"
+
+    monkeypatch.setattr("toolkit.services.sdk.docker_curl", docker_curl)
+
+    result = _plugin().status(_cfg(), {"VAULTWARDEN_MASTER_PASSWORD": "must-not-be-used"}, tmp_path)
+
+    assert result == {"readiness": 1}
+    assert calls == [
+        {
+            "url": "http://localhost/alive",
+            "root": tmp_path,
+            "timeout": 10,
+        }
+    ]
+
+
+def test_management_manifest_contains_non_secret_recovery_guidance() -> None:
+    from toolkit.core.manifest.catalog import load_service_catalog
+
+    management = next(
+        manifest for manifest in load_service_catalog().manifests if manifest.name == "vaultwarden"
+    ).management
+    panels = {panel.id: panel for panel in management.panels}
+
+    assert set(panels) == {"account-access", "readiness-recovery"}
+    recovery_text = " ".join(item.value for panel in panels.values() for item in panel.items).lower()
+    assert "master password" in recovery_text
+    assert "persisted encryption keys" in recovery_text
+    assert all("VAULTWARDEN_" not in item.value for panel in panels.values() for item in panel.items)
+    assert [(metric.key, metric.field) for metric in management.metrics] == [("readiness", "readiness")]
+
+
 class TestVaultwardenVerify:
     def test_alive_and_admin_session(self, tmp_path, monkeypatch):
         monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
