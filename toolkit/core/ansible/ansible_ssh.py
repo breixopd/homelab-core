@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import math
 import os
 import shlex
 import shutil
@@ -17,6 +18,8 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from toolkit.core.config.config import Config, config_path, load_config
+from toolkit.core.net.curl_config import DEFAULT_PROBE_RESPONSE_BYTES
+from toolkit.core.process import run_text_process_group
 
 
 def resolve_tool(name: str, root: Path | None = None) -> str | None:
@@ -107,23 +110,23 @@ def _ssh_control_path(root: Path | None, identity: str) -> Path | None:
     return directory / f"c-{digest}"
 
 
-def _local_network_ips() -> list[str]:
+def _local_network_ips(*, timeout: float = 1.0) -> list[str]:
     """Return all IPv4 addresses bound to local interfaces (non-loopback)."""
     try:
-        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=5, check=False).stdout
+        out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=timeout, check=False).stdout
     except (OSError, subprocess.SubprocessError):
         return []
     return [tok for tok in out.split() if not tok.startswith("127.") and ":" not in tok]
 
 
-def _is_local_ip(ip: str) -> bool:
+def _is_local_ip(ip: str, local_ips: list[str] | None = None) -> bool:
     """True when ``ip`` is bound to a local interface (loopback or own address)."""
     if ip in ("127.0.0.1", "::1", "localhost"):
         return True
-    return ip in _local_network_ips()
+    return ip in (_local_network_ips() if local_ips is None else local_ips)
 
 
-def _is_directly_reachable(ip: str, prefix_length: int) -> bool:
+def _is_directly_reachable(ip: str, prefix_length: int, local_ips: list[str] | None = None) -> bool:
     """True when ``ip`` is reachable without a jump host.
 
     Returns True when the target is a local IP or on the same declared subnet as
@@ -131,13 +134,14 @@ def _is_directly_reachable(ip: str, prefix_length: int) -> bool:
     running on infra can SSH directly to media/apps without bouncing through the
     Proxmox jump host (which would reject the guest SSH key).
     """
-    if _is_local_ip(ip):
+    resolved_local_ips = _local_network_ips() if local_ips is None else local_ips
+    if _is_local_ip(ip, resolved_local_ips):
         return True
     try:
         target = ipaddress.ip_address(ip)
     except ValueError:
         return False
-    for local in _local_network_ips():
+    for local in resolved_local_ips:
         try:
             local_addr = ipaddress.ip_address(local)
         except ValueError:
@@ -163,9 +167,10 @@ def ssh_run_on_vm(
     remote_command: str,
     *,
     root: Path | None = None,
-    timeout: int = 30,
+    timeout: float = 30,
     retries: int = 1,
     stdin: str | None = None,
+    deadline: float | None = None,
 ) -> tuple[int, str, str]:
     """Run a shell command on an LXC via Proxmox jump host.
 
@@ -179,15 +184,19 @@ def ssh_run_on_vm(
     """
     import time
 
-    if _is_local_ip(vm_ip):
+    started_at = time.monotonic()
+    deadline = min(deadline, started_at + timeout) if deadline is not None else started_at + timeout
+    preflight_timeout = min(1.0, _remaining_timeout(deadline))
+    local_ips = _local_network_ips(timeout=preflight_timeout) if preflight_timeout > 0 else []
+    if _is_local_ip(vm_ip, local_ips):
+        remaining = _remaining_timeout(deadline)
+        if remaining <= 0:
+            return 1, "", "command deadline exhausted during network preflight"
         try:
-            result = subprocess.run(
+            result = run_text_process_group(
                 ["bash", "-c", remote_command],
-                capture_output=True,
-                input=stdin,
-                text=True,
-                timeout=timeout,
-                check=False,
+                input_text=stdin,
+                timeout=remaining,
             )
             return result.returncode, result.stdout, result.stderr
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -197,10 +206,13 @@ def ssh_run_on_vm(
         ssh_user, ssh_port, prefix_length = _machine_ssh_target(cfg, vm_ip)
     except ValueError as exc:
         return 255, "", str(exc)
-    direct = _is_directly_reachable(vm_ip, prefix_length)
+    direct = _is_directly_reachable(vm_ip, prefix_length, local_ips)
     last_err = ""
     kh = _inventory_known_hosts(root)
     for attempt in range(max(1, retries)):
+        remaining = _remaining_timeout(deadline)
+        if remaining <= 0:
+            return 255, "", last_err or "SSH command deadline exhausted"
         key = resolve_ansible_ssh_key(cfg, root)
         if key is None:
             return 255, "", "no SSH key"
@@ -224,7 +236,7 @@ def ssh_run_on_vm(
             "-o",
             "ServerAliveCountMax=120",
             "-o",
-            f"ConnectTimeout={min(timeout, cfg.ssh.connect_timeout)}",
+            f"ConnectTimeout={max(1, math.ceil(min(remaining, cfg.ssh.connect_timeout)))}",
             "-p",
             str(ssh_port),
         ]
@@ -247,13 +259,10 @@ def ssh_run_on_vm(
         ssh_cmd.append(f"{ssh_user}@{vm_ip}")
         ssh_cmd.append(remote_command)
         try:
-            result = subprocess.run(
+            result = run_text_process_group(
                 ssh_cmd,
-                capture_output=True,
-                input=stdin,
-                text=True,
-                timeout=timeout,
-                check=False,
+                input_text=stdin,
+                timeout=remaining,
             )
             if result.returncode == 0 or attempt + 1 >= retries:
                 return result.returncode, result.stdout, result.stderr
@@ -262,7 +271,10 @@ def ssh_run_on_vm(
             last_err = str(exc)
             if attempt + 1 >= retries:
                 return 255, "", last_err
-        time.sleep(min(5 * (attempt + 1), 20))
+        sleep_seconds = min(5 * (attempt + 1), 20, max(0.0, deadline - time.monotonic()))
+        if sleep_seconds <= 0:
+            return 255, "", last_err or "SSH command deadline exhausted"
+        time.sleep(sleep_seconds)
     return 255, "", last_err
 
 
@@ -304,8 +316,122 @@ request = urllib.request.Request(
     method=payload["method"],
 )
 with urllib.request.urlopen(request, timeout=payload["timeout"]) as response:
-    sys.stdout.buffer.write(response.read(65536))
+    limit = payload.get("max_response_bytes")
+    data = response.read((limit + 1) if limit is not None else 65536)
+    if limit is not None and len(data) > limit:
+        raise ValueError("HTTP response exceeds configured byte limit")
+    sys.stdout.buffer.write(data)
 """
+
+_BOUNDED_PROCESS_RUNNER = """
+import json
+import os
+import selectors
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+payload = json.loads(sys.stdin.buffer.read())
+limit = payload["limit"]
+deadline = time.monotonic() + payload["timeout"]
+with tempfile.TemporaryFile() as request:
+    request.write(payload["stdin"].encode())
+    request.seek(0)
+    try:
+        process = subprocess.Popen(
+            payload["argv"],
+            stdin=request,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    except FileNotFoundError as exc:
+        print(str(exc))
+        raise SystemExit(127) from exc
+    except OSError as exc:
+        print(str(exc))
+        raise SystemExit(1) from exc
+
+    def terminate_group() -> None:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
+    def handle_termination(signum, _frame) -> None:
+        terminate_group()
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGHUP, handle_termination)
+    signal.signal(signal.SIGINT, handle_termination)
+    signal.signal(signal.SIGTERM, handle_termination)
+    assert process.stdout is not None
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    chunks = []
+    size = 0
+    while selector.get_map():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            terminate_group()
+            print("HTTP probe deadline exhausted")
+            raise SystemExit(124)
+        events = selector.select(remaining)
+        if not events:
+            terminate_group()
+            print("HTTP probe deadline exhausted")
+            raise SystemExit(124)
+        for key, _mask in events:
+            data = os.read(key.fd, min(65536, limit + 1 - size))
+            if not data:
+                selector.unregister(key.fileobj)
+                continue
+            chunks.append(data)
+            size += len(data)
+            if size > limit:
+                terminate_group()
+                print("HTTP response exceeds configured byte limit")
+                raise SystemExit(63)
+    try:
+        return_code = process.wait(timeout=max(0.0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        terminate_group()
+        print("HTTP probe deadline exhausted")
+        raise SystemExit(124)
+    sys.stdout.buffer.write(b"".join(chunks))
+    raise SystemExit(return_code)
+"""
+
+
+def _remaining_timeout(deadline: float) -> float:
+    """Return sub-second precision remaining on a monotonic deadline."""
+    return max(0.0, deadline - time.monotonic())
+
+
+def _bounded_probe_output(output: str, limit: int | None) -> tuple[int, str]:
+    """Reject oversized successful transport output as a defense in depth."""
+    if limit is not None and len(output.encode("utf-8", errors="replace")) > limit:
+        return 1, "HTTP response exceeds configured byte limit"
+    return 0, output
+
+
+def _bounded_curl_invocation(
+    argv: list[str],
+    config: str,
+    limit: int | None,
+    timeout: float,
+) -> tuple[str, str]:
+    """Render a source-bounded curl invocation using only the managed Python runtime."""
+    if limit is None:
+        return shlex.join(argv), config
+    payload = json.dumps(
+        {"argv": argv, "stdin": config, "limit": limit, "timeout": timeout},
+        separators=(",", ":"),
+    )
+    return f"python3 -c {shlex.quote(_BOUNDED_PROCESS_RUNNER)}", payload
 
 
 def docker_exec_curl(
@@ -322,34 +448,54 @@ def docker_exec_curl(
     cookie_file: str | None = None,
     cookie_jar: str | None = None,
     timeout: int = 15,
+    max_response_bytes: int | None = DEFAULT_PROBE_RESPONSE_BYTES,
 ) -> tuple[int, str]:
     """Probe a service without exposing request headers in process arguments."""
     from toolkit.core.net.curl_config import render_curl_config
 
     container_target = _url_with_host(url, "127.0.0.1") if urlsplit(url).hostname in {"localhost", "127.0.0.1"} else url
+    deadline = time.monotonic() + timeout
     container_config = render_curl_config(
         container_target,
         method=method,
         headers=headers,
         body=body,
         timeout=timeout,
+        max_response_bytes=max_response_bytes,
         ca_file=ca_file,
         cookie_file=cookie_file,
         cookie_jar=cookie_jar,
     )
-    command = f"docker exec -i {shlex.quote(container)} curl --disable --config -"
+    remaining = _remaining_timeout(deadline)
+    if remaining <= 0:
+        return 1, "HTTP probe deadline exhausted"
+    command, request_stdin = _bounded_curl_invocation(
+        ["docker", "exec", "-i", container, "curl", "--disable", "--config", "-"],
+        container_config,
+        max_response_bytes,
+        remaining,
+    )
     rc, out, err = ssh_run_on_vm(
         cfg,
         vm_ip,
         command,
         root=root,
-        timeout=timeout + 10,
-        stdin=container_config,
+        timeout=remaining,
+        stdin=request_stdin,
+        deadline=deadline,
     )
+    bound_rc, bounded = _bounded_probe_output(out, max_response_bytes)
+    if bound_rc:
+        return bound_rc, bounded
     if rc == 0:
         return 0, out
 
+    if _remaining_timeout(deadline) <= 0:
+        return rc, sanitize_probe_output(out or err)
+
     if ca_file or cookie_file or cookie_jar:
+        return rc, sanitize_probe_output(out or err)
+    if rc != 127:
         return rc, sanitize_probe_output(out or err)
 
     # A few minimal service images omit curl. Resolve the bridge address without
@@ -358,16 +504,24 @@ def docker_exec_curl(
         "docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "
         f"{shlex.quote(container)}"
     )
+    remaining = _remaining_timeout(deadline)
+    if remaining <= 0:
+        return rc, sanitize_probe_output(out or err)
     inspect_rc, container_ip, inspect_err = ssh_run_on_vm(
         cfg,
         vm_ip,
         inspect_command,
         root=root,
-        timeout=15,
+        timeout=remaining,
+        deadline=deadline,
     )
     container_ip = (container_ip or "").split()[0] if container_ip else ""
     if inspect_rc != 0 or not container_ip:
         return rc, sanitize_probe_output(out or err or inspect_err)
+
+    remaining = _remaining_timeout(deadline)
+    if remaining <= 0:
+        return rc, sanitize_probe_output(out or err)
 
     fallback_url = _url_with_host(url, container_ip)
     fallback_config = render_curl_config(
@@ -375,40 +529,62 @@ def docker_exec_curl(
         method=method,
         headers=headers,
         body=body,
-        timeout=timeout,
+        timeout=max(1, math.ceil(remaining)),
+        max_response_bytes=max_response_bytes,
+    )
+    fallback_command, fallback_stdin = _bounded_curl_invocation(
+        ["curl", "--disable", "--config", "-"],
+        fallback_config,
+        max_response_bytes,
+        remaining,
     )
     rc, out, err = ssh_run_on_vm(
         cfg,
         vm_ip,
-        "curl --disable --config -",
+        fallback_command,
         root=root,
-        timeout=timeout + 10,
-        stdin=fallback_config,
+        timeout=remaining,
+        stdin=fallback_stdin,
+        deadline=deadline,
     )
+    bound_rc, bounded = _bounded_probe_output(out, max_response_bytes)
+    if bound_rc:
+        return bound_rc, bounded
     if rc == 0:
         return 0, out
+    if rc != 127:
+        return rc, sanitize_probe_output(out or err)
 
+    remaining = _remaining_timeout(deadline)
+    if remaining <= 0:
+        return rc, sanitize_probe_output(out or err)
     payload = json.dumps(
         {
             "body": body,
             "headers": dict(headers or {}),
             "method": method,
-            "timeout": timeout,
+            "timeout": remaining,
+            "max_response_bytes": max_response_bytes,
             "url": fallback_url,
         },
         separators=(",", ":"),
     )
     python_command = f"python3 -c {shlex.quote(_PYTHON_HTTP_FALLBACK)}"
+    remaining = _remaining_timeout(deadline)
+    if remaining <= 0:
+        return rc, sanitize_probe_output(out or err)
     rc, out, python_err = ssh_run_on_vm(
         cfg,
         vm_ip,
         python_command,
         root=root,
-        timeout=timeout + 10,
+        timeout=remaining,
         stdin=payload,
+        deadline=deadline,
     )
     if rc == 0:
-        return 0, out
+        bound_rc, bounded = _bounded_probe_output(out, max_response_bytes)
+        return bound_rc, bounded
     return rc, sanitize_probe_output(out or python_err or err)
 
 
