@@ -107,12 +107,13 @@ class TestPrometheusVerify:
     def test_healthy_ready_and_targets(self, tmp_path, monkeypatch):
         cfg = Config(domain="example.com", services=ServicesConfig(management=True))
         targets = {
+            "status": "success",
             "data": {
                 "activeTargets": [
                     {"health": "up", "labels": {"job": "prometheus"}},
                     {"health": "down", "labels": {"job": "node"}},
                 ]
-            }
+            },
         }
 
         def fake_curl(_cfg, _ip, container, url, **_kw):
