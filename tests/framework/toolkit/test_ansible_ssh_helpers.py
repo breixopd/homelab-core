@@ -123,11 +123,7 @@ def test_bounded_curl_runner_rejects_multibyte_overflow_without_decode_failure()
 
 def test_bounded_curl_runner_kills_process_group_at_deadline(tmp_path: Path) -> None:
     pid_file = tmp_path / "child.pid"
-    child = (
-        "import os, pathlib, sys, time; "
-        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); "
-        "time.sleep(30)"
-    )
+    child = "import os, pathlib, sys, time; pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)"
     command, payload = _bounded_curl_invocation(
         [sys.executable, "-c", child, str(pid_file)],
         "",
@@ -155,11 +151,7 @@ def test_bounded_curl_runner_kills_process_group_at_deadline(tmp_path: Path) -> 
 
 def test_outer_deadline_lets_bounded_runner_clean_up_its_child_group(tmp_path: Path) -> None:
     pid_file = tmp_path / "nested-child.pid"
-    child = (
-        "import os, pathlib, sys, time; "
-        "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); "
-        "time.sleep(30)"
-    )
+    child = "import os, pathlib, sys, time; pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)"
     command, payload = _bounded_curl_invocation(
         [sys.executable, "-c", child, str(pid_file)],
         "",
