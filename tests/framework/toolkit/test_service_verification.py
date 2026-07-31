@@ -84,6 +84,8 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
                 if index == 2
                 else f"prefix {long_secret[:100]} suffix"
                 if index == 3
+                else f"{'x' * 150}{long_secret[:100]} suffix"
+                if index == 4
                 else "healthy"
             ),
             status=VerifyStatus.FAIL if index == 0 else VerifyStatus.PASS,
@@ -130,6 +132,7 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
     assert result["checks"][1]["detail"] == "[REDACTED]"
     assert result["checks"][2]["detail"] == "[REDACTED] suffix"
     assert result["checks"][3]["detail"] == "prefix [REDACTED] suffix"
+    assert result["checks"][4]["detail"] == f"{'x' * 150}[REDACTED]"
     assert datetime.fromisoformat(result["observed_at"]).tzinfo is not None
     context.check_cancelled.assert_called_once()
 
