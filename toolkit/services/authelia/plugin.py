@@ -144,6 +144,7 @@ class AutheliaPlugin(ServicePlugin):
             authelia_oidc_issuer,
             container_exists_on_vm,
             docker_curl,
+            docker_exec_on_vm,
             ldap_bind_search_on_vm,
         )
         from toolkit.services.sdk.ldap import base_dn, bind_dn, lldap_bind_uid
@@ -180,6 +181,40 @@ class AutheliaPlugin(ServicePlugin):
                         smtp_probe.detail,
                     )
                 )
+
+        # ── config_validate — static, read-only configuration validation ─────
+        # Keep this command literal: no secrets or user-controlled arguments are
+        # needed for readiness and the config path is fixed by the container.
+        for check_name, command, success_detail in (
+            (
+                "config_validate",
+                [
+                    "sh",
+                    "-c",
+                    "exec authelia config validate --config /config/configuration.yml >/dev/null 2>&1",
+                ],
+                "configuration valid",
+            ),
+            (
+                "storage_encryption",
+                [
+                    "sh",
+                    "-c",
+                    "exec authelia storage encryption check --config /config/configuration.yml >/dev/null 2>&1",
+                ],
+                "storage encryption valid",
+            ),
+        ):
+            rc, _output = docker_exec_on_vm(
+                cfg,
+                "authelia",
+                command,
+                vm_ip,
+                root,
+                timeout=10,
+            )
+            detail = success_detail if rc == 0 else f"{check_name} failed (rc={rc})"
+            checks.append(VerifyCheck("authelia", check_name, rc == 0, detail))
 
         expected_issuer = authelia_oidc_issuer(cfg)
 

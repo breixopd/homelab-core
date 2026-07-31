@@ -50,6 +50,10 @@ class TestAutheliaVerify:
 
         monkeypatch.setattr("toolkit.services.sdk.docker_curl", fake_curl)
         monkeypatch.setattr(
+            "toolkit.services.sdk.docker_exec_on_vm",
+            lambda *_args, **_kwargs: (0, "configuration valid"),
+        )
+        monkeypatch.setattr(
             "toolkit.core.ops.notifications.probe_smtp_transport",
             lambda _transport: SMTPProbeResult(True, "ready", "verified"),
         )
@@ -71,6 +75,8 @@ class TestAutheliaVerify:
         assert checks["oidc_jwks"].passed
         assert "1 key" in checks["oidc_jwks"].detail
         assert checks["ldap_bind"].passed
+        assert checks["config_validate"].passed
+        assert checks["storage_encryption"].passed
         assert bind_calls[0][1]["bind_password"] == "test-only-bind-password"
         assert bind_calls[0][1]["search_filter"] == "(uid=ldap-bind)"
 
@@ -83,6 +89,7 @@ class TestAutheliaVerify:
             lambda *_a, **_k: (discovery, ""),
         )
         monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_a, **_k: (0, '{"keys": []}'))
+        monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", lambda *_a, **_k: (0, "ok"))
         monkeypatch.setattr("toolkit.services.sdk.ldap_bind_search_on_vm", lambda *_a, **_k: (1, "bind failed"))
         monkeypatch.setattr(
             "toolkit.core.ops.notifications.probe_smtp_transport",
@@ -94,6 +101,57 @@ class TestAutheliaVerify:
         }
         assert checks["notifier_smtp"].passed is True
         assert checks["oidc_jwks"].passed is False
+
+
+def test_authelia_readiness_commands_are_static_and_do_not_expose_storage_key(tmp_path, monkeypatch):
+    discovery = {"issuer": "https://auth.example.com", "jwks_uri": "http://localhost:9091/jwks.json"}
+    calls = []
+    monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
+    monkeypatch.setattr("toolkit.services.sdk.authelia_oidc_discovery", lambda *_a, **_k: (discovery, ""))
+    monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_a, **_k: (1, "unavailable"))
+    monkeypatch.setattr("toolkit.services.sdk.ldap_bind_search_on_vm", lambda *_a, **_k: (1, "bind failed"))
+    monkeypatch.setattr(
+        "toolkit.core.ops.notifications.probe_smtp_transport",
+        lambda _transport: SMTPProbeResult(True, "ready", "verified"),
+    )
+
+    storage_key = "test-only-authelia-storage-key"
+
+    def fake_exec(*args, **kwargs):
+        calls.append((args, kwargs))
+        return (1, f"AUTHELIA_STORAGE_KEY={storage_key}")
+
+    monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", fake_exec)
+    checks = {
+        c.check: c
+        for c in _plugin().verify(
+            _cfg(),
+            {
+                "LLDAP_BIND_PASSWORD": "test-only-bind-password",
+                "AUTHELIA_STORAGE_KEY": storage_key,
+            },
+            "10.10.10.10",
+            tmp_path,
+        )
+    }
+
+    assert checks["config_validate"].passed is False
+    assert checks["storage_encryption"].passed is False
+    assert checks["storage_encryption"].detail == "storage_encryption failed (rc=1)"
+    assert storage_key not in checks["storage_encryption"].detail
+    assert len(calls) == 2
+    assert all(kwargs["timeout"] == 10 for _args, kwargs in calls)
+    assert all("AUTHELIA_STORAGE_KEY" not in repr((args, kwargs)) for args, kwargs in calls)
+    assert calls[0][0][2] == [
+        "sh",
+        "-c",
+        "exec authelia config validate --config /config/configuration.yml >/dev/null 2>&1",
+    ]
+    assert calls[1][0][2] == [
+        "sh",
+        "-c",
+        "exec authelia storage encryption check --config /config/configuration.yml >/dev/null 2>&1",
+    ]
 
 
 def test_authelia_uses_docker_dns_for_colocated_lldap() -> None:
