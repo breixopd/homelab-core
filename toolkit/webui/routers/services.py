@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from toolkit.controller.client import ControllerClientError
+from toolkit.controller.client import ControllerClientError, ControllerRejectedError
 from toolkit.controller.contracts import (
     ConfigApplyOperation,
     ContainerActionOperation,
@@ -163,6 +163,13 @@ async def service_verification_start(request: Request, service: str):
             operation=operation,
         )
         job = await run_in_threadpool(request.app.state.controller.submit, request_model)
+    except ControllerRejectedError as exc:
+        message = (
+            "Another deep verification is already queued or running"
+            if exc.status_code == 429
+            else "Verification could not be queued"
+        )
+        return RedirectResponse(_service_url(service, error=message), status_code=303)
     except (ControllerClientError, ValidationError, ValueError):
         return RedirectResponse(_service_url(service, error="Verification could not be queued"), status_code=303)
     return RedirectResponse(_service_url(service, flash="Verification queued", job=job.job_id), status_code=303)

@@ -32,6 +32,7 @@ from toolkit.controller.contracts import (
     JobState,
     PlanRecord,
     SealedInviteUserCommand,
+    ServiceVerifyOperation,
     job_can_cancel,
 )
 from toolkit.controller.payload_protection import (
@@ -352,6 +353,24 @@ class ControllerStore:
                 LIMIT ?
                 """,
                 (*parameters, limit),
+            ).fetchall()
+        return [self._job_from_row(row) for row in rows]
+
+    def recent_service_verification_jobs(self, service: str, *, limit: int = 20) -> list[JobRecord]:
+        """Return durable verification history without losing it behind unrelated jobs."""
+        ServiceVerifyOperation(service=service)
+        if limit < 1 or limit > 50:
+            raise ValueError("service verification job limit must be between 1 and 50")
+        with self._read() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM jobs
+                WHERE json_extract(request_json, '$.operation.kind') = ?
+                  AND json_extract(request_json, '$.operation.service') = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
+                """,
+                (JobKind.SERVICE_VERIFY.value, service, limit),
             ).fetchall()
         return [self._job_from_row(row) for row in rows]
 

@@ -36,6 +36,7 @@ from toolkit.controller.contracts import (
     VerifyOperation,
     WebhookHealOperation,
 )
+from toolkit.controller.sanitization import sanitize_message
 from toolkit.controller.worker import (
     OperationCancelledError,
     OperationContext,
@@ -60,6 +61,14 @@ class OperationExecutionError(SafeOperationError):
 class OperationPolicyDisabledError(OperationExecutionError):
     def __init__(self, message: str):
         super().__init__(message, code="OPERATION_REJECTED")
+
+
+def _safe_verification_text(value: str, secrets: dict[str, str], *, limit: int) -> str:
+    safe = sanitize_message(value[:4000])
+    for secret in sorted(set(secrets.values()), key=len, reverse=True):
+        if secret:
+            safe = safe.replace(secret, "[REDACTED]")
+    return safe[:limit]
 
 
 def _config_apply_targets(
@@ -178,7 +187,6 @@ def _service_verify_handler(root: Path) -> OperationHandler:
     def service_verify(context: OperationContext, operation: OperationPayload) -> dict[str, Any]:
         if not isinstance(operation, ServiceVerifyOperation):
             raise OperationExecutionError("invalid service verify operation payload")
-        from toolkit.controller.sanitization import sanitize_message
         from toolkit.core.config.config import load_config
         from toolkit.core.config.storage import config_path, secrets_path
         from toolkit.core.ops.hook_verify import verify_hooks
@@ -208,9 +216,9 @@ def _service_verify_handler(root: Path) -> OperationHandler:
         checks = [
             {
                 "service": operation.service,
-                "check": sanitize_message(check.check)[:63] or "unnamed",
+                "check": _safe_verification_text(check.check, secrets, limit=63) or "unnamed",
                 "status": check.status.value,
-                "detail": sanitize_message(check.detail)[:200],
+                "detail": _safe_verification_text(check.detail, secrets, limit=200),
             }
             for check in selected_checks
         ]

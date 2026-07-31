@@ -7,13 +7,17 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
+from toolkit.controller.app import create_controller_app
+from toolkit.controller.client import ControllerRejectedError
 from toolkit.controller.contracts import (
     JobKind,
     JobRecord,
     JobRequest,
     JobState,
     ServiceVerifyOperation,
+    VerifyOperation,
 )
 from toolkit.controller.operations import OperationExecutionError, build_operation_registry
 from toolkit.controller.sanitization import sanitize_message
@@ -24,7 +28,7 @@ from toolkit.controller.service_management_api import (
 )
 from toolkit.controller.store import ControllerStore, JobQueueLimitError
 from toolkit.core.config.config import Config, save_config
-from toolkit.core.config.storage import config_path
+from toolkit.core.config.storage import config_path, secrets_path
 from toolkit.core.verify.models import HookVerifyResult, VerifyCheck, VerifyStatus
 
 
@@ -64,18 +68,27 @@ def test_service_verify_contract_cannot_enable_framework_checks() -> None:
 
 def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, monkeypatch) -> None:
     save_config(Config(), config_path(tmp_path))
+    secrets_path(tmp_path).write_text("encrypted-placeholder", encoding="utf-8")
     checks = [
         VerifyCheck(
             "grafana",
             f"check-{index}",
             index > 0,
-            ("token=super-secret https://admin:another-secret@example.test/ " + "x" * 300 if index == 0 else "healthy"),
+            (
+                "token=super-secret https://admin:another-secret@example.test/ unlabelled-bare-secret " + "x" * 300
+                if index == 0
+                else "healthy"
+            ),
             status=VerifyStatus.FAIL if index == 0 else VerifyStatus.PASS,
         )
         for index in range(70)
     ]
     plugin = SimpleNamespace(is_enabled=lambda _cfg: True)
     monkeypatch.setattr("toolkit.services.get_service_plugin", lambda _service: plugin)
+    monkeypatch.setattr(
+        "toolkit.core.secrets.secrets.load_secrets_plaintext",
+        lambda _path: {"GRAFANA_PASSWORD": "unlabelled-bare-secret"},
+    )
     monkeypatch.setattr(
         "toolkit.core.ops.hook_verify.verify_hooks",
         lambda *_args, **kwargs: (
@@ -102,7 +115,8 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
     assert len(result["checks"][0]["detail"]) <= 200
     assert "super-secret" not in result["checks"][0]["detail"]
     assert "another-secret" not in result["checks"][0]["detail"]
-    assert result["checks"][0]["detail"].count("[REDACTED]") == 2
+    assert "unlabelled-bare-secret" not in result["checks"][0]["detail"]
+    assert result["checks"][0]["detail"].count("[REDACTED]") == 3
     assert datetime.fromisoformat(result["observed_at"]).tzinfo is not None
     context.check_cancelled.assert_called_once()
 
@@ -188,7 +202,7 @@ def test_service_verification_projection_keeps_stale_previous_result_while_runni
         },
     )
     active = _job(state=JobState.RUNNING, suffix="b", updated_at=datetime.now(UTC))
-    store = SimpleNamespace(recent_jobs=lambda **_kwargs: [active, terminal])
+    store = SimpleNamespace(recent_service_verification_jobs=lambda _service: [active, terminal])
 
     view = read_service_verification(tmp_path, store, "grafana")
 
@@ -203,7 +217,11 @@ def test_service_verification_projection_keeps_stale_previous_result_while_runni
 def test_service_verification_projection_rejects_unknown_service(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr("toolkit.services.get_service_plugin", lambda _service: None)
     with pytest.raises(ServiceManagementNotFoundError):
-        read_service_verification(tmp_path, SimpleNamespace(recent_jobs=lambda **_kwargs: []), "missing")
+        read_service_verification(
+            tmp_path,
+            SimpleNamespace(recent_service_verification_jobs=lambda _service: []),
+            "missing",
+        )
 
 
 @pytest.mark.parametrize(
@@ -221,12 +239,47 @@ def test_service_verification_projection_handles_cancellation_states(
 
     view = read_service_verification(
         tmp_path,
-        SimpleNamespace(recent_jobs=lambda **_kwargs: [job]),
+        SimpleNamespace(recent_service_verification_jobs=lambda _service: [job]),
         "grafana",
     )
 
     assert view.state == view_state
     assert view.overall_status == ("not_ready" if job_state is JobState.CANCELLED else None)
+
+
+def test_service_verification_history_is_not_hidden_by_unrelated_jobs(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("toolkit.services.get_service_plugin", lambda _service: object())
+    store = ControllerStore(tmp_path / "controller.db")
+    expected, _ = store.submit_job(_request(), principal="mtls:homelab-ui")
+    for index in range(201):
+        store.submit_job(
+            JobRequest(
+                idempotency_key=f"unrelated-verify-{index:04d}",
+                operation=VerifyOperation(),
+            ),
+            principal="local:operator",
+        )
+
+    view = read_service_verification(tmp_path, store, "grafana")
+
+    assert view.state == "queued"
+    assert view.job_id == expected.job_id
+
+
+def test_failed_service_verification_projects_a_usable_terminal_state(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("toolkit.services.get_service_plugin", lambda _service: object())
+    failed = _job(state=JobState.FAILED, suffix="a", updated_at=datetime.now(UTC))
+
+    view = read_service_verification(
+        tmp_path,
+        SimpleNamespace(recent_service_verification_jobs=lambda _service: [failed]),
+        "grafana",
+    )
+
+    assert view.state == "complete"
+    assert view.overall_status == "not_ready"
+    assert view.checks == []
+    assert view.job_id == failed.job_id
 
 
 def test_status_precedence_and_all_not_applicable() -> None:
@@ -263,3 +316,65 @@ def test_webui_submissions_use_fresh_idempotency_keys(monkeypatch) -> None:
     assert first.status_code == second.status_code == 303
     assert submitted[0].idempotency_key != submitted[1].idempotency_key
     assert all(item.idempotency_key.startswith("service-verify-grafana-") for item in submitted)
+
+
+def test_webui_explains_service_verification_queue_contention(monkeypatch) -> None:
+    import toolkit.webui.routers.services as services_router
+
+    class Controller:
+        def submit(self, _request: JobRequest):
+            raise ControllerRejectedError(
+                "OPERATION_REJECTED",
+                "Operation queue is at capacity",
+                {},
+                None,
+                status_code=429,
+            )
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(controller=Controller())))
+    monkeypatch.setattr(services_router, "is_toolkit_admin", lambda _request: True)
+
+    response = asyncio.run(services_router.service_verification_start(request, "grafana"))
+
+    assert response.status_code == 303
+    assert "Another+deep+verification+is+already+queued+or+running" in response.headers["location"]
+
+
+def test_controller_service_verification_endpoint_is_typed_and_queue_error_is_correct(
+    tmp_path: Path,
+) -> None:
+    store = ControllerStore(tmp_path / "controller.db")
+    expected, _ = store.submit_job(_request(suffix="a"), principal="ui:homelab-ui")
+    app = create_controller_app(
+        root=tmp_path,
+        store=store,
+        local_transport_token="l" * 32,
+        ui_transport_token="u" * 32,
+    )
+    headers = {"X-Controller-Transport": "ui", "X-Controller-Token": "u" * 32}
+
+    async def exercise() -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://controller") as client:
+            view = await client.get("/v1/services/grafana/verification", headers=headers)
+            rejected = await client.post(
+                "/v1/jobs",
+                headers=headers,
+                json=_request(suffix="b").model_dump(mode="json"),
+            )
+
+        assert view.status_code == 200
+        assert view.json()["state"] == "queued"
+        assert view.json()["job_id"] == expected.job_id
+        assert rejected.status_code == 429
+        assert rejected.json()["error"]["code"] == "OPERATION_REJECTED"
+        assert rejected.json()["error"]["message"] == "Operation queue is at capacity"
+
+    asyncio.run(exercise())
+
+
+def test_verification_statuses_have_distinct_visual_treatments() -> None:
+    css = (Path(__file__).resolve().parents[3] / "toolkit" / "webui" / "static" / "css" / "main.css").read_text(
+        encoding="utf-8"
+    )
+    for status in ("pass", "fail", "degraded", "not_ready", "not_applicable"):
+        assert f".verification-{status}" in css

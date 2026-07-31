@@ -20,6 +20,7 @@ from toolkit.controller.read_models import (
     SecretMutationResult,
     ServiceManagementView,
     ServiceSettingsUpdate,
+    ServiceVerificationView,
 )
 
 pytestmark = pytest.mark.anyio
@@ -32,6 +33,7 @@ class ServiceController:
         self.secret_updates = []
         self.jobs = []
         self.management_calls: list[bool] = []
+        self.verification = ServiceVerificationView(service="music-sync", state="never")
         self.view = ServiceManagementView(
             revision="a" * 64,
             service="music-sync",
@@ -134,6 +136,10 @@ class ServiceController:
         if self.unavailable:
             raise ControllerClientError("unavailable")
         return self.view
+
+    def service_verification(self, service: str) -> ServiceVerificationView:
+        assert service == "music-sync"
+        return self.verification
 
     def update_service_settings(self, service: str, update: ServiceSettingsUpdate) -> ServiceManagementView:
         self.updates.append((service, update))

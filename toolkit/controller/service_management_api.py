@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
-from toolkit.controller.contracts import JobKind, JobState, ServiceVerifyOperation
+from toolkit.controller.contracts import JobState
 from toolkit.controller.desired_state_api import DesiredStateConflictError
 from toolkit.controller.prometheus_api import read_service_metric_history, read_service_metrics
 from toolkit.controller.read_models import (
@@ -109,14 +109,7 @@ def read_service_verification(root: Path, store: ControllerStore, service: str) 
 
     if get_service_plugin(service) is None:
         raise ServiceManagementNotFoundError(service)
-    jobs = store.recent_jobs(principal=None, limit=200)
-    relevant = [
-        job
-        for job in jobs
-        if job.request.kind is JobKind.SERVICE_VERIFY
-        and isinstance(job.request.operation, ServiceVerifyOperation)
-        and job.request.operation.service == service
-    ]
+    relevant = store.recent_service_verification_jobs(service)
     if not relevant:
         return ServiceVerificationView(service=service, state="never")
     active_states = {JobState.QUEUED, JobState.RUNNING, JobState.CANCEL_REQUESTED}

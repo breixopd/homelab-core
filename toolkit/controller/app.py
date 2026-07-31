@@ -359,7 +359,7 @@ def create_controller_app(
 
     @app.exception_handler(JobQueueLimitError)
     async def job_queue_limit(_request: Request, _exc: JobQueueLimitError):
-        return _error_response(429, "OPERATION_REJECTED", "Webhook heal queue is at capacity")
+        return _error_response(429, "OPERATION_REJECTED", "Operation queue is at capacity")
 
     @app.exception_handler(ApprovalError)
     async def approval_error(_request: Request, _exc: ApprovalError):
