@@ -240,6 +240,14 @@ class TestJellyfinVerify:
 
 
 class TestPlexVerify:
+    def test_missing_token_is_not_ready_not_pass(self, tmp_path):
+        checks = _plugin("plex").verify(_cfg(), {}, "10.10.10.11", tmp_path)
+
+        assert len(checks) == 1
+        assert checks[0].check == "identity"
+        assert checks[0].passed is False
+        assert checks[0].status.value == "not_ready"
+
     def test_identity_and_libraries(self, tmp_path, monkeypatch):
         cfg = _cfg()
         calls = []
