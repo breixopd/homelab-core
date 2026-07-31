@@ -251,6 +251,16 @@ management:
     source: status
     field: metadata_providers_enabled
     unit: count
+  - key: metadata_providers_configured
+    label: Metadata providers configured
+    source: status
+    field: metadata_providers_configured
+    unit: count
+  - key: metadata_providers_aligned
+    label: Provider config aligned
+    source: status
+    field: metadata_providers_aligned
+    unit: count
   - key: roms
     label: ROMs
     source: status
@@ -266,3 +276,16 @@ management:
     source: status
     field: users
     unit: count
+  resources:
+  - key: metadata_providers
+    label: Metadata providers
+    description: Configured provider settings compared with RomM's live heartbeat state.
+    columns:
+    - key: provider
+      label: Provider
+    - key: configured
+      label: Configured
+    - key: runtime
+      label: Runtime
+    - key: config_parity
+      label: Config parity

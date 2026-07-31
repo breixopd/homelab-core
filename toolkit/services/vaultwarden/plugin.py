@@ -25,6 +25,25 @@ class VaultwardenPlugin(ServicePlugin):
     service = "vaultwarden"
     category = "cloud"
 
+    def status(self, cfg: Config, secrets: dict[str, str], root: Path) -> dict[str, object]:
+        """Expose the bounded, read-only Vaultwarden/Postgres readiness probe.
+
+        ``/alive`` does not require credentials and is the same endpoint used by
+        the service health contract.  Keep the result numeric because management
+        status metrics are intentionally scalar and allow-listed by the manifest.
+        """
+        from toolkit.services.sdk import docker_curl
+
+        rc, body = docker_curl(
+            cfg,
+            self.runtime_address(cfg),
+            self.service,
+            "http://localhost/alive",
+            root=root,
+            timeout=10,
+        )
+        return {"readiness": 1} if rc == 0 and bool((body or "").strip()) else {}
+
     def runtime_environment(self, context: RuntimeEnvironmentContext) -> dict[str, str]:
         """Hash the stored administration token for Vaultwarden's runtime."""
         from toolkit.core.secrets.bitwarden_crypto import stable_vaultwarden_admin_hash
