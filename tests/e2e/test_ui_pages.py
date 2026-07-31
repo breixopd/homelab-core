@@ -299,6 +299,7 @@ async def test_service_page_renders_each_typed_verification_status(
 
     assert response.status_code == 200
     assert f'data-status="{status}"' in response.text
+    assert f'aria-label="Verification result: {status.replace("_", " ")}"' in response.text
     assert "bounded evidence" in response.text
 
 
