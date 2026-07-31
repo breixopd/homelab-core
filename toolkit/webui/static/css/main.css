@@ -1035,6 +1035,13 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .service-manage-summary > div:nth-child(-n+2) { border-bottom: 1px solid var(--border-soft); }
   .service-action-row { align-items: stretch; flex-direction: column; }
   .service-action-row .btn { width: 100%; justify-content: center; }
+  .service-verification-panel .section-head { align-items: stretch; flex-direction: column; }
+  .service-verification-panel .section-head form,
+  .service-verification-panel .section-head .btn { width: 100%; }
+  .service-verification-panel .section-head .btn { justify-content: center; }
+  .verification-checks li { grid-template-columns: minmax(0, 1fr); }
+  .verification-check-status { justify-self: start; }
+  .verification-checks small { grid-column: 1; }
   .service-info-list > div { grid-template-columns: 1fr; gap: 0.25rem; }
   .service-info-list dd { align-items: flex-start; flex-direction: column; }
   .service-boolean-grid { grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.5rem; }

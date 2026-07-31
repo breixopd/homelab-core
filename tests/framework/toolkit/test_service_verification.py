@@ -69,6 +69,7 @@ def test_service_verify_contract_cannot_enable_framework_checks() -> None:
 def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, monkeypatch) -> None:
     save_config(Config(), config_path(tmp_path))
     secrets_path(tmp_path).write_text("encrypted-placeholder", encoding="utf-8")
+    long_secret = "A" * 5001
     checks = [
         VerifyCheck(
             "grafana",
@@ -77,6 +78,8 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
             (
                 "token=super-secret https://admin:another-secret@example.test/ unlabelled-bare-secret " + "x" * 300
                 if index == 0
+                else long_secret
+                if index == 1
                 else "healthy"
             ),
             status=VerifyStatus.FAIL if index == 0 else VerifyStatus.PASS,
@@ -87,7 +90,10 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
     monkeypatch.setattr("toolkit.services.get_service_plugin", lambda _service: plugin)
     monkeypatch.setattr(
         "toolkit.core.secrets.secrets.load_secrets_plaintext",
-        lambda _path: {"GRAFANA_PASSWORD": "unlabelled-bare-secret"},
+        lambda _path: {
+            "GRAFANA_PASSWORD": "unlabelled-bare-secret",
+            "GRAFANA_PRIVATE_KEY": long_secret,
+        },
     )
     monkeypatch.setattr(
         "toolkit.core.ops.hook_verify.verify_hooks",
@@ -117,6 +123,7 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
     assert "another-secret" not in result["checks"][0]["detail"]
     assert "unlabelled-bare-secret" not in result["checks"][0]["detail"]
     assert result["checks"][0]["detail"].count("[REDACTED]") == 3
+    assert result["checks"][1]["detail"] == "[REDACTED]"
     assert datetime.fromisoformat(result["observed_at"]).tzinfo is not None
     context.check_cancelled.assert_called_once()
 

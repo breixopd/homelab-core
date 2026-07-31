@@ -64,11 +64,18 @@ class OperationPolicyDisabledError(OperationExecutionError):
 
 
 def _safe_verification_text(value: str, secrets: dict[str, str], *, limit: int) -> str:
-    safe = sanitize_message(value[:4000])
+    safe = value[:limit]
     for secret in sorted(set(secrets.values()), key=len, reverse=True):
-        if secret:
-            safe = safe.replace(secret, "[REDACTED]")
-    return safe[:limit]
+        if not secret:
+            continue
+        partial_length = next(
+            (length for length in range(min(len(secret) - 1, len(safe)), 0, -1) if safe.endswith(secret[:length])),
+            0,
+        )
+        safe = safe.replace(secret, "[REDACTED]")
+        if partial_length:
+            safe = f"{safe[:-partial_length]}[REDACTED]"
+    return sanitize_message(safe)[:limit]
 
 
 def _config_apply_targets(
