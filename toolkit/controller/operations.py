@@ -68,13 +68,13 @@ def _safe_verification_text(value: str, secrets: dict[str, str], *, limit: int) 
     for secret in sorted(set(secrets.values()), key=len, reverse=True):
         if not secret:
             continue
-        partial_length = next(
-            (length for length in range(min(len(secret) - 1, len(safe)), 0, -1) if safe.endswith(secret[:length])),
-            0,
-        )
         safe = safe.replace(secret, "[REDACTED]")
-        if partial_length:
-            safe = f"{safe[:-partial_length]}[REDACTED]"
+        minimum_fragment = min(len(secret), 8)
+        for length in range(min(len(secret) - 1, limit), minimum_fragment - 1, -1):
+            fragment = secret[:length]
+            if fragment in safe:
+                safe = safe.replace(fragment, "[REDACTED]")
+                break
     return sanitize_message(safe)[:limit]
 
 
