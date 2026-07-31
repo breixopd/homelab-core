@@ -96,7 +96,13 @@ class WazuhIndexerPlugin(ServicePlugin):
 
     def verify(self, cfg: Config, secrets: dict, vm_ip: str, root: Path) -> list[VerifyCheck]:
         """Authenticated cluster health + wazuh alert indices present."""
-        from toolkit.services.sdk import VerifyCheck, basic_auth_header, container_exists_on_vm, docker_curl
+        from toolkit.services.sdk import (
+            VerifyCheck,
+            VerifyStatus,
+            basic_auth_header,
+            container_exists_on_vm,
+            docker_curl,
+        )
 
         if cfg.domain == "localhost" or not cfg.category_enabled("security"):
             return [VerifyCheck("wazuh-indexer", "skipped", True, "skipped (localhost or security disabled)")]
@@ -152,12 +158,15 @@ class WazuhIndexerPlugin(ServicePlugin):
             timeout=15,
         )
         indices = [ln.strip() for ln in (idx_out or "").splitlines() if ln.strip()]
-        if indices:
+        if rc_idx != 0:
+            alert_ok = False
+            alert_detail = "alert indices probe failed"
+        elif indices:
             alert_detail = f"{len(indices)} wazuh-alerts index(es)"
             alert_ok = True
         elif health_ok:
-            alert_ok = True
-            alert_detail = "no wazuh-alerts indices yet (cluster healthy; alerts appear after agent events)"
+            alert_ok = False
+            alert_detail = "no wazuh-alerts indices yet"
         else:
             alert_ok = False
             alert_detail = "no wazuh-alerts indices"
@@ -167,6 +176,7 @@ class WazuhIndexerPlugin(ServicePlugin):
                 "alert_indices",
                 alert_ok,
                 alert_detail,
+                status=VerifyStatus.NOT_READY if not alert_ok and not indices and rc_idx == 0 else None,
             )
         )
         return checks

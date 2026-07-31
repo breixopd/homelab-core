@@ -53,11 +53,12 @@ class RegistryMirrorPlugin(ServicePlugin):
             context.record_failure()
 
     def verify(self, cfg: Config, secrets: dict[str, str], vm_ip: str, root: Path) -> list[VerifyCheck]:
-        """Registry mirror running, CA cert, /v2/ proxy path, and pull-through probe."""
+        """Verify registry mirror runtime, CA certificate, and local API path."""
+        import re
+
         from toolkit.services.sdk import (
             VerifyCheck,
             container_exists_on_vm,
-            docker_curl,
             docker_exec_on_vm,
             docker_health_status_on_vm,
             registry_mirror_ca_url,
@@ -113,40 +114,30 @@ class RegistryMirrorPlugin(ServicePlugin):
             )
         )
 
-        rc, body = docker_curl(
+        rc, probe_output = docker_exec_on_vm(
             cfg,
-            vm_ip,
             "registry-mirror",
-            f"http://127.0.0.1:{port}/v2/",
-            root=root,
+            [
+                "sh",
+                "-c",
+                f"wget -S -O /dev/null -T 12 http://127.0.0.1:{port}/v2/ 2>&1",
+            ],
+            vm_ip,
+            root,
+            timeout=15,
         )
-        v2_ok = rc == 0 or (body or "").strip() in ("{}", "") or "401" in (body or "")
+        status_match = re.search(
+            r"HTTP/\S+\s+(200|401)\b",
+            probe_output or "",
+        )
+        status_code = status_match.group(1) if status_match else ""
+        v2_ok = status_code == "401" or (rc == 0 and status_code == "200")
         checks.append(
             VerifyCheck(
                 "registry-mirror",
                 "v2_endpoint",
                 v2_ok,
-                "registry /v2/ reachable via mirror" if v2_ok else "mirror /v2/ probe failed",
-            )
-        )
-
-        pull_probe = "wget -qS -O /dev/null https://registry-1.docker.io/v2/ 2>&1 | grep -o ' 401' | tr -d ' '"
-        pull_rc, pull_out = docker_exec_on_vm(
-            cfg,
-            "registry-mirror",
-            ["sh", "-c", pull_probe],
-            vm_ip,
-            root,
-            timeout=20,
-        )
-        code = ((pull_out or "").strip().splitlines() or [""])[0].strip()
-        pull_ok = pull_rc == 0 and code in ("200", "401")
-        checks.append(
-            VerifyCheck(
-                "registry-mirror",
-                "pull_through",
-                pull_ok,
-                f"docker.io via proxy HTTP {code or 'fail'}" if pull_ok else "pull-through probe failed",
+                f"registry API HTTP {status_code}" if v2_ok else "mirror /v2/ probe failed",
             )
         )
 

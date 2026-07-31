@@ -30,14 +30,21 @@ class TestUptimeKumaVerify:
         monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
         monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_a, **_k: (0, "ok"))
         monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", lambda *_a, **_k: (0, "0"))
-        monkeypatch.setattr(
-            "importlib.import_module",
-            lambda *_a, **_k: type("M", (), {"bootstrap_uptime_kuma": lambda *_x, **_y: []})(),
-        )
+        bootstrap_calls = []
+        real_import_module = importlib.import_module
+
+        def tracked_import(name, *args, **kwargs):
+            if name.endswith("uptime-kuma.bootstrap"):
+                bootstrap_calls.append(name)
+            return real_import_module(name, *args, **kwargs)
+
+        monkeypatch.setattr(importlib, "import_module", tracked_import)
 
         checks = {c.check: c for c in _plugin().verify(cfg, {}, "10.10.10.10", tmp_path)}
         assert not checks["monitors"].passed
         assert "no monitors" in checks["monitors"].detail
+        assert checks["monitors"].status.value == "not_ready"
+        assert bootstrap_calls == []
 
     def test_unreadable_monitor_database_fails_verification(self, tmp_path, monkeypatch):
         cfg = Config(domain="example.com", services=ServicesConfig(notifications=True))

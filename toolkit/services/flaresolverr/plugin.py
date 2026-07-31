@@ -22,7 +22,7 @@ class FlaresolverrPlugin(ServicePlugin):
         import shlex
 
         import httpx
-        from toolkit.services.sdk import VerifyCheck, container_exists_on_vm, docker_exec_on_vm
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus, container_exists_on_vm, docker_exec_on_vm
 
         if not container_exists_on_vm(cfg, vm_ip, "flaresolverr", root):
             return [VerifyCheck("flaresolverr", "health", False, "container missing")]
@@ -70,8 +70,9 @@ class FlaresolverrPlugin(ServicePlugin):
                         VerifyCheck(
                             "flaresolverr",
                             "solve",
-                            True,
+                            False,
                             f"solve skipped (health ok; probe timeout: {str(exc)[:60]})",
+                            status=VerifyStatus.FAIL,
                         )
                     )
                     return checks
@@ -79,8 +80,9 @@ class FlaresolverrPlugin(ServicePlugin):
                 VerifyCheck(
                     "flaresolverr",
                     "solve",
-                    True,
+                    False,
                     "solve skipped (health ok; POST /v1 timed out)",
+                    status=VerifyStatus.FAIL,
                 )
             )
             return checks

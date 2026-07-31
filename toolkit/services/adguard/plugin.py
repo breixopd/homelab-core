@@ -291,7 +291,14 @@ class AdguardPlugin(ServicePlugin):
             return VerifyCheck(
                 "adguard",
                 "dns_public",
-                True,
-                f"port 53 open (public A for {fqdn} pending DNS sync)",
+                False,
+                f"port 53 open but public A for {fqdn} is missing (expected {public_ip})",
+                status=VerifyStatus.NOT_READY,
             )
-        return VerifyCheck("adguard", "dns_public", True, "port 53 listening on private interface")
+        return VerifyCheck(
+            "adguard",
+            "dns_public",
+            False,
+            "port 53 open but public resolver IP is unavailable",
+            status=VerifyStatus.NOT_READY,
+        )

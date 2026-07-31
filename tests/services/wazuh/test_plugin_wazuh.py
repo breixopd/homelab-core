@@ -213,7 +213,7 @@ class TestWazuhIndexerVerify:
         assert checks["cluster_health"].passed
         assert checks["alert_indices"].passed
 
-    def test_alert_indices_skip_when_cluster_healthy(self, tmp_path, monkeypatch):
+    def test_alert_indices_are_not_ready_when_empty(self, tmp_path, monkeypatch):
         monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
 
         def fake_request(_cfg, _ip, _container, url, **_kw):
@@ -227,8 +227,22 @@ class TestWazuhIndexerVerify:
         checks = {
             c.check: c for c in _indexer().verify(_cfg(), {"WAZUH_INDEXER_PASSWORD": "pw"}, "10.10.10.10", tmp_path)
         }
-        assert checks["alert_indices"].passed
-        assert "yet" in checks["alert_indices"].detail
+        assert checks["alert_indices"].passed is False
+        assert checks["alert_indices"].status.value == "not_ready"
+
+    def test_alert_indices_probe_failure_does_not_pass(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
+
+        def fake_request(_cfg, _ip, _container, url, **_kw):
+            if "_cluster/health" in url:
+                return 0, json.dumps({"status": "green"})
+            return 1, ""
+
+        monkeypatch.setattr("toolkit.services.sdk.docker_curl", fake_request)
+        checks = {
+            c.check: c for c in _indexer().verify(_cfg(), {"WAZUH_INDEXER_PASSWORD": "pw"}, "10.10.10.10", tmp_path)
+        }
+        assert checks["alert_indices"].passed is False
 
     def test_cluster_health_red_fails(self, tmp_path, monkeypatch):
         monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
