@@ -44,6 +44,7 @@ from toolkit.controller.deployment_api import DEPLOYMENT_JOB_KINDS, read_deploym
 from toolkit.controller.desired_state_api import (
     DesiredStateConflictError,
     DesiredStateValidationError,
+    SMTPSettingsValidationError,
     create_machine,
     create_project,
     machine_retirement_blockers,
@@ -397,6 +398,15 @@ def create_controller_app(
     @app.exception_handler(DesiredStateConflictError)
     async def desired_state_conflict(_request: Request, _exc: DesiredStateConflictError):
         return _error_response(409, "CONFLICT", "Desired state changed; reload and retry")
+
+    @app.exception_handler(SMTPSettingsValidationError)
+    async def smtp_settings_validation(_request: Request, exc: SMTPSettingsValidationError):
+        return _error_response(
+            422,
+            "VALIDATION_ERROR",
+            "SMTP settings could not be verified",
+            {"field": "smtp", "stage": exc.stage},
+        )
 
     @app.exception_handler(DesiredStateValidationError)
     async def desired_state_validation(_request: Request, _exc: DesiredStateValidationError):
