@@ -150,8 +150,8 @@ def test_onboard_node_runs_playbook(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("toolkit.core.infra.fleet.trust_host_key", lambda *a, **k: ["trusted"])
     monkeypatch.setattr("toolkit.services.lldap.bootstrap.ensure_fleet_user", lambda *a, **k: ["LLDAP: ok"])
     monkeypatch.setattr(
-        "toolkit.services.headscale.bootstrap.headscale_preauth_key",
-        lambda **kw: "hskey-test",
+        "toolkit.services.headscale.bootstrap.headscale_preauth_key_for_deploy",
+        lambda *_args, **_kwargs: "hskey-test",
     )
     monkeypatch.setattr(KOMODO_BOOTSTRAP, "komodo_onboarding_key", lambda root: "O_1234567890123456789012345678_O")
     monkeypatch.setattr("toolkit.services.headscale.mesh.fleet_node_online", lambda *a, **k: True)

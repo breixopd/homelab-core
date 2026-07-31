@@ -17,6 +17,7 @@ approve_mesh_registration = _headscale_bootstrap.approve_mesh_registration
 personal_headscale_username = _headscale_bootstrap.personal_headscale_username
 headscale_preauth_key_for_deploy = _headscale_bootstrap.headscale_preauth_key_for_deploy
 ensure_controller_mesh_joined = _headscale_bootstrap.ensure_controller_mesh_joined
+headscale_control_state_verified = _headscale_bootstrap.headscale_control_state_verified
 bootstrap_infra_subnet_router = _headscale_mesh.bootstrap_infra_subnet_router
 mesh_internal_hosts = _headscale_mesh.mesh_internal_hosts
 probe_mesh_internal = _headscale_mesh.probe_mesh_internal
@@ -29,13 +30,24 @@ def _extract_registration_key(text: str) -> str:
     return match.group(1) if match else ""
 
 
-def _print_personal_join_help(cfg, *, registration_key: str = "") -> None:
+def _redact_registration_keys(text: str) -> str:
+    return _REGISTER_KEY_RE.sub(lambda match: match.group(0).replace(match.group(1), "<REDACTED>"), text)
+
+
+def _safe_mesh_log(line: str, *secrets: str | None) -> str:
+    """Redact bearer material and keep recovery hints on real commands."""
+    safe = _redact_registration_keys(line).replace("mesh join-cmd", "mesh join")
+    for secret in secrets:
+        if secret:
+            safe = safe.replace(secret, "<REDACTED>")
+    return safe
+
+
+def _print_personal_join_help(cfg) -> None:
     click.echo("")
     click.echo("Headscale registration page:")
     click.echo(f"  1. Prefer OIDC: on vpn.{cfg.domain}, use Sign in / OpenID (Authelia) — node auto-registers.")
     click.echo("  2. Manual approve: homelab-toolkit mesh approve --key <KEY from page>")
-    if registration_key:
-        click.echo(f"     homelab-toolkit mesh approve --key {registration_key}")
     click.echo(f"     (default user: {personal_headscale_username(cfg)})")
     click.echo("After join: accept subnet routes in Tailscale, then `homelab-toolkit mesh doctor`.")
 
@@ -58,15 +70,16 @@ def join(ctx: click.Context, hostname: str, fleet: bool, approve_key: str | None
     preauth_key: str | None = None
     if fleet:
         tags = list(cfg.fleet.headscale_tags or ["tag:fleet-external"])
-        preauth_key = headscale_preauth_key_for_deploy(cfg, Path(root), tags=tags)
-        if not preauth_key:
-            raise SystemExit("Could not create Headscale preauth key")
+        if not dry_run:
+            preauth_key = headscale_preauth_key_for_deploy(cfg, Path(root), tags=tags)
+            if not preauth_key:
+                raise SystemExit("Could not create Headscale preauth key")
         login = f"https://vpn.{cfg.domain}"
         cmd = [
             "tailscale",
             "up",
             f"--login-server={login}",
-            f"--auth-key={preauth_key}",
+            f"--auth-key={preauth_key or '<REDACTED>'}",
             f"--hostname={hostname}",
             "--accept-routes",
             "--reset",
@@ -75,32 +88,55 @@ def join(ctx: click.Context, hostname: str, fleet: bool, approve_key: str | None
         cmd = personal_mesh_up_args(cfg, hostname=hostname)
 
     if dry_run:
-        click.echo(" ".join(cmd))
+        safe_cmd = ["--auth-key=<REDACTED>" if arg.startswith("--auth-key=") else arg for arg in cmd]
+        click.echo(" ".join(safe_cmd))
         return
 
     os.environ["HOMELAB_JOIN_CONTROLLER_MESH"] = "1"
     if fleet:
-        logs = ensure_controller_mesh_joined(cfg, preauth_key=preauth_key, root=Path(root), fleet=True)
+        logs = ensure_controller_mesh_joined(
+            cfg,
+            preauth_key=preauth_key,
+            root=Path(root),
+            fleet=True,
+            hostname=hostname,
+        )
         for line in logs:
-            click.echo(line)
+            click.echo(_safe_mesh_log(line, preauth_key))
+        if not any("controller mesh active" in line or "fleet node joined mesh" in line for line in logs):
+            raise SystemExit(1)
         return
 
-    up = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
+    try:
+        up = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
+    except FileNotFoundError:
+        click.echo("Tailscale CLI is unavailable; install Tailscale, then retry `homelab-toolkit mesh join`.")
+        raise SystemExit(1) from None
+    except subprocess.TimeoutExpired:
+        click.echo("Tailscale join timed out; no registration was approved.")
+        raise SystemExit(1) from None
     combined = f"{up.stdout or ''}\n{up.stderr or ''}"
+    if up.returncode == 0:
+        if headscale_control_state_verified(f"https://vpn.{cfg.domain}"):
+            _mesh_post_join_hints()
+            return
+        click.echo("Tailscale returned success, but Headscale control state was not verified.")
+        raise SystemExit(1)
     reg_key = (approve_key or _extract_registration_key(combined)).strip()
     if up.returncode != 0 and "needs login" not in combined.lower():
-        click.echo(combined.strip()[:300])
+        safe_combined = combined.replace(reg_key, "<REDACTED>") if reg_key else combined
+        click.echo(_redact_registration_keys(safe_combined).strip()[:300])
 
     if reg_key:
-        click.echo(f"\nApproving registration key {reg_key[:8]}…")
         approve_logs = approve_mesh_registration(cfg, Path(root), key=reg_key)
         for line in approve_logs:
-            click.echo(line)
+            click.echo(_safe_mesh_log(line, reg_key))
         if any("registered node" in line for line in approve_logs):
             _mesh_post_join_hints()
             return
 
-    _print_personal_join_help(cfg, registration_key=reg_key)
+    _print_personal_join_help(cfg)
+    raise SystemExit(1)
 
 
 @mesh.command("approve")
@@ -112,7 +148,7 @@ def approve(ctx: click.Context, key: str, user: str | None):
     root, cfg = load_root_config(ctx)
     logs = approve_mesh_registration(cfg, Path(root), key=key, user=user)
     for line in logs:
-        click.echo(line)
+        click.echo(_safe_mesh_log(line, key))
     if not any("registered node" in line for line in logs):
         raise SystemExit(1)
 
