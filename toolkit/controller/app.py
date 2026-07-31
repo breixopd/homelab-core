@@ -112,6 +112,7 @@ from toolkit.controller.read_models import (
     ServiceSettingsUpdate,
     ServicesView,
     ServiceTopology,
+    ServiceVerificationView,
     SettingsUpdate,
     SettingsView,
 )
@@ -119,6 +120,7 @@ from toolkit.controller.service_management_api import (
     ServiceManagementNotFoundError,
     ServiceSettingValidationError,
     read_service_management,
+    read_service_verification,
     update_service_settings,
 )
 from toolkit.controller.settings_api import (
@@ -160,6 +162,7 @@ _ENABLED_API_KINDS = frozenset(
     {
         JobKind.GENERATE,
         JobKind.VERIFY,
+        JobKind.SERVICE_VERIFY,
         JobKind.DEPLOY,
         JobKind.RECOVER,
         JobKind.DNS_SYNC,
@@ -776,6 +779,14 @@ def create_controller_app(
         except ServiceManagementNotFoundError as exc:
             raise ControllerAPIError(404, "NOT_FOUND", "Service management resource was not found") from exc
 
+    @app.get("/v1/services/{service}/verification")
+    async def service_verification(
+        service: str,
+        principal: ControllerPrincipal = Depends(_principal),
+    ) -> ServiceVerificationView:
+        _require_ui_or_local(principal)
+        return await run_blocking(read_service_verification, app.state.root, store, service)
+
     @app.get("/v1/operations")
     async def operations_view(
         principal: ControllerPrincipal = Depends(_principal),
@@ -944,6 +955,10 @@ def create_controller_app(
             job, created = store.submit_job(request, principal=principal.identity, active_limit=1)
         elif request.kind is JobKind.VERIFY:
             job, created = store.submit_job(request, principal=principal.identity, active_limit=1)
+        elif request.kind is JobKind.SERVICE_VERIFY:
+            # Idempotency keys are service-scoped and deterministic; this keeps
+            # one active verification per service without a global cap.
+            job, created = store.submit_job(request, principal=principal.identity)
         elif request.kind in _HOST_MUTATION_KINDS:
             job, created = store.submit_job(
                 request,

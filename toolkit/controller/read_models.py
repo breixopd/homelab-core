@@ -436,6 +436,23 @@ class ServiceManagementView(StrictModel):
     resources: list[ManagedServiceResourceView] = Field(default_factory=list, max_length=8)
 
 
+class ServiceVerificationCheckView(StrictModel):
+    service: str = Field(min_length=1, max_length=63)
+    check: str = Field(min_length=1, max_length=63)
+    status: Literal["pass", "fail", "not_applicable", "degraded", "not_ready"]
+    detail: str = Field(default="", max_length=200)
+
+
+class ServiceVerificationView(StrictModel):
+    service: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    state: Literal["never", "queued", "running", "complete"]
+    overall_status: Literal["pass", "fail", "not_applicable", "degraded", "not_ready"] | None = None
+    checks: list[ServiceVerificationCheckView] = Field(default_factory=list, max_length=64)
+    observed_at: datetime | None = None
+    stale: bool = False
+    job_id: str | None = Field(default=None, max_length=128)
+
+
 ServiceSettingKey = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,62}$")]
 ServiceSettingText = Annotated[str, StringConstraints(max_length=4_096)]
 

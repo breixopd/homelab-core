@@ -63,6 +63,7 @@ from toolkit.controller.read_models import (
     ServiceSettingsUpdate,
     ServicesView,
     ServiceTopology,
+    ServiceVerificationView,
     SettingsUpdate,
     SettingsView,
 )
@@ -407,6 +408,13 @@ class ControllerClient:
             f"/v1/services/{quote(service, safe='')}/management",
             ServiceManagementView,
             params={"collect_status": str(collect_status).lower()},
+        )
+
+    def service_verification(self, service: str) -> ServiceVerificationView:
+        return self._model_request(
+            "GET",
+            f"/v1/services/{quote(service, safe='')}/verification",
+            ServiceVerificationView,
         )
 
     def update_service_settings(

@@ -405,6 +405,7 @@ def verify_hooks(
     vm: str | None = None,
     on_progress: Callable[[str], None] | None = None,
     only_services: frozenset[str] | None = None,
+    include_framework: bool = True,
 ) -> HookVerifyResult:
     """Run framework cross-service checks, then dispatch every enabled service plugin's verify()."""
     root = root or Path.cwd()
@@ -428,31 +429,31 @@ def verify_hooks(
 
     # ── Framework-level cross-service checks (not owned by any single plugin) ──
     # SSSD + LDAP getent: per-guest, run on every enabled VM role.
-    for vm_name in cfg.enabled_nodes:
+    for vm_name in cfg.enabled_nodes if include_framework else ():
         if not _runs_on(vm_name):
             continue
         vm_ip = cfg.node_ip(vm_name) if cfg.is_multi_node else "localhost"
         result.checks.append(_check_sssd_active(cfg, vm_name, vm_ip, root))
         result.checks.append(_check_ldap_getent(cfg, vm_name, vm_ip, root))
 
-    if cfg.category_enabled("management"):
+    if include_framework and cfg.category_enabled("management"):
         result.checks.extend(_check_forward_auth_routes(cfg, root, vm_role=vm_role))
 
-    if cfg.category_enabled("management") and _runs_service("prometheus"):
+    if include_framework and cfg.category_enabled("management") and _runs_service("prometheus"):
         from toolkit.core.ops.monitoring_verify import verify_monitoring_stack
 
         result.checks.extend(verify_monitoring_stack(cfg, secrets, root))
 
-    if vm_role is None:
+    if include_framework and vm_role is None:
         result.checks.extend(_check_repo_parity(cfg, root))
 
-    if cfg.category_enabled("management") and vm_role is None:
+    if include_framework and cfg.category_enabled("management") and vm_role is None:
         result.checks.append(_check_cloudflare_public_dns_parity(cfg, secrets))
         result.checks.append(_check_private_fqdns_not_in_cloudflare(cfg, secrets))
         for _, plugin in plugin_entries:
             result.checks.extend(plugin.controller_access_checks(cfg, root))
 
-    if cfg.category_enabled("email") and _runs_service("mailserver"):
+    if include_framework and cfg.category_enabled("email") and _runs_service("mailserver"):
         result.checks.append(_check_mail_dns_records(cfg, secrets, root))
 
     # ── Plugin-dispatched per-service checks ─────────────────────────────────
