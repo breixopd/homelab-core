@@ -260,7 +260,7 @@ def test_failed_smtp_probe_leaves_settings_and_secrets_unchanged(
     assert saved_secret_calls == []
 
 
-def test_smtp_form_uses_fixed_write_only_secret_name(tmp_path: Path) -> None:
+def test_smtp_form_ignores_submitted_secret_name(tmp_path: Path) -> None:
     save_config(Config(domain="example.test"), config_path(tmp_path))
     current = read_settings_view(tmp_path).values
 
@@ -276,7 +276,7 @@ def test_smtp_form_uses_fixed_write_only_secret_name(tmp_path: Path) -> None:
         current,
     )
 
-    assert values.smtp_password_secret == "OPERATOR_SMTP_PASSWORD"
+    assert values.smtp_password_secret == ""
 
 
 def test_stale_service_exposure_configuration_is_rejected(tmp_path: Path) -> None:

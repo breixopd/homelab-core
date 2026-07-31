@@ -79,6 +79,7 @@ def e2e_app(tmp_path: Path, monkeypatch) -> FastAPI:
     monkeypatch.setenv("WEBUI_SESSION_SECRET", "e2e-test-secret")
     monkeypatch.setenv("HOMELAB_UI_WIZARD", "1")
     monkeypatch.setattr("toolkit.core.secrets.secrets.load_secrets_plaintext", lambda _path: {})
+    monkeypatch.setattr("toolkit.controller.desired_state_api.load_secrets_plaintext", lambda _path: {})
 
     monkeypatch.setattr(
         "toolkit.webui.routers.auth.verify_password",
