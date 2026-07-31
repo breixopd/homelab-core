@@ -13,7 +13,7 @@
   <div><span>Status</span><strong id="service-reporting-status">Loading live data</strong></div>
 </section>
 
-<section class="content-band" aria-labelledby="service-verification-heading">
+<section class="content-band service-verification-panel" aria-labelledby="service-verification-heading">
   <div class="section-head"><div><h2 id="service-verification-heading">Deep verification</h2><p class="muted text-sm">Controller checks run asynchronously and retain the previous result while queued or running.</p></div>
   <form method="post" action="/services/{{ service.service }}/verification"><button type="submit" class="btn btn-ghost btn-sm" {% if not service.enabled or verification.state in ['queued', 'running'] %}disabled{% endif %}>Run verification</button></form></div>
   {% if verification.state in ['queued', 'running'] %}<p class="notice" role="status">Verification {{ verification.state }}{% if verification.stale %}; previous result is stale{% endif %}.</p>{% endif %}
