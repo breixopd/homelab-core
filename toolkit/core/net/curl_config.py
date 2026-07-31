@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 _HEADER_NAME_RE = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 _METHOD_RE = re.compile(r"^[A-Z]+$")
+DEFAULT_PROBE_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
 def _config_quote(value: str) -> str:
@@ -60,6 +61,7 @@ def render_curl_config(
     headers: Mapping[str, str] | None = None,
     body: str | None = None,
     timeout: int = 15,
+    max_response_bytes: int | None = None,
     insecure_tls: bool = False,
     ca_file: str | None = None,
     cookie_file: str | None = None,
@@ -76,6 +78,10 @@ def render_curl_config(
         raise ValueError("curl method must contain only uppercase letters")
     if not isinstance(timeout, int) or not 1 <= timeout <= 300:
         raise ValueError("curl timeout must be between 1 and 300 seconds")
+    if max_response_bytes is not None and (
+        not isinstance(max_response_bytes, int) or isinstance(max_response_bytes, bool) or max_response_bytes < 1
+    ):
+        raise ValueError("curl max response bytes must be a positive integer")
     if body is not None and not isinstance(body, str):
         raise ValueError("curl request body must be text")
     validated_headers = headers or {}
@@ -85,6 +91,8 @@ def render_curl_config(
     _validate_absolute_path(cookie_jar, label="cookie jar path")
 
     lines = ["silent", "show-error", "fail", "location", f"max-time = {timeout}", f'request = "{method}"']
+    if max_response_bytes is not None:
+        lines.append(f"max-filesize = {max_response_bytes}")
     if insecure_tls:
         lines.append("insecure")
     if ca_file:

@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from toolkit.core.config.storage import secrets_path
-from toolkit.core.ops.automation import docker_exec
+from toolkit.core.ops.automation import docker_curl
 from toolkit.core.secrets.secrets import load_secrets_plaintext
 
 _KOMODO_API_BASE = "http://127.0.0.1:9120"
@@ -27,8 +27,6 @@ def _komodo_request(
     Authenticates with X-Api-Key + X-Api-Secret (both required by Komodo Core).
     Returns (rc, parsed_json_or_None).
     """
-    from toolkit.core.net.curl_config import render_curl_config
-
     secrets = load_secrets_plaintext(secrets_path(root))
     api_key = secrets.get("KOMODO_API_KEY", "").strip()
     api_secret = secrets.get("KOMODO_API_SECRET", "").strip()
@@ -42,15 +40,14 @@ def _komodo_request(
     }
     if jwt:
         headers["Authorization"] = jwt
-    request_config = render_curl_config(
+    rc, out = docker_curl(
+        "komodo-core",
         f"{_KOMODO_API_BASE}{endpoint}",
         method="POST",
         headers=headers,
         body=json.dumps(payload, separators=(",", ":")),
         timeout=30,
     )
-
-    rc, out = docker_exec("komodo-core", ["curl", "--disable", "--config", "-"], stdin=request_config)
     if rc != 0:
         return rc, None
     try:

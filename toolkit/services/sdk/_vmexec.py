@@ -12,6 +12,8 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from toolkit.core.net.curl_config import DEFAULT_PROBE_RESPONSE_BYTES
+
 if TYPE_CHECKING:
     from toolkit.core.config.config import Config
 
@@ -112,6 +114,7 @@ def docker_curl(
     cookie_file: str | None = None,
     cookie_jar: str | None = None,
     timeout: int = 15,
+    max_response_bytes: int | None = DEFAULT_PROBE_RESPONSE_BYTES,
 ) -> tuple[int, str]:
     """curl ``url`` from inside a container on the target VM via SSH."""
     from toolkit.core.ansible.ansible_ssh import docker_exec_curl
@@ -129,6 +132,7 @@ def docker_curl(
         cookie_file=cookie_file,
         cookie_jar=cookie_jar,
         timeout=timeout,
+        max_response_bytes=max_response_bytes,
     )
 
 
