@@ -36,7 +36,7 @@ def test_post_start_reconciles_health_oidc_preauth_and_router(tmp_path, monkeypa
     )
     monkeypatch.setattr(
         "toolkit.services.headscale.bootstrap.bootstrap_headscale_preauth",
-        lambda **_k: ["Headscale: preauth key ready"],
+        lambda *_a, **_k: ["Headscale: preauth prerequisites ready"],
     )
     monkeypatch.setattr(
         "toolkit.services.headscale.mesh.bootstrap_infra_subnet_router",
@@ -51,7 +51,7 @@ def test_post_start_reconciles_health_oidc_preauth_and_router(tmp_path, monkeypa
     assert logs == [
         "Headscale: API reachable",
         "Headscale: OIDC ready",
-        "Headscale: preauth key ready",
+        "Headscale: preauth prerequisites ready",
         "Headscale: subnet router ready",
     ]
 
@@ -60,7 +60,7 @@ def test_post_start_fails_when_preauth_key_cannot_be_created(tmp_path, monkeypat
     monkeypatch.setattr("toolkit.services.headscale.bootstrap.ensure_headscale_oidc_provider", lambda *_a, **_k: [])
     monkeypatch.setattr(
         "toolkit.services.headscale.bootstrap.bootstrap_headscale_preauth",
-        lambda **_k: ["Headscale: preauth key create failed"],
+        lambda *_a, **_k: ["Headscale: preauth prerequisites unavailable"],
     )
     with (
         patch("toolkit.services.sdk.wait_for_http", return_value=True),

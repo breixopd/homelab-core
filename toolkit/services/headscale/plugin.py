@@ -80,10 +80,14 @@ class HeadscalePlugin(ServicePlugin):
             else "WARNING: Headscale: not ready yet"
         ]
         logs.extend(ensure_headscale_oidc_provider(cfg, install_root))
-        preauth_logs = bootstrap_headscale_preauth(tags=list(cfg.fleet.headscale_tags or ["tag:fleet-external"]))
+        preauth_logs = bootstrap_headscale_preauth(
+            cfg,
+            install_root,
+            tags=list(cfg.fleet.headscale_tags or ["tag:fleet-external"]),
+        )
         logs.extend(preauth_logs)
-        if any("preauth key create failed" in line for line in preauth_logs):
-            raise RuntimeError("Headscale preauth key creation failed")
+        if any("preauth prerequisites unavailable" in line for line in preauth_logs):
+            raise RuntimeError("Headscale preauth prerequisites are unavailable")
         if cfg.is_multi_node and cfg.fleet.mesh_subnet_router:
             logs.extend(bootstrap_infra_subnet_router(cfg, install_root))
         return logs
@@ -100,16 +104,16 @@ class HeadscalePlugin(ServicePlugin):
         root: Path,
     ) -> FleetOnboardingContribution:
         from toolkit.core.manifest.routes import compile_routes
-        from toolkit.services.headscale.bootstrap import headscale_preauth_key
+        from toolkit.services.headscale.bootstrap import headscale_preauth_key_for_deploy
 
         route = next(route for route in compile_routes(cfg) if route.service == self.service and route.match is None)
         tags = tuple(host.headscale_tags or cfg.fleet.headscale_tags or ())
-        key = headscale_preauth_key(tags=list(tags) or None)
+        key = headscale_preauth_key_for_deploy(cfg, root, tags=list(tags) or None)
         logs: list[str] = []
         if not key:
-            logs.append("Headscale: no reusable preauth key available - mesh join will be skipped")
+            logs.append("Headscale: no one-time preauth key available - mesh join will be skipped")
         elif tags:
-            logs.append(f"Headscale: preauth key prepared with tags {', '.join(tags)}")
+            logs.append(f"Headscale: one-time preauth key prepared with tags {', '.join(tags)}")
         variables: dict[str, object] = {"headscale_url": f"https://{route.host}"}
         if key:
             variables["headscale_auth_key"] = key
