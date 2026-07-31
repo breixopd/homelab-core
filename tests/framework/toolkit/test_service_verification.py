@@ -80,6 +80,10 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
                 if index == 0
                 else long_secret
                 if index == 1
+                else f"{long_secret[:100]} suffix"
+                if index == 2
+                else f"prefix {long_secret[:100]} suffix"
+                if index == 3
                 else "healthy"
             ),
             status=VerifyStatus.FAIL if index == 0 else VerifyStatus.PASS,
@@ -124,6 +128,8 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
     assert "unlabelled-bare-secret" not in result["checks"][0]["detail"]
     assert result["checks"][0]["detail"].count("[REDACTED]") == 3
     assert result["checks"][1]["detail"] == "[REDACTED]"
+    assert result["checks"][2]["detail"] == "[REDACTED] suffix"
+    assert result["checks"][3]["detail"] == "prefix [REDACTED] suffix"
     assert datetime.fromisoformat(result["observed_at"]).tzinfo is not None
     context.check_cancelled.assert_called_once()
 
