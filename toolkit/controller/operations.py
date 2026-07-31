@@ -63,6 +63,30 @@ class OperationPolicyDisabledError(OperationExecutionError):
         super().__init__(message, code="OPERATION_REJECTED")
 
 
+def _redact_secret_fragments(value: str, secret: str, *, minimum: int) -> str:
+    """Redact every meaningful contiguous fragment without quadratic matching."""
+    if len(value) < minimum or len(secret) < minimum:
+        return value
+    secret_windows = {secret[index : index + minimum] for index in range(len(secret) - minimum + 1)}
+    redacted = [False] * len(value)
+    for index in range(len(value) - minimum + 1):
+        if value[index : index + minimum] in secret_windows:
+            redacted[index : index + minimum] = [True] * minimum
+    if not any(redacted):
+        return value
+    parts: list[str] = []
+    index = 0
+    while index < len(value):
+        if not redacted[index]:
+            parts.append(value[index])
+            index += 1
+            continue
+        parts.append("[REDACTED]")
+        while index < len(value) and redacted[index]:
+            index += 1
+    return "".join(parts)
+
+
 def _safe_verification_text(value: str, secrets: dict[str, str], *, limit: int) -> str:
     safe = value[:limit]
     for secret in sorted(set(secrets.values()), key=len, reverse=True):
@@ -72,11 +96,11 @@ def _safe_verification_text(value: str, secrets: dict[str, str], *, limit: int) 
         if len(secret) <= 3:
             continue
         minimum_fragment = 8 if len(secret) > 8 else len(secret) - 1
-        for length in range(min(len(secret) - 1, limit), minimum_fragment - 1, -1):
-            fragment = secret[:length]
-            if fragment in safe:
-                safe = safe.replace(fragment, "[REDACTED]")
-                break
+        safe = _redact_secret_fragments(
+            safe,
+            secret,
+            minimum=minimum_fragment,
+        )
     return sanitize_message(safe)[:limit]
 
 

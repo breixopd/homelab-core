@@ -70,6 +70,7 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
     save_config(Config(), config_path(tmp_path))
     secrets_path(tmp_path).write_text("encrypted-placeholder", encoding="utf-8")
     long_secret = "A" * 5001
+    mixed_secret = f"prefix-{'A' * 100}{'B' * 100}{'C' * 100}-suffix"
     checks = [
         VerifyCheck(
             "grafana",
@@ -88,6 +89,10 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
                 if index == 4
                 else "prefix hunter suffix"
                 if index == 5
+                else "B" * 100
+                if index == 6
+                else f"{'C' * 100}-suffix"
+                if index == 7
                 else "healthy"
             ),
             status=VerifyStatus.FAIL if index == 0 else VerifyStatus.PASS,
@@ -101,6 +106,7 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
         lambda _path: {
             "GRAFANA_PASSWORD": "unlabelled-bare-secret",
             "GRAFANA_PRIVATE_KEY": long_secret,
+            "GRAFANA_SERVICE_TOKEN": mixed_secret,
             "SHORT_LEGACY_SECRET": "hunter2",
         },
     )
@@ -137,6 +143,8 @@ def test_service_verify_handler_bounds_redacts_and_aggregates(tmp_path: Path, mo
     assert result["checks"][3]["detail"] == "prefix [REDACTED] suffix"
     assert result["checks"][4]["detail"] == f"{'x' * 150}[REDACTED]"
     assert result["checks"][5]["detail"] == "prefix [REDACTED] suffix"
+    assert result["checks"][6]["detail"] == "[REDACTED]"
+    assert result["checks"][7]["detail"] == "[REDACTED]"
     assert datetime.fromisoformat(result["observed_at"]).tzinfo is not None
     context.check_cancelled.assert_called_once()
 
