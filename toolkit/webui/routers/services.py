@@ -159,7 +159,7 @@ async def service_verification_start(request: Request, service: str):
     try:
         operation = ServiceVerifyOperation(service=service)
         request_model = JobRequest(
-            idempotency_key=f"service-verify-{service}",
+            idempotency_key=f"service-verify-{service}-{uuid.uuid4()}",
             operation=operation,
         )
         job = await run_in_threadpool(request.app.state.controller.submit, request_model)

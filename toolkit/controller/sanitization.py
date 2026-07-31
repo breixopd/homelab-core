@@ -19,6 +19,7 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _AUTHORIZATION = re.compile(r"(?i)\bauthorization\s*[:=]\s*bearer\s+[^\s,;]+")
+_URL_USERINFO = re.compile(r"(?i)\b(?P<scheme>[a-z][a-z0-9+.-]*://)[^/\s@]+@")
 _SENSITIVE_ASSIGNMENT = re.compile(
     r"(?ix)\b"
     r"(?P<key>[a-z0-9_.-]*(?:password|passwd|pwd|token|secret|auth[_-]?key|api[_-]?key|"
@@ -34,6 +35,7 @@ class SanitizationError(ValueError):
 
 def sanitize_message(message: str) -> str:
     redacted = _AUTHORIZATION.sub("Authorization=[REDACTED]", message)
+    redacted = _URL_USERINFO.sub(r"\g<scheme>[REDACTED]@", redacted)
     return _SENSITIVE_ASSIGNMENT.sub(lambda match: f"{match.group('key')}=[REDACTED]", redacted)
 
 
