@@ -40,13 +40,13 @@ class PrometheusPlugin(ServicePlugin):
 
         return sanitize_message(text)[: cls._TEXT_LIMIT]
 
-    def _target_snapshot(self, cfg: Config, root: Path) -> list[dict[str, object]]:
+    def _target_snapshot(self, cfg: Config, root: Path, *, address: str | None = None) -> list[dict[str, object]]:
         """Read the bounded active-target projection from Prometheus' stable API."""
         from toolkit.services.sdk import docker_curl
 
         rc, body = docker_curl(
             cfg,
-            self.runtime_address(cfg),
+            address or self.runtime_address(cfg),
             "prometheus",
             "http://localhost:9090/api/v1/targets",
             root=root,
@@ -137,7 +137,7 @@ class PrometheusPlugin(ServicePlugin):
             return [f"WARNING: Prometheus targets unavailable ({exc})"]
 
     def verify(self, cfg: Config, secrets: dict[str, str], vm_ip: str, root: Path) -> list[VerifyCheck]:
-        from toolkit.services.sdk import VerifyCheck, container_exists_on_vm, docker_curl
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus, container_exists_on_vm, docker_curl
         from toolkit.services.sdk.monitoring import prometheus_internal_url
 
         checks: list[VerifyCheck] = []
@@ -156,23 +156,32 @@ class PrometheusPlugin(ServicePlugin):
             detail = (body or "").strip()[:80] if body else ("ok" if ok else "unreachable")
             checks.append(VerifyCheck("prometheus", check, ok, detail))
 
-        rc, body = docker_curl(cfg, vm_ip, "prometheus", f"{base}/api/v1/targets", root=root)
-        if rc != 0 or not body:
-            checks.append(VerifyCheck("prometheus", "targets", False, "API unreachable"))
-            return checks
         try:
-            active = json.loads(body).get("data", {}).get("activeTargets", [])
-        except json.JSONDecodeError:
-            checks.append(VerifyCheck("prometheus", "targets", False, "invalid targets JSON"))
+            active = self._target_snapshot(cfg, root, address=vm_ip)
+        except RuntimeError as exc:
+            checks.append(VerifyCheck("prometheus", "targets", False, str(exc)))
             return checks
 
         down = [t for t in active if t.get("health") != "up"]
         down_labels = []
         for target in down[:5]:
-            labels = target.get("labels") or {}
-            down_labels.append(labels.get("job") or labels.get("instance") or "unknown")
+            raw_labels = target.get("labels")
+            labels = raw_labels if isinstance(raw_labels, dict) else {}
+            label = labels.get("job") or labels.get("instance")
+            down_labels.append(str(label) if label else "unknown")
         detail = f"{len(active) - len(down)}/{len(active)} targets up"
         if down:
             detail += f" (down: {', '.join(down_labels)}{'…' if len(down) > 5 else ''})"
-        checks.append(VerifyCheck("prometheus", "targets", len(down) == 0, detail))
+        if not active:
+            checks.append(
+                VerifyCheck(
+                    "prometheus",
+                    "targets",
+                    False,
+                    "no active scrape targets",
+                    status=VerifyStatus.NOT_READY,
+                )
+            )
+        else:
+            checks.append(VerifyCheck("prometheus", "targets", len(down) == 0, detail))
         return checks

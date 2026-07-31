@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import yaml
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config
+from toolkit.core.verify.models import VerifyStatus
 
 
 def _plugin():
@@ -111,3 +112,16 @@ def test_management_status_rejects_prometheus_error_envelope(tmp_path, monkeypat
     monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_args, **_kwargs: (0, body))
 
     assert _plugin().status(Config(), {}, tmp_path) == {}
+
+
+def test_verify_marks_zero_targets_not_ready(tmp_path, monkeypatch):
+    monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
+
+    def fake_curl(_cfg, _ip, _container, url, **_kwargs):
+        if url.endswith("/-/healthy") or url.endswith("/-/ready"):
+            return 0, "Prometheus is Ready."
+        return 0, json.dumps({"status": "success", "data": {"activeTargets": []}})
+
+    monkeypatch.setattr("toolkit.services.sdk.docker_curl", fake_curl)
+    checks = {c.check: c for c in _plugin().verify(Config(domain="example.com"), {}, "10.10.10.10", tmp_path)}
+    assert checks["targets"].status is VerifyStatus.NOT_READY

@@ -123,18 +123,32 @@ class ImmichPlugin(ServicePlugin):
         return VerifyCheck("immich", "version", True, f"version {version}")
 
     def _check_db_path(self, cfg, vm_ip, root, docker_curl, secrets) -> VerifyCheck:
-        from toolkit.services.sdk import VerifyCheck, resolve_bootstrap_password
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus, resolve_bootstrap_password
 
-        email = secrets.get("IMMICH_ADMIN_EMAIL", cfg.email)
+        email = secrets.get("IMMICH_ADMIN_EMAIL") or cfg.email
         password = resolve_bootstrap_password(secrets, "IMMICH_ADMIN_PASSWORD")
-        if not password:
-            rc, body = docker_curl(cfg, vm_ip, "immich-server", "http://localhost:2283/api/server/version", root=root)
-            ok = rc == 0 and bool(body)
-            return VerifyCheck("immich", "db_migrations", ok, "version endpoint ok (no admin creds for /users/me)")
+        if not email or not password:
+            return VerifyCheck(
+                "immich",
+                "db_migrations",
+                False,
+                "admin credentials unavailable for /users/me",
+                status=VerifyStatus.NOT_READY,
+            )
 
-        payload = json.dumps({"email": email, "password": password})
         from toolkit.services.sdk import docker_exec_on_vm
 
+        # Keep the command static: credentials are expanded inside the
+        # container from the stdin-backed secret environment wrapper, never
+        # serialized into Docker/SSH argv or emitted in diagnostics.
+        login_command = [
+            "sh",
+            "-c",
+            "node -e 'process.stdout.write(JSON.stringify({"
+            "email:process.env.HOMELAB_VERIFY_EMAIL,password:process.env.HOMELAB_VERIFY_PASSWORD}))' "
+            "| curl -sf --max-time 12 -X POST http://localhost:2283/api/auth/login "
+            "-H 'Content-Type: application/json' --data-binary @-",
+        ]
         login_rc, login_body = 1, ""
         for _attempt in range(5):
             ping_rc, ping_body = docker_curl(
@@ -150,22 +164,14 @@ class ImmichPlugin(ServicePlugin):
             login_rc, login_body = docker_exec_on_vm(
                 cfg,
                 "immich-server",
-                [
-                    "curl",
-                    "-sf",
-                    "--max-time",
-                    "12",
-                    "-X",
-                    "POST",
-                    "http://localhost:2283/api/auth/login",
-                    "-H",
-                    "Content-Type: application/json",
-                    "-d",
-                    payload,
-                ],
+                login_command,
                 vm_ip,
                 root,
                 timeout=20,
+                secret_environment={
+                    "HOMELAB_VERIFY_EMAIL": email,
+                    "HOMELAB_VERIFY_PASSWORD": password,
+                },
             )
             if login_rc == 0 and login_body:
                 break
@@ -173,7 +179,8 @@ class ImmichPlugin(ServicePlugin):
         if login_rc != 0 or not login_body:
             return VerifyCheck("immich", "db_migrations", False, "admin login failed (DB path blocked)")
         try:
-            token = json.loads(login_body).get("accessToken") or json.loads(login_body).get("access_token")
+            login_data = json.loads(login_body)
+            token = login_data.get("accessToken") or login_data.get("access_token")
         except json.JSONDecodeError:
             return VerifyCheck("immich", "db_migrations", False, "login response invalid")
         if not token:
@@ -191,7 +198,7 @@ class ImmichPlugin(ServicePlugin):
             "immich",
             "db_migrations",
             ok,
-            "DB path ok (/users/me)" if ok else (me_body or "users/me failed")[:120],
+            "DB path ok (/users/me)" if ok else "users/me failed",
         )
 
     def _check_ml_reachable(self, cfg, vm_ip, root, docker_exec_on_vm) -> VerifyCheck:

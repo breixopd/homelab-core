@@ -28,7 +28,13 @@ class UptimeKumaPlugin(ServicePlugin):
 
     def verify(self, cfg: Config, secrets: dict, vm_ip: str, root: Path) -> list[VerifyCheck]:
         """Verify status page HTTP + SQLite monitor count (proves DB is working)."""
-        from toolkit.services.sdk import VerifyCheck, container_exists_on_vm, docker_curl, docker_exec_on_vm
+        from toolkit.services.sdk import (
+            VerifyCheck,
+            VerifyStatus,
+            container_exists_on_vm,
+            docker_curl,
+            docker_exec_on_vm,
+        )
 
         if cfg.domain == "localhost":
             return [VerifyCheck("uptime-kuma", "status-page-http", True, "skipped (localhost)")]
@@ -71,36 +77,6 @@ class UptimeKumaPlugin(ServicePlugin):
         else:
             count = -1
 
-        if count == 0:
-            try:
-                import importlib
-
-                bootstrap = importlib.import_module("toolkit.services.uptime-kuma.bootstrap")
-                bootstrap.bootstrap_uptime_kuma(cfg, secrets)
-                rc2, out2 = docker_exec_on_vm(
-                    cfg,
-                    "uptime-kuma",
-                    [
-                        "node",
-                        "-e",
-                        (
-                            "const sqlite3=require('@louislam/sqlite3');"
-                            "const db=new sqlite3.Database('/app/data/kuma.db',sqlite3.OPEN_READONLY,(e)=>{"
-                            "if(e){console.error(e.message);process.exit(1)}});"
-                            "db.get('SELECT COUNT(*) AS count FROM monitor',(e,row)=>{"
-                            "if(e){console.error(e.message);process.exitCode=1}"
-                            "else{console.log(row.count)}db.close()})"
-                        ),
-                    ],
-                    vm_ip,
-                    root,
-                    timeout=15,
-                )
-                if rc2 == 0 and (out2 or "").strip().isdigit():
-                    count = int((out2 or "0").strip())
-            except Exception:
-                pass
-
         if count > 0:
             checks.append(
                 VerifyCheck(
@@ -116,7 +92,8 @@ class UptimeKumaPlugin(ServicePlugin):
                     "uptime-kuma",
                     "monitors",
                     False,
-                    "no monitors registered (status page up; bootstrap could not register — check admin password)",
+                    "no monitors registered (status page up; configure monitors via bootstrap)",
+                    status=VerifyStatus.NOT_READY,
                 )
             )
         else:

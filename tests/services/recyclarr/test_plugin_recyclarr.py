@@ -67,3 +67,31 @@ def test_post_start_fails_when_sync_command_fails(tmp_path, monkeypatch):
             root=tmp_path,
         )
     assert not (tmp_path / "generated/recyclarr/.last-sync.sha256").exists()
+
+
+def test_verify_does_not_sync_when_profiles_need_configuration(tmp_path, monkeypatch):
+    cfg = Config(domain="example.com", services=ServicesConfig(media=True))
+    sync_calls = []
+
+    def ssh(_cfg, _vm, command, **_kwargs):
+        if command.startswith("test -s"):
+            return 0, "", ""
+        if "--version" in command:
+            return 0, "recyclarr 8.6.0", ""
+        return 1, "", ""
+
+    monkeypatch.setattr("toolkit.services.sdk.ssh_on_vm", ssh)
+    monkeypatch.setattr(
+        "toolkit.services.sdk.docker_curl",
+        lambda *_a, **_k: (0, '[{"name":"Default"}]'),
+    )
+    monkeypatch.setattr(
+        "toolkit.services.sdk.docker_exec_on_vm",
+        lambda *_a, **_k: sync_calls.append(_a) or (1, "unexpected sync"),
+    )
+
+    checks = {check.check: check for check in _plugin().verify(cfg, {}, "10.0.0.2", tmp_path)}
+
+    assert not checks["profiles"].passed
+    assert checks["profiles"].status.value == "not_ready"
+    assert sync_calls == []

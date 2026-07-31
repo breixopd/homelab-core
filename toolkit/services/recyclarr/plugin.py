@@ -114,7 +114,13 @@ class RecyclarrPlugin(ServicePlugin):
                 cfg, vm_ip, "test -s /opt/homelab/generated/recyclarr/recyclarr.yml", root=root, timeout=20
             )
             if rc != 0:
-                config_check = VerifyCheck("recyclarr", "config", False, "recyclarr.yml missing on media")
+                config_check = VerifyCheck(
+                    "recyclarr",
+                    "config",
+                    False,
+                    "recyclarr.yml missing on media",
+                    status="not_ready",
+                )
             else:
                 rc2, ver, _ = ssh_on_vm(cfg, vm_ip, "docker exec recyclarr recyclarr --version", root=root, timeout=30)
                 ok = rc2 == 0 and bool((ver or "").strip())
@@ -125,15 +131,15 @@ class RecyclarrPlugin(ServicePlugin):
                 )
                 config_check = VerifyCheck("recyclarr", "config", ok, detail)
         except Exception as exc:
-            config_check = VerifyCheck("recyclarr", "config", False, str(exc)[:80])
+            config_check = VerifyCheck("recyclarr", "config", False, str(exc)[:80], status="not_ready")
 
         # ── profiles check: Sonarr exposes a TRaSH-style quality profile ────────
         try:
             profiles_check = self._check_recyclarr_profiles(cfg, secrets, vm_ip, root, docker_curl)
             radarr_check = self._check_radarr_profiles(cfg, secrets, vm_ip, root, docker_curl)
         except Exception as exc:
-            profiles_check = VerifyCheck("recyclarr", "profiles", False, str(exc)[:80])
-            radarr_check = VerifyCheck("recyclarr", "radarr_profiles", False, str(exc)[:80])
+            profiles_check = VerifyCheck("recyclarr", "profiles", False, str(exc)[:80], status="not_ready")
+            radarr_check = VerifyCheck("recyclarr", "radarr_profiles", False, str(exc)[:80], status="not_ready")
 
         return [config_check, profiles_check, radarr_check, self._check_last_sync(cfg, vm_ip, root)]
 
@@ -164,7 +170,13 @@ class RecyclarrPlugin(ServicePlugin):
             )
         digest = (out or "").strip()
         if rc != 0 or len(digest) != 64:
-            return VerifyCheck("recyclarr", "last_sync", False, "current config has no successful sync receipt")
+            return VerifyCheck(
+                "recyclarr",
+                "last_sync",
+                False,
+                "current config has no successful sync receipt",
+                status="not_ready",
+            )
         return VerifyCheck("recyclarr", "last_sync", True, f"current config synced ({digest[:12]})")
 
     @staticmethod
@@ -175,7 +187,13 @@ class RecyclarrPlugin(ServicePlugin):
 
         api_key = secrets.get("RADARR_API_KEY", "")
         if not api_key:
-            return VerifyCheck("recyclarr", "radarr_profiles", True, "skipped (no RADARR_API_KEY)")
+            return VerifyCheck(
+                "recyclarr",
+                "radarr_profiles",
+                False,
+                "RADARR_API_KEY missing",
+                status="not_ready",
+            )
         rc, out = docker_curl(
             cfg,
             vm_ip,
@@ -186,11 +204,13 @@ class RecyclarrPlugin(ServicePlugin):
             timeout=20,
         )
         if rc != 0 or not out:
-            return VerifyCheck("recyclarr", "radarr_profiles", False, "Radarr qualityprofile API unreachable")
+            return VerifyCheck(
+                "recyclarr", "radarr_profiles", False, "Radarr qualityprofile API unreachable", status="not_ready"
+            )
         try:
             profiles = json.loads(out)
         except json.JSONDecodeError:
-            return VerifyCheck("recyclarr", "radarr_profiles", False, "invalid qualityprofile JSON")
+            return VerifyCheck("recyclarr", "radarr_profiles", False, "invalid qualityprofile JSON", status="not_ready")
         matched = [
             p
             for p in profiles
@@ -203,6 +223,7 @@ class RecyclarrPlugin(ServicePlugin):
             "radarr_profiles",
             ok,
             f"found: {', '.join(names)}" if ok else f"{len(profiles)} profile(s), none match TRaSH",
+            status=None if ok else "not_ready",
         )
 
     @staticmethod
@@ -249,16 +270,9 @@ class RecyclarrPlugin(ServicePlugin):
 
         profiles, err = _profiles_from_api()
         if err:
-            return VerifyCheck("recyclarr", "profiles", False, err)
+            return VerifyCheck("recyclarr", "profiles", False, err, status="not_ready")
         matched = _match_trash(profiles)
-        if not matched:
-            from toolkit.services.sdk import docker_exec_on_vm
-
-            docker_exec_on_vm(cfg, "recyclarr", ["recyclarr", "sync"], vm_ip, root, timeout=180)
-            profiles, err = _profiles_from_api()
-            if not err:
-                matched = _match_trash(profiles)
         ok = len(matched) > 0
         names = [p.get("name", "") for p in matched[:3]]
         detail = f"found: {', '.join(names)}" if ok else f"{len(profiles)} profile(s), none match WEB-1080p/TRaSH"
-        return VerifyCheck("recyclarr", "profiles", ok, detail)
+        return VerifyCheck("recyclarr", "profiles", ok, detail, status=None if ok else "not_ready")

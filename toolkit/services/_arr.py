@@ -1586,12 +1586,12 @@ def resolve_seerr_api_key(secrets: dict[str, str], root: Path) -> str:
 def verify_seerr_status(cfg, vm_ip: str, root: Path):
     import httpx
 
-    from toolkit.services.sdk import VerifyCheck, container_exists_on_vm, docker_curl
+    from toolkit.services.sdk import VerifyCheck, VerifyStatus, container_exists_on_vm, docker_curl
 
     if cfg.domain == "localhost":
         return VerifyCheck("seerr", "status", True, "skipped (localhost)")
     if not container_exists_on_vm(cfg, vm_ip, "seerr", root):
-        return VerifyCheck("seerr", "status", True, "skipped (container missing)")
+        return VerifyCheck("seerr", "status", False, "container missing", status=VerifyStatus.FAIL)
 
     url = "http://localhost:5055/api/v1/status"
     if cfg.is_multi_node:
@@ -1618,7 +1618,7 @@ def verify_seerr_status(cfg, vm_ip: str, root: Path):
 def verify_seerr_connections(cfg, secrets: dict[str, str], vm_ip: str, root: Path):
     import httpx
 
-    from toolkit.services.sdk import VerifyCheck, docker_curl
+    from toolkit.services.sdk import VerifyCheck, VerifyStatus, docker_curl
 
     api_key = resolve_seerr_api_key(secrets, root)
     if cfg.is_multi_node:
@@ -1643,7 +1643,13 @@ def verify_seerr_connections(cfg, secrets: dict[str, str], vm_ip: str, root: Pat
             if runtime_key:
                 api_key = str(runtime_key)
     if not api_key:
-        return VerifyCheck("seerr", "connections", True, "skipped (no SEERR_API_KEY)")
+        return VerifyCheck(
+            "seerr",
+            "connections",
+            False,
+            "SEERR_API_KEY missing",
+            status=VerifyStatus.NOT_READY,
+        )
     headers = {"X-Api-Key": api_key}
 
     def _fetch(path: str) -> tuple[int, dict | list | None]:

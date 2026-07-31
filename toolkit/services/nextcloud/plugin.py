@@ -210,7 +210,7 @@ class NextcloudPlugin(ServicePlugin):
         if redis_rc == 0 and "PONG" in (redis_out or "").upper():
             return VerifyCheck("nextcloud", "db_redis", True, "db ok + redis PONG")
         if redis_rc != 0:
-            return VerifyCheck("nextcloud", "db_redis", True, "db ok (redis occ skipped)")
+            return VerifyCheck("nextcloud", "db_redis", False, (redis_out or "redis PING failed")[:120])
         return VerifyCheck("nextcloud", "db_redis", False, (redis_out or "redis PING failed")[:120])
 
     def _check_oidc_provider(self, cfg, vm_ip, root, docker_exec_on_vm, authelia_oidc_issuer) -> VerifyCheck:
