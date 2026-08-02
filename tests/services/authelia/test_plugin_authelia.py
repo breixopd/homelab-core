@@ -51,7 +51,7 @@ class TestAutheliaVerify:
         monkeypatch.setattr("toolkit.services.sdk.docker_curl", fake_curl)
         monkeypatch.setattr(
             "toolkit.services.sdk.docker_exec_on_vm",
-            lambda *_args, **_kwargs: (0, "configuration valid"),
+            lambda *_args, **_kwargs: (0, "220 mail.example.com ESMTP\n250 mail.example.com"),
         )
         monkeypatch.setattr(
             "toolkit.core.ops.notifications.probe_smtp_transport",
@@ -89,7 +89,10 @@ class TestAutheliaVerify:
             lambda *_a, **_k: (discovery, ""),
         )
         monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_a, **_k: (0, '{"keys": []}'))
-        monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", lambda *_a, **_k: (0, "ok"))
+        monkeypatch.setattr(
+            "toolkit.services.sdk.docker_exec_on_vm",
+            lambda *_a, **_k: (0, "220 mail.example.com ESMTP\n250 mail.example.com"),
+        )
         monkeypatch.setattr("toolkit.services.sdk.ldap_bind_search_on_vm", lambda *_a, **_k: (1, "bind failed"))
         monkeypatch.setattr(
             "toolkit.core.ops.notifications.probe_smtp_transport",
@@ -139,16 +142,22 @@ def test_authelia_readiness_commands_are_static_and_do_not_expose_storage_key(tm
     assert checks["storage_encryption"].passed is False
     assert checks["storage_encryption"].detail == "storage_encryption failed (rc=1)"
     assert storage_key not in checks["storage_encryption"].detail
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert all(kwargs["timeout"] == 10 for _args, kwargs in calls)
-    assert all(kwargs["user"] == "1000:1000" for _args, kwargs in calls)
+    assert calls[0][1].get("user", "") == ""
+    assert all(kwargs["user"] == "1000:1000" for _args, kwargs in calls[1:])
     assert all("AUTHELIA_STORAGE_KEY" not in repr((args, kwargs)) for args, kwargs in calls)
     assert calls[0][0][2] == [
         "sh",
         "-c",
-        "exec authelia config validate --config /config/configuration.yml >/dev/null 2>&1",
+        "printf 'EHLO authelia\\r\\nQUIT\\r\\n' | nc -w 5 mailserver 25",
     ]
     assert calls[1][0][2] == [
+        "sh",
+        "-c",
+        "exec authelia config validate --config /config/configuration.yml >/dev/null 2>&1",
+    ]
+    assert calls[2][0][2] == [
         "sh",
         "-c",
         "exec authelia storage encryption check --config /config/configuration.yml >/dev/null 2>&1",

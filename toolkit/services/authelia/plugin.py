@@ -171,6 +171,32 @@ class AutheliaPlugin(ServicePlugin):
                         "not applicable: SMTP notifier disabled",
                     )
                 )
+            elif cfg.notifications.smtp.mode == "auto":
+                rc, smtp_output = docker_exec_on_vm(
+                    cfg,
+                    "authelia",
+                    [
+                        "sh",
+                        "-c",
+                        "printf 'EHLO authelia\\r\\nQUIT\\r\\n' | nc -w 5 mailserver 25",
+                    ],
+                    vm_ip,
+                    root,
+                    timeout=10,
+                )
+                smtp_ready = rc == 0 and smtp_output.startswith("220") and "\n250" in smtp_output
+                checks.append(
+                    VerifyCheck(
+                        "authelia",
+                        "notifier_smtp",
+                        smtp_ready,
+                        (
+                            "Authelia container completed an SMTP EHLO to the managed mailserver"
+                            if smtp_ready
+                            else f"managed SMTP path failed (rc={rc})"
+                        ),
+                    )
+                )
             else:
                 smtp_probe = probe_smtp_transport(transport)
                 checks.append(
