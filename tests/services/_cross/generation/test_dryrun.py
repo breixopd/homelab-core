@@ -112,7 +112,7 @@ class TestEnvGeneration:
     def test_volume_paths_set_with_root(self, full_config, all_secrets, tmp_path):
         env = _build_env_vars(full_config, "infra", all_secrets, root=tmp_path)
         assert "CADDY_DATA_SOURCE" in env
-        assert str(tmp_path) in env["CADDY_DATA_SOURCE"]
+        assert env["CADDY_DATA_SOURCE"] == "/opt/homelab/data/caddy"
 
     def test_grafana_smtp_integration_when_email_enabled(self, full_config, all_secrets, tmp_path):
         env = _build_env_vars(full_config, "infra", all_secrets, root=tmp_path)

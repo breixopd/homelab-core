@@ -57,6 +57,9 @@ def test_fix_volume_permissions_builds_env_when_missing(tmp_path: Path, monkeypa
 def test_fix_volume_permissions_media_config_owners(tmp_path: Path):
     root = tmp_path / "homelab"
     root.mkdir()
+    env_dir = root / "generated" / "media"
+    env_dir.mkdir(parents=True)
+    env_dir.joinpath(".env").write_text(f"SEERR_CONFIG_SOURCE={root / 'data' / 'seerr' / 'config'}\n")
 
     with patch("os.chown"):
         logs = fix_volume_permissions(root, node="media")
