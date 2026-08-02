@@ -37,6 +37,7 @@ class ComposeMount:
 @dataclass(frozen=True, slots=True)
 class ServiceCatalog:
     manifests: tuple[ServiceManifest, ...]
+    sources: tuple[tuple[str, Path], ...] = ()
 
     def __post_init__(self) -> None:
         _validate_catalog(self.manifests)
@@ -61,6 +62,18 @@ class ServiceCatalog:
             raise KeyError(capability)
         return provider
 
+    def service_root(self, name: str) -> Path:
+        for service, root in self.sources:
+            if service == name:
+                return root
+        raise KeyError(f"service source unavailable for {name!r}")
+
+    def compose_path(self, name: str) -> Path:
+        return self.service_root(name) / "compose.yaml"
+
+    def compose_applications(self) -> tuple[Path, ...]:
+        return tuple(path for manifest in self.manifests if (path := self.compose_path(manifest.name)).is_file())
+
 
 def _services_root(root: Path | None) -> Path:
     if root is None:
@@ -73,11 +86,14 @@ def _services_root(root: Path | None) -> Path:
 
 
 @lru_cache(maxsize=32)
-def _load_cached(root: str) -> ServiceCatalog:
+def _load_cached(root: str, add_on_roots: tuple[tuple[str, str], ...]) -> ServiceCatalog:
     services_root = Path(root)
     manifests: list[ServiceManifest] = []
+    source_roots: dict[str, Path] = {}
     seen: set[str] = set()
-    for path in sorted(services_root.glob("*/service.yaml")):
+    manifest_sources = [(f"built-in:{path.parent.name}", path) for path in sorted(services_root.glob("*/service.yaml"))]
+    manifest_sources.extend((f"entry-point:{name}", Path(path) / "service.yaml") for name, path in add_on_roots)
+    for source, path in manifest_sources:
         try:
             raw = yaml.safe_load(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, yaml.YAMLError) as exc:
@@ -91,11 +107,12 @@ def _load_cached(root: str) -> ServiceCatalog:
         if manifest.name != path.parent.name:
             raise ManifestCatalogError(f"manifest name {manifest.name!r} must match directory {path.parent.name!r}")
         if manifest.name in seen:
-            raise ManifestCatalogError(f"duplicate service manifest {manifest.name!r}")
+            raise ManifestCatalogError(f"duplicate service manifest {manifest.name!r} from {source}")
+        plugin_root = path.parent.resolve()
         compose_path = path.parent / "compose.yaml"
         _validate_compose_logging(manifest, compose_path)
         _validate_runtime_compose_profiles(manifest, compose_path)
-        _validate_image_build(manifest, compose_path, services_root)
+        _validate_image_build(manifest, compose_path, plugin_root.parent)
         _validate_backup_exports(manifest, compose_path)
         _validate_storage_mounts(manifest, compose_path)
         _validate_host_publications(manifest, compose_path)
@@ -104,18 +121,28 @@ def _load_cached(root: str) -> ServiceCatalog:
         _validate_service_endpoint(manifest, compose_path)
         _validate_database_provider(manifest, compose_path)
         seen.add(manifest.name)
+        source_roots[manifest.name] = plugin_root
         manifests.append(manifest)
     if not manifests:
         raise ManifestCatalogError(f"no service manifests found under {services_root}")
     manifests.sort(key=lambda item: (item.priority, item.name))
-    catalog = ServiceCatalog(tuple(manifests))
-    _validate_compose_host_sources(catalog.manifests, services_root)
-    _validate_generated_artifact_sources(catalog.manifests, services_root)
+    catalog = ServiceCatalog(tuple(manifests), tuple(sorted(source_roots.items())))
+    _validate_compose_host_sources(catalog)
+    _validate_generated_artifact_sources(catalog)
     return catalog
 
 
 def load_service_catalog(root: Path | None = None) -> ServiceCatalog:
-    return _load_cached(str(_services_root(root)))
+    from toolkit.services import installed_service_bundles
+
+    resolved_root = root.resolve() if root is not None else None
+    include_add_ons = root is None or bool(resolved_root and (resolved_root / "pyproject.toml").is_file())
+    add_on_roots = (
+        tuple((name, str(bundle.root.resolve())) for name, bundle in installed_service_bundles())
+        if include_add_ons
+        else ()
+    )
+    return _load_cached(str(_services_root(root)), add_on_roots)
 
 
 def provider_service_name(capability: str, root: Path | None = None) -> str:
@@ -125,6 +152,9 @@ def provider_service_name(capability: str, root: Path | None = None) -> str:
 
 def clear_catalog_cache() -> None:
     _load_cached.cache_clear()
+    from toolkit.services import installed_service_bundles
+
+    installed_service_bundles.cache_clear()
 
 
 def _validate_compose_logging(manifest: ServiceManifest, compose_path: Path) -> None:
@@ -292,11 +322,12 @@ def _validate_image_build(manifest: ServiceManifest, compose_path: Path, service
             )
 
 
-def _validate_compose_host_sources(manifests: tuple[ServiceManifest, ...], services_root: Path) -> None:
+def _validate_compose_host_sources(catalog: ServiceCatalog) -> None:
+    manifests = catalog.manifests
     owners = {name: manifest for manifest in manifests for name in manifest.host_sources}
     used: set[str] = set()
     for manifest in manifests:
-        compose_path = services_root / manifest.name / "compose.yaml"
+        compose_path = catalog.compose_path(manifest.name)
         if not compose_path.is_file():
             continue
         for mount in _compose_mounts(compose_path):
@@ -325,7 +356,8 @@ def _validate_compose_host_sources(manifests: tuple[ServiceManifest, ...], servi
         raise ManifestCatalogError("manifest host source " + ", ".join(unused) + " is not used by Compose")
 
 
-def _validate_generated_artifact_sources(manifests: tuple[ServiceManifest, ...], services_root: Path) -> None:
+def _validate_generated_artifact_sources(catalog: ServiceCatalog) -> None:
+    manifests = catalog.manifests
     artifacts = {
         artifact.path: (manifest, artifact) for manifest in manifests for artifact in manifest.generated_artifacts
     }
@@ -341,7 +373,7 @@ def _validate_generated_artifact_sources(manifests: tuple[ServiceManifest, ...],
                     f"generated host source {source_name!r} owned by {manifest.name!r} has no declared artifact"
                 )
 
-        compose_path = services_root / manifest.name / "compose.yaml"
+        compose_path = catalog.compose_path(manifest.name)
         if not compose_path.is_file():
             continue
         for mount in _compose_mounts(compose_path):

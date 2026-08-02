@@ -96,10 +96,19 @@ def _merge_section(
 
 
 def _service_applications(root: Path) -> list[Path]:
+    from toolkit.services import installed_service_bundles
+
     services_dir = root / "toolkit" / "services"
     if not services_dir.is_dir():
         raise FileNotFoundError(f"missing service catalog {services_dir}")
-    return sorted(path for path in services_dir.glob("*/compose.yaml") if path.is_file())
+    applications = [path for path in services_dir.glob("*/compose.yaml") if path.is_file()]
+    if (root / "pyproject.toml").is_file():
+        applications.extend(
+            path
+            for _name, bundle in installed_service_bundles()
+            if (path := bundle.root.resolve() / "compose.yaml").is_file()
+        )
+    return sorted(applications)
 
 
 def _network_key(prefix: str, *owners: str) -> str:
@@ -371,7 +380,7 @@ def _compose_document(root: Path, cfg: Config | None, *, include_release: bool =
     service_owners: dict[str, str] = {}
     applications = _service_applications(root)
     if not applications:
-        raise ValueError(f"no service Compose applications found below {root / 'toolkit' / 'services'}")
+        raise ValueError("no service Compose applications found in the service catalog")
     for path in applications:
         if cfg is not None:
             if catalog is None:

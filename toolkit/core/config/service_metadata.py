@@ -20,7 +20,6 @@ This module caches the loaded metadata so repeated calls are fast.
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
 
 import yaml
 
@@ -54,18 +53,24 @@ def get_service_memory_tier(service: str) -> str:
 @lru_cache(maxsize=1)
 def _runtime_service_owners() -> dict[str, str]:
     """Map every Compose runtime service to its owning service manifest."""
-    from toolkit import services as services_package
+    from toolkit.core.manifest.catalog import load_service_catalog
 
-    services_root = Path(services_package.__file__).parent
+    catalog = load_service_catalog()
     owners: dict[str, str] = {}
     for owner in _load_all_services():
-        compose_path = services_root / owner / "compose.yaml"
+        compose_path = catalog.compose_path(owner)
         if not compose_path.is_file():
             continue
         document = yaml.safe_load(compose_path.read_text(encoding="utf-8")) or {}
         for runtime_name in document.get("services") or {}:
             owners.setdefault(runtime_name, owner)
     return owners
+
+
+def clear_service_metadata_cache() -> None:
+    """Clear derived service metadata after the source registry changes."""
+    _load_all_services.cache_clear()
+    _runtime_service_owners.cache_clear()
 
 
 def _service_manifest(service: str) -> dict:

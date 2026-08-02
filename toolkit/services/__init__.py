@@ -22,6 +22,7 @@ import importlib.util
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
+from functools import lru_cache
 from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -494,6 +495,34 @@ class ServiceBundle:
     api_version: int = _SERVICE_BUNDLE_API
 
 
+@lru_cache(maxsize=1)
+def installed_service_bundles() -> tuple[tuple[str, ServiceBundle], ...]:
+    """Load and validate independently installed service bundles."""
+    entry_points = metadata.entry_points()
+    selected = entry_points.select(group=_SERVICE_ENTRYPOINT_GROUP)
+    bundles: list[tuple[str, ServiceBundle]] = []
+    for entry_point in sorted(selected, key=lambda item: (item.name, item.value)):
+        try:
+            bundle = entry_point.load()
+        except Exception as exc:
+            raise RuntimeError(f"failed to load service bundle entry point {entry_point.name!r}") from exc
+        if not isinstance(bundle, ServiceBundle):
+            raise TypeError(f"service bundle entry point {entry_point.name!r} must expose a ServiceBundle instance")
+        if bundle.api_version != _SERVICE_BUNDLE_API:
+            raise ValueError(
+                f"service bundle {entry_point.name!r} targets API {bundle.api_version}; "
+                f"core requires API {_SERVICE_BUNDLE_API}"
+            )
+        if not bundle.root.resolve().is_dir():
+            raise ValueError(f"service bundle {entry_point.name!r} root is not a directory: {bundle.root.resolve()}")
+        if not (bundle.root.resolve() / "service.yaml").is_file():
+            raise ValueError(f"service bundle {entry_point.name!r} root has no service.yaml")
+        if not isinstance(bundle.plugin, type) or not issubclass(bundle.plugin, ServicePlugin):
+            raise TypeError(f"service bundle {entry_point.name!r} plugin must be a ServicePlugin subclass")
+        bundles.append((entry_point.name, bundle))
+    return tuple(bundles)
+
+
 # Cache: list[ServicePlugin] — cached after first call; cleared by tests
 # that add/remove service dirs at runtime via ``_reset_cache()``.
 _cache: list[ServicePlugin] | None = None
@@ -698,16 +727,8 @@ def discover_service_plugins() -> list[ServicePlugin]:
             )
         )
 
-    entry_points = metadata.entry_points()
-    selected = entry_points.select(group=_SERVICE_ENTRYPOINT_GROUP)
-    for entry_point in sorted(selected, key=lambda item: (item.name, item.value)):
-        try:
-            bundle = entry_point.load()
-        except Exception as exc:
-            raise RuntimeError(f"failed to load service bundle entry point {entry_point.name!r}") from exc
-        if not isinstance(bundle, ServiceBundle):
-            raise TypeError(f"service bundle entry point {entry_point.name!r} must expose a ServiceBundle instance")
-        plugins.append(_materialize_service_bundle(bundle, source=f"entry-point:{entry_point.name}"))
+    for entry_point_name, bundle in installed_service_bundles():
+        plugins.append(_materialize_service_bundle(bundle, source=f"entry-point:{entry_point_name}"))
 
     names = [plugin.service for plugin in plugins]
     duplicates = sorted({name for name in names if names.count(name) > 1})
@@ -821,3 +842,9 @@ def _reset_cache() -> None:
     """Clear the discovery cache. Used by tests that add/remove service dirs."""
     global _cache
     _cache = None
+    installed_service_bundles.cache_clear()
+    from toolkit.core.config.service_metadata import clear_service_metadata_cache
+    from toolkit.core.manifest.catalog import clear_catalog_cache
+
+    clear_catalog_cache()
+    clear_service_metadata_cache()

@@ -1688,7 +1688,7 @@ services:
     profiles:
     - media
     - svc-music-sync
-    image: ghcr.io/breixopd/music-sync:v1.1.2@sha256:04bf5917092baa9275f5d3244a4a9d038ba12afe5152add5c9853b7dec7b047e
+    image: ghcr.io/breixopd/music-sync:v1.2.0@sha256:b2868c5c3561821554faabeda0ac4de7d279365152fd3297138566cfcaf0aa83
     container_name: music-sync
     read_only: true
     cap_drop:
