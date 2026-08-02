@@ -51,3 +51,14 @@ def test_docker_exec_on_vm_remote_delivers_secret_environment_over_stdin(monkeyp
     assert "test-only-token" not in command
     assert remote.call_args.kwargs["stdin"].endswith("__HOMELAB_SECRET_ENV_END__\n")
     assert "API_TOKEN=test-only-token\n" in remote.call_args.kwargs["stdin"]
+
+
+def test_docker_exec_on_vm_remote_returns_stderr_diagnostics(monkeypatch) -> None:
+    cfg = MagicMock(is_multi_node=True)
+    remote = MagicMock(return_value=(1, "", "executable not found"))
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.ssh_run_on_vm", remote)
+
+    assert docker_exec_on_vm(cfg, "service", ["missing"], "10.10.10.10", Path("/tmp")) == (
+        1,
+        "executable not found",
+    )

@@ -61,7 +61,7 @@ def docker_exec_on_vm(
 
         cmd_str = " ".join(shlex.quote(c) for c in wrapped_cmd)
         interactive = "-i " if input_payload is not None else ""
-        rc, out, _ = ssh_run_on_vm(
+        rc, out, err = ssh_run_on_vm(
             cfg,
             vm_ip,
             f"docker exec {interactive}{user_flag}{env_flags}{shlex.quote(container)} {cmd_str}",
@@ -69,7 +69,7 @@ def docker_exec_on_vm(
             timeout=timeout,
             stdin=input_payload,
         )
-        return rc, out or ""
+        return rc, "\n".join(part.strip() for part in (out, err) if part and part.strip())
     user_args = ["-u", user] if user else []
     interactive_args = ["-i"] if input_payload is not None else []
     try:

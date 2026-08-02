@@ -159,9 +159,40 @@ def test_wazuh_manager_hook_keeps_credentials_out_of_process_arguments() -> None
 
 
 def test_wazuh_indexer_projects_manager_api_secret_to_ansible() -> None:
-    assert _indexer().ansible_secret_variables(_cfg(), {"WAZUH_API_PASSWORD": "secret"}) == {
-        "wazuh_api_password": "secret"
+    assert _indexer().ansible_secret_variables(
+        _cfg(),
+        {"WAZUH_API_PASSWORD": "api-secret", "WAZUH_INDEXER_PASSWORD": "index-secret"},
+    ) == {
+        "wazuh_api_password": "api-secret",
+        "wazuh_indexer_password": "index-secret",
     }
+
+
+def test_wazuh_manager_filebeat_pipeline_is_tls_authenticated_and_secret_safe() -> None:
+    root = Path(__file__).parents[3]
+    main_tasks = yaml.safe_load((root / "automation/ansible/roles/wazuh_manager/tasks/main.yml").read_text())
+    filebeat_tasks = yaml.safe_load((root / "automation/ansible/roles/wazuh_manager/tasks/filebeat.yml").read_text())
+    tasks = [*main_tasks, *filebeat_tasks]
+    filebeat = (root / "automation/ansible/roles/wazuh_manager/templates/filebeat.yml.j2").read_text()
+    ossec = (root / "automation/ansible/roles/wazuh_manager/templates/wazuh-ossec-indexer.xml.j2").read_text()
+    serialized = str(tasks)
+
+    assert "filebeat test output" not in serialized  # command argv remains shell-free
+    assert "wazuh_filebeat_template_sha256" in serialized
+    assert "wazuh_filebeat_module_sha256" in serialized
+    assert "wazuh_ca_private_key.stat.exists" in serialized
+    assert "filebeat keystore add" not in serialized  # argv is structured, not a shell string
+    assert "wazuh_indexer_password" in serialized
+    assert "no_log" in serialized
+    assert "${password}" in filebeat
+    assert "ssl.certificate_authorities" in filebeat
+    assert "http://" not in filebeat
+    assert "<certificate>" in ossec
+    assert "<key>" in ossec
+    for task in tasks:
+        command = task.get("ansible.builtin.command", {})
+        if isinstance(command, dict):
+            assert "{{ wazuh_indexer_password }}" not in " ".join(command.get("argv", []))
 
 
 class TestWazuhIndexerVerify:

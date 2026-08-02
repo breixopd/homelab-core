@@ -175,7 +175,11 @@ class GiteaPlugin(ServicePlugin):
         rc, out = docker_exec_on_vm(
             cfg,
             "gitea",
-            ["gitea", "config", "get", "service.ENABLE_REVERSE_PROXY_AUTHENTICATION"],
+            [
+                "/bin/sh",
+                "-ec",
+                'test "${GITEA__service__ENABLE_REVERSE_PROXY_AUTHENTICATION:-}" = true && printf true',
+            ],
             vm_ip,
             root,
             timeout=15,
@@ -202,7 +206,11 @@ class GiteaPlugin(ServicePlugin):
         rc, out = docker_exec_on_vm(
             cfg,
             "gitea",
-            ["gitea", "config", "get", "server.DISABLE_SSH"],
+            [
+                "/bin/sh",
+                "-ec",
+                'test "${GITEA__server__DISABLE_SSH:-}" = true && printf true',
+            ],
             vm_ip,
             root,
             timeout=15,

@@ -1,0 +1,230 @@
+---
+- name: Resolve the Wazuh indexer hostname on the manager host
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "^[^#]*\\s{{ wazuh_indexer_host | regex_escape }}(?:\\s|$)"
+    line: "{{ service_ips['wazuh-indexer'] }} {{ wazuh_indexer_host }}"
+    state: present
+  become: true
+
+- name: Create the Filebeat certificate directory
+  ansible.builtin.file:
+    path: /etc/filebeat/certs
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+
+- name: Install the Wazuh root certificate for Filebeat
+  ansible.builtin.copy:
+    src: "{{ repo_dest }}/data/wazuh/certs/root-ca.pem"
+    dest: /etc/filebeat/certs/root-ca.pem
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0400"
+  become: true
+  notify:
+    - restart filebeat
+    - restart wazuh-manager
+
+- name: Generate the Filebeat private key
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - genrsa
+      - -out
+      - /etc/filebeat/certs/filebeat-key.pem
+      - "2048"
+    creates: /etc/filebeat/certs/filebeat-key.pem
+  become: true
+  notify:
+    - restart filebeat
+    - restart wazuh-manager
+
+- name: Protect the Filebeat private key
+  ansible.builtin.file:
+    path: /etc/filebeat/certs/filebeat-key.pem
+    owner: root
+    group: root
+    mode: "0400"
+  become: true
+
+- name: Generate the Filebeat certificate request
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -new
+      - -key
+      - /etc/filebeat/certs/filebeat-key.pem
+      - -subj
+      - /CN=wazuh.server
+      - -out
+      - /etc/filebeat/certs/filebeat.csr
+    creates: /etc/filebeat/certs/filebeat.csr
+  become: true
+
+- name: Declare the Filebeat certificate as a TLS client certificate
+  ansible.builtin.copy:
+    dest: /etc/filebeat/certs/client.ext
+    content: "extendedKeyUsage=clientAuth\n"
+    owner: root
+    group: root
+    mode: "0400"
+  become: true
+
+- name: Sign the Filebeat client certificate with the Wazuh CA
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - x509
+      - -req
+      - -in
+      - /etc/filebeat/certs/filebeat.csr
+      - -CA
+      - "{{ repo_dest }}/data/wazuh/certs/root-ca.pem"
+      - -CAkey
+      - "{{ repo_dest }}/data/wazuh/certs/root-ca.key"
+      - -CAcreateserial
+      - -out
+      - /etc/filebeat/certs/filebeat.pem
+      - -days
+      - "3650"
+      - -sha256
+      - -extfile
+      - /etc/filebeat/certs/client.ext
+    creates: /etc/filebeat/certs/filebeat.pem
+  become: true
+  notify:
+    - restart filebeat
+    - restart wazuh-manager
+
+- name: Protect the Filebeat client certificate
+  ansible.builtin.file:
+    path: /etc/filebeat/certs/filebeat.pem
+    owner: root
+    group: root
+    mode: "0400"
+  become: true
+
+- name: Install the pinned Wazuh Filebeat index template
+  ansible.builtin.get_url:
+    url: "{{ wazuh_filebeat_template_url }}"
+    dest: /etc/filebeat/wazuh-template.json
+    checksum: "sha256:{{ wazuh_filebeat_template_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: restart filebeat
+
+- name: Download the pinned Wazuh Filebeat module
+  ansible.builtin.get_url:
+    url: "{{ wazuh_filebeat_module_url }}"
+    dest: /var/cache/wazuh-filebeat-module.tar.gz
+    checksum: "sha256:{{ wazuh_filebeat_module_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Install the pinned Wazuh Filebeat module
+  ansible.builtin.unarchive:
+    src: /var/cache/wazuh-filebeat-module.tar.gz
+    dest: /usr/share/filebeat/module
+    remote_src: true
+    creates: /usr/share/filebeat/module/wazuh
+  become: true
+  notify: restart filebeat
+
+- name: Deploy the Filebeat configuration
+  ansible.builtin.template:
+    src: filebeat.yml.j2
+    dest: /etc/filebeat/filebeat.yml
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  notify: restart filebeat
+
+- name: Create the Filebeat secret keystore
+  ansible.builtin.command:
+    argv: [filebeat, keystore, create]
+    creates: /var/lib/filebeat/filebeat.keystore
+  become: true
+  no_log: true
+
+- name: Reconcile the Filebeat indexer username
+  ansible.builtin.command:
+    argv: [filebeat, keystore, add, username, --stdin, --force]
+    stdin: admin
+    stdin_add_newline: false
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Reconcile the Filebeat indexer password
+  ansible.builtin.command:
+    argv: [filebeat, keystore, add, password, --stdin, --force]
+    stdin: "{{ wazuh_indexer_password }}"
+    stdin_add_newline: false
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Remove the package default Wazuh indexer block
+  ansible.builtin.replace:
+    path: /var/ossec/etc/ossec.conf
+    regexp: '(?s)\\n\\s*<indexer>.*?</indexer>'
+    replace: ''
+  become: true
+  notify: restart wazuh-manager
+
+- name: Configure the Wazuh manager indexer connection
+  ansible.builtin.blockinfile:
+    path: /var/ossec/etc/ossec.conf
+    marker: "<!-- {mark} ANSIBLE MANAGED WAZUH INDEXER -->"
+    insertbefore: "</ossec_config>"
+    block: "{{ lookup('template', 'wazuh-ossec-indexer.xml.j2') }}"
+  become: true
+  notify: restart wazuh-manager
+
+- name: Reconcile the Wazuh manager indexer username
+  ansible.builtin.command:
+    argv: [/var/ossec/bin/wazuh-keystore, -f, indexer, -k, username]
+    stdin: admin
+    stdin_add_newline: false
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Reconcile the Wazuh manager indexer password
+  ansible.builtin.command:
+    argv: [/var/ossec/bin/wazuh-keystore, -f, indexer, -k, password]
+    stdin: "{{ wazuh_indexer_password }}"
+    stdin_add_newline: false
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Apply manager and Filebeat configuration changes before verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Start and enable Filebeat
+  ansible.builtin.systemd:
+    name: filebeat
+    state: started
+    enabled: true
+  become: true
+
+- name: Verify Filebeat can authenticate to the Wazuh indexer over TLS
+  ansible.builtin.command:
+    argv: [filebeat, test, output]
+  register: wazuh_filebeat_output_test
+  changed_when: false
+  retries: 6
+  delay: 5
+  until: wazuh_filebeat_output_test.rc == 0
+  become: true

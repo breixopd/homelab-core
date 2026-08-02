@@ -15,12 +15,25 @@
     mode: "0644"
   become: true
 
-- name: Install Wazuh manager
+- name: Install Wazuh manager and its supported event shipper
   ansible.builtin.apt:
-    name: wazuh-manager
+    name:
+      - wazuh-manager
+      - filebeat
+      - openssl
     state: present
     update_cache: true
   become: true
+
+- name: Detect whether the Wazuh certificate authority is available
+  ansible.builtin.stat:
+    path: "{{ repo_dest }}/data/wazuh/certs/root-ca.key"
+  register: wazuh_ca_private_key
+  become: true
+
+- name: Configure authenticated Wazuh event shipping after certificate bootstrap
+  ansible.builtin.include_tasks: filebeat.yml
+  when: wazuh_ca_private_key.stat.exists
 
 - name: Align Wazuh analysisd file descriptor limit with its systemd unit
   ansible.builtin.lineinfile:

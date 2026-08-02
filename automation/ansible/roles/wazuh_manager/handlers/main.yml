@@ -6,3 +6,11 @@
     state: restarted
     daemon_reload: true
   become: true
+
+- name: Restart Filebeat
+  listen: restart filebeat
+  ansible.builtin.systemd:
+    name: filebeat
+    state: restarted
+    daemon_reload: true
+  become: true

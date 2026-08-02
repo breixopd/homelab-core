@@ -114,7 +114,12 @@ def _check_seaweedfs_s3_auth(cfg: Config, vm_ip: str, root: Path, secrets: dict[
     rc_auth, out = docker_exec_on_vm(
         cfg,
         "seaweedfs",
-        ["aws", "--endpoint-url", "http://127.0.0.1:8333", "s3", "ls"],
+        [
+            "/bin/sh",
+            "-ec",
+            'curl --fail --silent --show-error --aws-sigv4 "aws:amz:us-east-1:s3" '
+            + '--user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" http://127.0.0.1:8333/',
+        ],
         vm_ip,
         root,
         timeout=15,
