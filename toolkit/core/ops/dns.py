@@ -428,9 +428,7 @@ def desired_records_from_config(cfg, public_ip: str) -> list[DNSRecord]:
     cname_names = {name for name, record_type in records_by_key if record_type == "CNAME"}
     if cname_names:
         records_by_key = {
-            key: record
-            for key, record in records_by_key.items()
-            if key[0] not in cname_names or key[1] == "CNAME"
+            key: record for key, record in records_by_key.items() if key[0] not in cname_names or key[1] == "CNAME"
         }
 
     return [mark_managed_record(record) for record in records_by_key.values()]

@@ -203,9 +203,7 @@ def test_email_mail_record_overrides_public_route_proxy():
     autoconfig_records = [
         record for record in desired_records_from_config(cfg, "1.2.3.4") if record.name == "autoconfig.example.com"
     ]
-    assert [(record.type, record.content) for record in autoconfig_records] == [
-        ("CNAME", "mail.example.com")
-    ]
+    assert [(record.type, record.content) for record in autoconfig_records] == [("CNAME", "mail.example.com")]
 
 
 def test_dns_sync_mocked():

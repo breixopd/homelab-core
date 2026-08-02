@@ -371,9 +371,7 @@ def _check_cloudflare_public_dns_parity(cfg: Config, secrets: dict[str, str]) ->
         return VerifyCheck("cloudflare", "public_dns", False, str(exc)[:120])
 
     missing = sorted(key for key in desired_public if key not in existing)
-    mismatched = sorted(
-        key for key in desired_public if key in existing and existing[key] != desired_public[key]
-    )
+    mismatched = sorted(key for key in desired_public if key in existing and existing[key] != desired_public[key])
     ok = not missing and not mismatched
     detail = f"{len(desired_public) - len(missing)}/{len(desired_public)} public address/alias records"
     if missing:
