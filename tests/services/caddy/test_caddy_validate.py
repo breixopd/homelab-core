@@ -15,10 +15,14 @@ from toolkit.services.caddy.artifacts import (
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_validation_image_can_build_with_legacy_docker_builder() -> None:
+def test_validation_image_cross_compiles_on_the_native_build_platform() -> None:
     dockerfile = (ROOT / "toolkit" / "services" / "caddy" / "image" / "Dockerfile").read_text()
 
-    assert "--platform=$BUILDPLATFORM" not in dockerfile
+    assert "ARG BUILDPLATFORM" in dockerfile
+    assert "FROM --platform=$BUILDPLATFORM" in dockerfile
+    assert "ARG TARGETOS" in dockerfile
+    assert "ARG TARGETARCH" in dockerfile
+    assert "GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build" in dockerfile
 
 
 def _fake_which(name: str) -> str | None:
