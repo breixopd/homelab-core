@@ -296,7 +296,7 @@ def _runtime_bootstrap_response(payload: object) -> dict[str, object]:
 
 def reconcile_komodo_runtime_credentials(cfg, root: Path) -> list[str]:
     """Bootstrap Komodo and persist its generated API key on the controller."""
-    from toolkit.core.ansible.ansible_ssh import sanitize_probe_output, ssh_run_on_vm
+    from toolkit.core.ansible.ansible_ssh import ssh_run_on_vm
     from toolkit.core.manifest.placement import service_address
     from toolkit.core.secrets.secrets import load_secrets_plaintext, merge_secret_values
 
@@ -317,8 +317,9 @@ def reconcile_komodo_runtime_credentials(cfg, root: Path) -> list[str]:
         stdin=json.dumps(payload),
     )
     if rc != 0:
-        detail = sanitize_probe_output(err, max_len=100) or f"exit {rc}"
-        return [f"Hook error: Komodo runtime credential reconciliation failed ({detail})"]
+        # Guest stderr can contain the runtime credential payload or generated
+        # API values. Keep the controller log to the non-sensitive exit code.
+        return [f"Hook error: Komodo runtime credential reconciliation failed (exit {rc})"]
     if len(out) > 65_536:
         return ["Hook error: Komodo runtime credential response rejected"]
     try:
@@ -341,10 +342,11 @@ def reconcile_komodo_runtime_credentials(cfg, root: Path) -> list[str]:
     ):
         return ["Hook error: Komodo runtime credential response rejected"]
 
-    logs = list(remote_logs)
     if not ok:
-        logs.append("Hook error: Komodo runtime credential bootstrap incomplete")
-        return logs
+        return ["Hook error: Komodo runtime credential bootstrap incomplete"]
+    # The guest is a trust boundary: do not copy guest-provided log strings
+    # into controller logs, even though their shape was validated above.
+    logs = ["Komodo: runtime credential bootstrap completed"]
     if updates:
         merge_secret_values(root, updates)
         logs.append(f"Komodo: persisted {len(updates)} runtime credential(s) to encrypted storage")

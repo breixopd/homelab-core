@@ -15,8 +15,15 @@ from toolkit.controller.desired_state_api import read_machines_view
 from toolkit.core.config.config import Config, save_config
 from toolkit.core.config.storage import config_path
 from toolkit.core.machines import MachineSpec
+from toolkit.webui.routers.machines import _local_redirect
 
 pytestmark = pytest.mark.anyio
+
+
+def test_machine_redirects_reject_absolute_and_backslash_urls() -> None:
+    assert _local_redirect("/machines/worker-east") == "/machines/worker-east"
+    assert _local_redirect("https://attacker.example/") == "/"
+    assert _local_redirect(r"/machines/worker-east\\retire") == "/"
 
 
 class MachinesController:

@@ -6,12 +6,20 @@ import subprocess
 
 from toolkit.core.config.config import Config
 from toolkit.services.headscale.bootstrap import (
+    _is_tailscale_saas_control_url,
     _parse_headscale_preauth_output,
     bootstrap_headscale_preauth,
     ensure_controller_mesh_joined,
     headscale_preauth_key,
     headscale_preauth_key_for_deploy,
 )
+
+
+def test_tailscale_saas_control_url_requires_owned_https_origin() -> None:
+    assert _is_tailscale_saas_control_url("https://controlplane.tailscale.com") is True
+    assert _is_tailscale_saas_control_url("https://tailscale.com.attacker.invalid") is False
+    assert _is_tailscale_saas_control_url("https://attacker.invalid/tailscale.com") is False
+    assert _is_tailscale_saas_control_url("http://controlplane.tailscale.com") is False
 
 
 def test_preauth_output_parser_fails_closed_on_malformed_list_rows() -> None:

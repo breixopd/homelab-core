@@ -241,7 +241,10 @@ def test_controller_reconciles_runtime_credentials_over_ssh_stdin(tmp_path: Path
     cfg = Config()
     response = {
         "ok": True,
-        "logs": ["Komodo: service-user API key provisioned", "Komodo: Periphery onboarding key verified"],
+        "logs": [
+            "Komodo: service-user API key provisioned",
+            "KOMODO_API_SECRET=guest-controlled-canary",
+        ],
         "updates": {"KOMODO_API_KEY": "runtime-key", "KOMODO_API_SECRET": "runtime-secret"},
     }
 
@@ -257,6 +260,7 @@ def test_controller_reconciles_runtime_credentials_over_ssh_stdin(tmp_path: Path
     assert "admin-pass" not in command
     assert json.loads(stdin)["KOMODO_INIT_ADMIN_PASSWORD"] == "admin-pass"
     assert all("runtime-key" not in line and "runtime-secret" not in line for line in logs)
+    assert all("guest-controlled-canary" not in line for line in logs)
 
     from toolkit.core.secrets.secrets import load_secrets_plaintext
 
@@ -277,6 +281,21 @@ def test_controller_rejects_unexpected_runtime_secret_names(tmp_path: Path) -> N
         logs = reconcile_komodo_runtime_credentials(cfg, tmp_path)
 
     assert logs == ["Hook error: Komodo runtime credential response rejected"]
+
+
+def test_controller_does_not_log_guest_bootstrap_stderr(tmp_path: Path) -> None:
+    _seed_secrets(tmp_path, KOMODO_ONBOARDING_SEED="seed-material-for-komodo-onboarding")
+    cfg = Config()
+    stderr_canary = "KOMODO_API_SECRET=runtime-secret-that-must-not-be-logged"
+
+    with patch(
+        "toolkit.core.ansible.ansible_ssh.ssh_run_on_vm",
+        return_value=(42, "", stderr_canary),
+    ):
+        logs = reconcile_komodo_runtime_credentials(cfg, tmp_path)
+
+    assert logs == ["Hook error: Komodo runtime credential reconciliation failed (exit 42)"]
+    assert stderr_canary not in "\n".join(logs)
 
 
 def test_controller_fails_closed_when_guest_bootstrap_is_incomplete(tmp_path: Path) -> None:

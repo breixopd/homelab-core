@@ -30,6 +30,7 @@ from toolkit.controller.store import ControllerStore, JobQueueLimitError
 from toolkit.core.config.config import Config, save_config
 from toolkit.core.config.storage import config_path, secrets_path
 from toolkit.core.verify.models import HookVerifyResult, VerifyCheck, VerifyStatus
+from toolkit.webui.routers.services import _local_redirect
 
 
 def _request(service: str = "grafana", *, suffix: str = "a") -> JobRequest:
@@ -344,6 +345,12 @@ def test_webui_submissions_use_fresh_idempotency_keys(monkeypatch) -> None:
     assert first.status_code == second.status_code == 303
     assert submitted[0].idempotency_key != submitted[1].idempotency_key
     assert all(item.idempotency_key.startswith("service-verify-grafana-") for item in submitted)
+
+
+def test_service_redirects_are_local_only() -> None:
+    assert _local_redirect("/services/grafana?flash=queued") == "/services/grafana?flash=queued"
+    assert _local_redirect("//attacker.example/services/grafana") == "/"
+    assert _local_redirect("https://attacker.example/") == "/"
 
 
 def test_webui_explains_service_verification_queue_contention(monkeypatch) -> None:

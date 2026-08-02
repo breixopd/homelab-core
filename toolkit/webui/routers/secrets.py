@@ -12,6 +12,7 @@ from toolkit.controller.contracts import JobRequest, SecretRotationOperation
 from toolkit.controller.read_models import SecretUpdateRequest
 from toolkit.core.async_utils import run_blocking
 from toolkit.webui.error_pages import render_error
+from toolkit.webui.redirects import local_redirect_target
 from toolkit.webui.templates_ctx import page_context
 
 router = APIRouter(tags=["secrets"])
@@ -104,4 +105,7 @@ async def secrets_rotate(request: Request):
         )
     except ControllerClientError:
         return _redirect_with_error("Secret rotation could not be completed.")
-    return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+    return RedirectResponse(
+        local_redirect_target(f"/jobs/{urllib.parse.quote(job.job_id, safe='')}"),
+        status_code=303,
+    )

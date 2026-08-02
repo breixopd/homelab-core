@@ -10,6 +10,7 @@ from toolkit.controller.client import ControllerClientError, ControllerRejectedE
 from toolkit.controller.contracts import TERMINAL_JOB_STATES
 from toolkit.webui.controller_sse import controller_event_stream
 from toolkit.webui.error_pages import render_error
+from toolkit.webui.redirects import local_redirect_target as _local_redirect
 from toolkit.webui.templates_ctx import page_context
 
 router = APIRouter(tags=["jobs"])
@@ -74,15 +75,17 @@ async def job_detail(request: Request, job_id: str):
 
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(request: Request, job_id: str):
-    target = f"/jobs/{quote(job_id, safe='')}"
+    target = _local_redirect(f"/jobs/{quote(job_id, safe='')}")
     try:
         await run_in_threadpool(request.app.state.controller.cancel, job_id)
     except ControllerRejectedError as exc:
         message = "Job was not found" if exc.code == "NOT_FOUND" else "Cancellation was rejected"
-        return RedirectResponse(f"{target}?error={quote(message)}", status_code=303)
+        return RedirectResponse(_local_redirect(f"{target}?error={quote(message)}"), status_code=303)
     except ControllerClientError:
-        return RedirectResponse(f"{target}?error=Controller+is+temporarily+unavailable", status_code=303)
-    return RedirectResponse(f"{target}?flash=Cancellation+requested", status_code=303)
+        return RedirectResponse(
+            _local_redirect(f"{target}?error=Controller+is+temporarily+unavailable"), status_code=303
+        )
+    return RedirectResponse(_local_redirect(f"{target}?flash=Cancellation+requested"), status_code=303)
 
 
 @router.get("/jobs/{job_id}/stream")
