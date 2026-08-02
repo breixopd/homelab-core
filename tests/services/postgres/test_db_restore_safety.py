@@ -150,6 +150,7 @@ def test_database_dump_uses_configured_postgres_admin_role(tmp_path: Path) -> No
         assert pre_deploy_dump(_remote_cfg(), tmp_path)
 
     assert "pg_dumpall -U admin" in ssh.call_args.args[2]
+    assert "dbname=postgres" in ssh.call_args.args[2]
 
 
 def test_remote_dump_fails_when_pg_dumpall_fails_even_if_gzip_completes(tmp_path: Path) -> None:
@@ -161,6 +162,8 @@ def test_remote_dump_fails_when_pg_dumpall_fails_even_if_gzip_completes(tmp_path
 
     command = ssh.call_args.args[2]
     assert "bash -o pipefail -c" in command
+    assert "trap" in command
+    assert "rm -f" in command
     assert "test -s" in command
     assert "gzip -t" in command
 

@@ -74,15 +74,18 @@ def pre_deploy_dump(cfg: Config, root: Path, *, service: str, vm: str | None = N
     node = _node(cfg, service, vm)
     remote_path = f"{_DUMP_DIRECTORY}/pre-deploy-{time.strftime('%Y%m%d-%H%M%S')}.sql.gz"
     remote_dir = shlex.quote(_DUMP_DIRECTORY)
+    quoted_remote_path = shlex.quote(remote_path)
     script = (
         "set -euo pipefail; "
+        f"trap 'rm -f {quoted_remote_path}' ERR; "
         f"umask 077 && install -d -m 0700 {remote_dir} && "
         f"docker exec {shlex.quote(contract.container)} pg_dumpall -U {shlex.quote(contract.admin_user)} "
-        f"-d {shlex.quote(contract.admin_database)} 2>/dev/null | gzip > {shlex.quote(remote_path)} && "
-        f"test -s {shlex.quote(remote_path)} && gzip -t {shlex.quote(remote_path)} && "
-        f'test "$(gzip -cd {shlex.quote(remote_path)} | wc -c)" -gt 0 && '
-        f"ls -lh {shlex.quote(remote_path)} && "
+        f"-d {shlex.quote(f'dbname={contract.admin_database}')} 2>/dev/null | gzip > {quoted_remote_path} && "
+        f"test -s {quoted_remote_path} && gzip -t {quoted_remote_path} && "
+        f'test "$(gzip -cd {quoted_remote_path} | wc -c)" -gt 0 && '
+        f"ls -lh {quoted_remote_path} && "
         f"(cd {remote_dir} && ls -t pre-deploy-*.sql.gz 2>/dev/null | tail -n +{MAX_DUMPS + 1} | xargs -r rm -f) && "
+        "trap - ERR && "
         "echo OK"
     )
     command = f"bash -o pipefail -c {shlex.quote(script)}"
@@ -112,7 +115,7 @@ def _local_dump(root: Path, contract: _PostgresContract) -> str | None:
                     "-U",
                     contract.admin_user,
                     "-d",
-                    contract.admin_database,
+                    f"dbname={contract.admin_database}",
                 ],
                 stdout=cast(IO[bytes], output),
                 stderr=subprocess.PIPE,
