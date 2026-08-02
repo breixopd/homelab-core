@@ -179,7 +179,7 @@ class FamilyServiceSection(StrictModel):
 class ServiceRouteSummary(StrictModel):
     url: str = Field(min_length=1, max_length=2_048)
     exposure: Literal["public", "private"]
-    auth_mode: Literal["forward_auth", "oidc", "native", "split"]
+    auth_mode: Literal["forward_auth", "oidc", "native", "split", "none"]
     scope: str = Field(min_length=1, max_length=500)
 
 
