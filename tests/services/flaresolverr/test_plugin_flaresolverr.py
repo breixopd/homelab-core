@@ -1,24 +1,64 @@
-from pathlib import Path
+"""Functional verifier contract tests for FlareSolverr."""
+
+from __future__ import annotations
+
+import json
+import shlex
 from types import SimpleNamespace
 
 from tests.helpers.plugins import load_plugin
+from toolkit.core.config.config import Config
 
 
-def test_solve_timeout_is_not_success(monkeypatch, tmp_path: Path):
+def _plugin():
     module = load_plugin("flaresolverr")
-    plugin = next(getattr(module, name)() for name in dir(module) if name.endswith("Plugin"))
-    cfg = SimpleNamespace(domain="example.com", is_multi_node=True)
-    calls = []
+    plugin_type = next(
+        value for name in dir(module) if name.endswith("Plugin") and isinstance((value := getattr(module, name)), type)
+    )
+    return plugin_type()
 
-    monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
 
-    def exec_on_vm(_cfg, _service, command, *_args, **_kwargs):
+def test_solve_timeout_is_not_success(monkeypatch, tmp_path) -> None:
+    calls: list[list[str]] = []
+
+    def fake_exec(_cfg, _service, command, *_args, **_kwargs):
         calls.append(command)
         return (0, '{"status":"ok"}') if len(calls) == 1 else (1, "timeout")
 
-    monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", exec_on_vm)
-    checks = {check.check: check for check in plugin.verify(cfg, {}, "10.0.0.2", tmp_path)}
+    monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", fake_exec)
+
+    checks = {
+        check.check: check
+        for check in _plugin().verify(
+            SimpleNamespace(domain="example.test", is_multi_node=True),
+            {},
+            "10.10.10.11",
+            tmp_path,
+        )
+    }
 
     assert checks["health"].passed
     assert not checks["solve"].passed
     assert checks["solve"].status.value == "fail"
+
+
+def test_solve_probe_uses_neutral_browser_target(tmp_path, monkeypatch) -> None:
+    commands: list[list[str]] = []
+
+    def fake_exec(_cfg, _service, command, _vm_ip, _root, **_kwargs):
+        commands.append(command)
+        if "/health" in command[-1]:
+            return 0, '{"status":"ok"}'
+        return 0, '{"status":"ok","solution":{"status":200}}'
+
+    monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", fake_exec)
+
+    checks = _plugin().verify(Config(domain="example.test"), {}, "10.10.10.11", tmp_path)
+
+    assert all(check.passed for check in checks)
+    solve_command = commands[1][-1]
+    arguments = shlex.split(solve_command)
+    payload = json.loads(arguments[arguments.index("-d") + 1])
+    assert payload["url"] == "https://example.com"

@@ -45,7 +45,10 @@ class FlaresolverrPlugin(ServicePlugin):
         if not health_ok or cfg.domain == "localhost":
             return checks
 
-        payload = '{"cmd":"request.get","url":"https://www.google.com","maxTimeout":30000}'
+        # Use the neutral IANA example site for the browser solve contract.
+        # Search engines can intentionally delay or challenge headless clients,
+        # which tests their anti-automation policy rather than FlareSolverr.
+        payload = '{"cmd":"request.get","url":"https://example.com","maxTimeout":30000}'
         cmd = [
             "sh",
             "-c",
@@ -57,7 +60,7 @@ class FlaresolverrPlugin(ServicePlugin):
                 try:
                     resp = httpx.post(
                         "http://localhost:8191/v1",
-                        json={"cmd": "request.get", "url": "https://www.google.com", "maxTimeout": 30000},
+                        json={"cmd": "request.get", "url": "https://example.com", "maxTimeout": 30000},
                         timeout=35,
                     )
                     ok = resp.status_code == 200 and resp.json().get("status") == "ok"
