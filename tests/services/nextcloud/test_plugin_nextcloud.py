@@ -45,7 +45,7 @@ class TestNextcloudVerify:
 
         def fake_occ(*_args, **_kwargs):
             command = next((arg for arg in _args if isinstance(arg, list)), [])
-            if command[-2:] == ["redis:command", "PING"]:
+            if command[-2:] == ["memcache:redis:command", "PING"]:
                 return 1, "connection refused"
             return 0, "installed: true\nmaintenance: false\nneedsDbUpgrade: false"
 
@@ -75,7 +75,7 @@ class TestNextcloudVerify:
             joined = " ".join(args)
             if "status" in joined and "db:" not in joined:
                 return 0, "installed: true\nmaintenance: false\nneedsDbUpgrade: false"
-            if "redis:command" in joined:
+            if "memcache:redis:command" in joined:
                 return 0, "PONG"
             if "user_oidc:provider" in joined:
                 return 0, "authelia https://auth.example.com"

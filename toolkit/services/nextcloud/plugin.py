@@ -206,7 +206,13 @@ class NextcloudPlugin(ServicePlugin):
         db_ok = "installed: true" in out and "maintenance: false" in out and "needsDbUpgrade: false" in out
         if not db_ok:
             return VerifyCheck("nextcloud", "db_redis", False, (out.strip()[:120] or "db check failed"))
-        redis_rc, redis_out = self._occ(cfg, vm_ip, root, docker_exec_on_vm, ["redis:command", "PING"])
+        redis_rc, redis_out = self._occ(
+            cfg,
+            vm_ip,
+            root,
+            docker_exec_on_vm,
+            ["memcache:redis:command", "PING"],
+        )
         if redis_rc == 0 and "PONG" in (redis_out or "").upper():
             return VerifyCheck("nextcloud", "db_redis", True, "db ok + redis PONG")
         if redis_rc != 0:
