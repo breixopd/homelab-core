@@ -23,13 +23,21 @@ class PlexPlugin(ServicePlugin):
     def verify(self, cfg: Config, secrets: dict[str, str], vm_ip: str, root: Path) -> list[VerifyCheck]:
         """Verify Plex identity and library sections using the stored ``PLEX_TOKEN``."""
         from toolkit.core.manifest.settings import service_setting_str
-        from toolkit.services.sdk import VerifyCheck, docker_curl
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus, docker_curl
 
         if service_setting_str(cfg, "media-library", "server") not in ("plex", "both"):
             return [VerifyCheck("plex", "libraries", True, "not applicable (jellyfin only)")]
         token = secrets.get("PLEX_TOKEN", "")
         if not token:
-            return [VerifyCheck("plex", "identity", True, "skipped (no PLEX_TOKEN in secrets)")]
+            return [
+                VerifyCheck(
+                    "plex",
+                    "identity",
+                    False,
+                    "PLEX_TOKEN missing; Plex identity cannot be verified",
+                    status=VerifyStatus.NOT_READY,
+                )
+            ]
 
         checks: list[VerifyCheck] = []
         identity_path = f"/identity?X-Plex-Token={token}"

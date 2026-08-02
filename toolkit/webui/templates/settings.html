@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 
 {% block page_actions %}
+<div class="settings-page-actions">
 <a href="/services" class="btn btn-ghost btn-sm">Services</a>
 <a href="/secrets" class="btn btn-ghost btn-sm">Secrets</a>
 <a href="/dns" class="btn btn-ghost btn-sm">Network</a>
+</div>
 {% endblock %}
 
 {% block content %}
@@ -72,11 +74,13 @@
           <label class="form-field span-5" for="setting-smtp-host"><span>SMTP host</span><input id="setting-smtp-host" name="smtp_host" value="{{ values.smtp_host }}"></label>
           <label class="form-field span-2" for="setting-smtp-port"><span>Port</span><input id="setting-smtp-port" name="smtp_port" type="number" min="1" max="65535" value="{{ values.smtp_port }}" required></label>
           <label class="form-field span-5" for="setting-smtp-from"><span>From address</span><input id="setting-smtp-from" name="smtp_from_address" type="email" value="{{ values.smtp_from_address }}" placeholder="noreply@{{ values.domain }}"></label>
-          <label class="form-field span-6" for="setting-smtp-user"><span>SMTP username</span><input id="setting-smtp-user" name="smtp_username" value="{{ values.smtp_username }}" autocomplete="username"></label>
-          <label class="form-field span-6" for="setting-smtp-secret"><span>Password secret</span><input id="setting-smtp-secret" name="smtp_password_secret" value="{{ values.smtp_password_secret }}" pattern="[A-Z][A-Z0-9_]*" spellcheck="false"></label>
+          <label class="form-field span-4" for="setting-smtp-preset"><span>Provider preset</span><select id="setting-smtp-preset"><option value="custom" {% if values.smtp_host != 'smtp.gmail.com' %}selected{% endif %}>Custom SMTP</option><option value="gmail" {% if values.smtp_host == 'smtp.gmail.com' %}selected{% endif %}>Gmail</option></select></label>
+          <label class="form-field span-4" for="setting-smtp-user"><span>SMTP username</span><input id="setting-smtp-user" name="smtp_username" value="{{ values.smtp_username }}" autocomplete="username" placeholder="you@gmail.com"></label>
+          <label class="form-field span-4" for="setting-smtp-password"><span>SMTP password</span><input id="setting-smtp-password" name="smtp_password" type="password" autocomplete="new-password" placeholder="{% if values.smtp_password_configured %}Configured — leave blank to keep{% else %}Enter password or app password{% endif %}"><small class="muted">Write-only and stored in the encrypted secret store.</small></label>
           <div class="choice-grid settings-choice-grid span-12">
             <label class="choice-option"><input type="checkbox" name="smtp_starttls" {% if values.smtp_starttls %}checked{% endif %}><span>STARTTLS</span></label>
           </div>
+          <p class="muted text-sm span-12">Gmail requires a Google App Password; your normal Google password will not work. The preset uses <code>smtp.gmail.com:587</code> with STARTTLS. Saving verifies configuration but does not send a message.</p>
         </div>
       </section>
 
@@ -134,3 +138,4 @@
   </div>
 </div>
 {% endblock %}
+{% block scripts %}<script src="/static/js/settings.js?v={{ static_revision }}"></script>{% endblock %}

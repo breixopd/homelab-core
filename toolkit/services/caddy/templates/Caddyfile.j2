@@ -106,6 +106,8 @@
 {% endif %}
 {% if handler.respond_status %}
 			respond {{ handler.respond_status }}
+{% elif handler.response_body %}
+			respond "{{ handler.response_body | caddy_escape }}" 200
 {% else %}
 {% if handler.auth_mode == 'forward_auth' %}
 			import authelia

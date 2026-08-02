@@ -44,3 +44,33 @@ routes:
   exposure: private
   auth:
     mode: forward_auth
+management:
+  metrics:
+  - key: target_count
+    label: Targets
+    source: status
+    field: target_count
+    unit: count
+  - key: healthy_targets
+    label: Healthy targets
+    source: status
+    field: healthy_targets
+    unit: count
+  - key: unhealthy_targets
+    label: Unhealthy targets
+    source: status
+    field: unhealthy_targets
+    unit: count
+  resources:
+  - key: targets
+    label: Scrape targets
+    description: Bounded active-target inventory from the Prometheus targets API.
+    columns:
+    - key: job
+      label: Job
+    - key: health
+      label: Health
+    - key: last_scrape
+      label: Last scrape
+    - key: last_error
+      label: Last error

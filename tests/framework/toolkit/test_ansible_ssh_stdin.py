@@ -14,8 +14,8 @@ def test_local_vm_command_receives_secret_only_over_stdin(monkeypatch) -> None:
     cfg = MagicMock()
     completed = MagicMock(returncode=0, stdout="ok", stderr="")
     run = MagicMock(return_value=completed)
-    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh._is_local_ip", lambda _ip: True)
-    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.subprocess.run", run)
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh._is_local_ip", lambda _ip, _local_ips=None: True)
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.run_text_process_group", run)
 
     result = ssh_run_on_vm(
         cfg,
@@ -28,8 +28,22 @@ def test_local_vm_command_receives_secret_only_over_stdin(monkeypatch) -> None:
     assert result == (0, "ok", "")
     args, kwargs = run.call_args
     assert args[0] == ["bash", "-c", "fixed-helper-command"]
-    assert kwargs["input"] == "secret-payload"
+    assert kwargs["input_text"] == "secret-payload"
     assert "secret-payload" not in repr(args)
+
+
+def test_local_vm_network_preflight_consumes_the_same_deadline(monkeypatch) -> None:
+    cfg = MagicMock()
+    completed = MagicMock(returncode=0, stdout="ok", stderr="")
+    run = MagicMock(return_value=completed)
+    clock = iter([100.0, 100.0, 101.2])
+
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.time.monotonic", lambda: next(clock))
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh._local_network_ips", lambda **_kwargs: ["10.0.0.10"])
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.run_text_process_group", run)
+
+    assert ssh_run_on_vm(cfg, "10.0.0.10", "true", timeout=10, deadline=105.0) == (0, "ok", "")
+    assert run.call_args.kwargs["timeout"] == pytest.approx(3.8)
 
 
 def test_remote_vm_reuses_owner_only_ssh_control_socket(tmp_path, monkeypatch) -> None:
@@ -51,11 +65,14 @@ def test_remote_vm_reuses_owner_only_ssh_control_socket(tmp_path, monkeypatch) -
     key = tmp_path / "deploy-key"
     key.write_text("test")
 
-    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh._is_local_ip", lambda _ip: False)
-    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh._is_directly_reachable", lambda _ip, _cidr: False)
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh._is_local_ip", lambda _ip, _local_ips=None: False)
+    monkeypatch.setattr(
+        "toolkit.core.ansible.ansible_ssh._is_directly_reachable",
+        lambda _ip, _cidr, _local_ips=None: False,
+    )
     monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.resolve_ansible_ssh_key", lambda *_a: key)
     monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.ssh_proxy_command", lambda *_a: "ssh-jump")
-    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.subprocess.run", run)
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.run_text_process_group", run)
 
     assert ssh_run_on_vm(cfg, "10.0.0.10", "true", root=tmp_path) == (0, "ok", "")
 

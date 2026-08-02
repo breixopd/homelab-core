@@ -26,7 +26,10 @@ from toolkit.controller.read_models import (
     PortalStatus,
     SecretInventory,
     ServiceTopology,
+    ServiceVerificationCheckView,
+    ServiceVerificationView,
 )
+from toolkit.controller.service_management_api import read_service_management
 
 pytestmark = [pytest.mark.e2e, pytest.mark.anyio]
 
@@ -76,6 +79,7 @@ def e2e_app(tmp_path: Path, monkeypatch) -> FastAPI:
     monkeypatch.setenv("WEBUI_SESSION_SECRET", "e2e-test-secret")
     monkeypatch.setenv("HOMELAB_UI_WIZARD", "1")
     monkeypatch.setattr("toolkit.core.secrets.secrets.load_secrets_plaintext", lambda _path: {})
+    monkeypatch.setattr("toolkit.controller.desired_state_api.load_secrets_plaintext", lambda _path: {})
 
     monkeypatch.setattr(
         "toolkit.webui.routers.auth.verify_password",
@@ -83,6 +87,8 @@ def e2e_app(tmp_path: Path, monkeypatch) -> FastAPI:
     )
 
     class ReadController:
+        verification = ServiceVerificationView(service="grafana", state="never")
+
         def bootstrap_status(self) -> BootstrapStatus:
             return BootstrapStatus(phase="ready")
 
@@ -106,6 +112,12 @@ def e2e_app(tmp_path: Path, monkeypatch) -> FastAPI:
 
         def services_view(self, *, family: bool = False, groups: list[str] | None = None):
             return read_services_view(tmp_path, family=family, groups=groups or [])
+
+        def service_management(self, service: str, *, collect_status: bool = True):
+            return read_service_management(tmp_path, service, collect_status=collect_status)
+
+        def service_verification(self, _service: str) -> ServiceVerificationView:
+            return self.verification
 
         def machines_view(self):
             return read_machines_view(tmp_path)
@@ -260,6 +272,59 @@ async def test_managed_host_form_explains_bootstrap_and_ssh_contract(e2e_client:
     assert "no Headscale address is needed" in response.text
     assert "ssh.key_file" in response.text
     assert "Add and bootstrap" in response.text
+
+
+@pytest.mark.parametrize("status", ["pass", "fail", "not_applicable", "degraded", "not_ready"])
+async def test_service_page_renders_each_typed_verification_status(
+    e2e_app: FastAPI,
+    e2e_client: AsyncClient,
+    status: str,
+) -> None:
+    e2e_app.state.controller.verification = ServiceVerificationView(
+        service="grafana",
+        state="complete",
+        overall_status=status,
+        checks=[
+            ServiceVerificationCheckView(
+                service="grafana",
+                check="health",
+                status=status,
+                detail="bounded evidence",
+            )
+        ],
+        observed_at=datetime.now().astimezone(),
+    )
+    await _login(e2e_client)
+
+    response = await e2e_client.get("/services/grafana")
+
+    assert response.status_code == 200
+    assert f'data-status="{status}"' in response.text
+    assert f'aria-label="Verification result: {status.replace("_", " ")}"' in response.text
+    assert "bounded evidence" in response.text
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [
+        ("never", "No verification has been run yet."),
+        ("queued", "Waiting for the first result."),
+        ("running", "Waiting for the first result."),
+    ],
+)
+async def test_service_page_renders_nonterminal_verification_states(
+    e2e_app: FastAPI,
+    e2e_client: AsyncClient,
+    state: str,
+    expected: str,
+) -> None:
+    e2e_app.state.controller.verification = ServiceVerificationView(service="grafana", state=state)
+    await _login(e2e_client)
+
+    response = await e2e_client.get("/services/grafana")
+
+    assert response.status_code == 200
+    assert expected in response.text
 
 
 async def test_invite_activate_public_without_token(e2e_client: AsyncClient) -> None:

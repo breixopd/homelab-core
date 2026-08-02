@@ -110,7 +110,7 @@ def _plugin_active(base: str, api_key: str, plugin_id: str) -> bool:
     return False
 
 
-def _configure_webhook(base: str, api_key: str, webhook_url: str) -> bool:
+def _configure_webhook(base: str, api_key: str, webhook_url: str, webhook_token: str = "") -> bool:
     if not _plugin_active(base, api_key, WEBHOOK_PLUGIN_ID):
         return False
     try:
@@ -122,10 +122,28 @@ def _configure_webhook(base: str, api_key: str, webhook_url: str) -> bool:
         if cfg_resp.status_code != 200:
             return False
         data = cfg_resp.json()
-        options = data.get("GenericOptions") if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            return False
+        options = data.get("GenericOptions")
         if not isinstance(options, list):
             options = []
         found = False
+
+        def configure_auth_header(option: dict) -> None:
+            if not webhook_token:
+                return
+            raw_headers = option.get("Headers")
+            headers = list(raw_headers) if isinstance(raw_headers, list) else []
+            headers = [
+                header
+                for header in headers
+                if not (
+                    isinstance(header, dict) and str(header.get("Key", "")).casefold() == "x-media-cache-webhook-token"
+                )
+            ]
+            headers.append({"Key": "X-Media-Cache-Webhook-Token", "Value": webhook_token})
+            option["Headers"] = headers
+
         for opt in options:
             if not isinstance(opt, dict):
                 continue
@@ -133,16 +151,17 @@ def _configure_webhook(base: str, api_key: str, webhook_url: str) -> bool:
                 found = True
                 opt["EnableWebhook"] = True
                 opt.setdefault("NotificationTypes", ["PlaybackStart"])
+                configure_auth_header(opt)
         if not found:
-            options.append(
-                {
-                    "Name": "media-cache",
-                    "WebhookUri": webhook_url,
-                    "EnableWebhook": True,
-                    "NotificationTypes": ["PlaybackStart"],
-                    "SendAllProperties": False,
-                }
-            )
+            option = {
+                "Name": "media-cache",
+                "WebhookUri": webhook_url,
+                "EnableWebhook": True,
+                "NotificationTypes": ["PlaybackStart"],
+                "SendAllProperties": False,
+            }
+            configure_auth_header(option)
+            options.append(option)
         data["GenericOptions"] = options
         post = httpx.post(
             f"{base}/Plugins/{WEBHOOK_PLUGIN_ID}/Configuration",
@@ -151,7 +170,7 @@ def _configure_webhook(base: str, api_key: str, webhook_url: str) -> bool:
             timeout=20,
         )
         return post.status_code in (200, 201, 204)
-    except httpx.HTTPError:
+    except (httpx.HTTPError, ValueError):
         return False
 
 
@@ -241,6 +260,7 @@ def configure_jellyfin_extras(
     *,
     base_url: str = "http://jellyfin:8096",
     lldap_bind_password: str = "",
+    media_cache_webhook_token: str = "",
 ) -> list[str]:
     """Install recommended plugins and configure the media-cache webhook."""
     logs: list[str] = []
@@ -297,7 +317,12 @@ def configure_jellyfin_extras(
             return logs
 
     if cache_enabled:
-        if _configure_webhook(base_url, api_key, "http://media-cache:8686/webhook/jellyfin"):
+        if _configure_webhook(
+            base_url,
+            api_key,
+            "http://media-cache:8686/webhook/jellyfin",
+            media_cache_webhook_token,
+        ):
             logs.append("Jellyfin: media-cache webhook configured")
         else:
             logs.append("Jellyfin: media-cache webhook not configured (install Webhook plugin first)")

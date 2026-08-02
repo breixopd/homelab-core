@@ -44,62 +44,96 @@ def _run_cmd(cfg: Config, root: Path) -> RunFn:
     return _local_run
 
 
-def headscale_preauth_key(*, tags: list[str] | None = None) -> str | None:
-    """Return a reusable Headscale preauth key, creating one if needed."""
+def _homelab_user_id(output: str) -> tuple[bool, str | None]:
+    """Resolve the single exact homelab user, failing closed on bad JSON."""
+    try:
+        users = json.loads(output or "")
+    except (TypeError, json.JSONDecodeError):
+        return False, None
+    if not isinstance(users, list):
+        return False, None
+    matches: list[str] = []
+    for user in users:
+        if not isinstance(user, dict):
+            return False, None
+        if user.get("name", user.get("Name")) != "homelab":
+            continue
+        user_id = user.get("id", user.get("ID"))
+        if isinstance(user_id, bool) or user_id is None or not str(user_id).strip():
+            return False, None
+        matches.append(str(user_id).strip())
+    if len(matches) > 1:
+        return False, None
+    return True, matches[0] if matches else None
+
+
+def _fleet_join_recovery_command(login_server: str, *, fleet: bool) -> str:
+    """Return a recovery command without embedding bearer key material."""
+    del login_server
+    suffix = " --fleet" if fleet else ""
+    return f"sudo -E homelab-toolkit mesh join{suffix}"
+
+
+def _local_homelab_user_id() -> str | None:
+    """Resolve or create the exact local managed Headscale user."""
     users_rc, users_out = docker_exec("headscale", ["headscale", "-o", "json", "users", "list"])
     if users_rc != 0:
         return None
-    try:
-        users = json.loads(users_out or "[]")
-    except json.JSONDecodeError:
+    valid, user_id = _homelab_user_id(users_out)
+    if not valid:
         return None
-
-    if not users:
+    if user_id is None:
         create_rc, _ = docker_exec("headscale", ["headscale", "users", "create", "homelab"])
         if create_rc != 0:
             return None
         users_rc, users_out = docker_exec("headscale", ["headscale", "-o", "json", "users", "list"])
-        try:
-            users = json.loads(users_out or "[]")
-        except json.JSONDecodeError:
+        if users_rc != 0:
             return None
+        valid, user_id = _homelab_user_id(users_out)
+        if not valid:
+            return None
+    return user_id
 
-    user_id = users[0].get("id") if users else None
-    if not user_id:
+
+def _remote_homelab_user_id(cfg: Config, root: Path) -> str | None:
+    """Resolve or create the exact managed user on the Headscale VM."""
+    from toolkit.core.ansible.ansible_ssh import ssh_run_on_vm
+    from toolkit.core.manifest.placement import service_address
+
+    infra_ip = service_address(cfg, "headscale")
+    users_cmd = "docker exec headscale headscale -o json users list"
+    rc, users_out, _ = ssh_run_on_vm(cfg, infra_ip, users_cmd, root=root, timeout=60)
+    if rc != 0:
         return None
+    valid, user_id = _homelab_user_id(users_out)
+    if not valid:
+        return None
+    if user_id is not None:
+        return user_id
+    create_user_cmd = "docker exec headscale headscale users create homelab"
+    rc, _, _ = ssh_run_on_vm(cfg, infra_ip, create_user_cmd, root=root, timeout=60)
+    if rc != 0:
+        return None
+    rc, users_out, _ = ssh_run_on_vm(cfg, infra_ip, users_cmd, root=root, timeout=60)
+    if rc != 0:
+        return None
+    valid, user_id = _homelab_user_id(users_out)
+    return user_id if valid else None
 
-    keys_rc, keys_out = docker_exec(
-        "headscale",
-        ["headscale", "-o", "json", "preauthkeys", "list", "--user", str(user_id)],
-    )
-    if keys_rc == 0 and keys_out:
-        try:
-            keys = json.loads(keys_out)
-            from toolkit.core.registry.mesh import preauth_key_tags_match
 
-            reusable = [
-                k
-                for k in keys
-                if k.get("reusable")
-                and not k.get("used")
-                and not k.get("expired")
-                and preauth_key_tags_match(k, tags)
-                and _unmasked_preauth_key(k.get("key"))
-            ]
-            if reusable:
-                return _unmasked_preauth_key(reusable[0].get("key"))
-        except json.JSONDecodeError:
-            pass
-
+def headscale_preauth_key(*, tags: list[str] | None = None) -> str | None:
+    """Create a short-lived, single-use key for one immediate enrollment."""
+    user_id = _local_homelab_user_id()
+    if user_id is None:
+        return None
     create_cmd = [
         "headscale",
         "preauthkeys",
         "create",
         "--user",
         str(user_id),
-        "--reusable",
         "--expiration",
-        "168h",
+        "1h",
     ]
     for tag in tags or []:
         tag = tag.strip()
@@ -118,27 +152,18 @@ def _parse_headscale_preauth_output(output: str) -> str | None:
         return None
     try:
         data = json.loads(text)
-        if isinstance(data, dict) and data.get("key"):
-            return str(data["key"])
-        if isinstance(data, list):
-            for row in data:
-                if row.get("reusable") and not row.get("used") and not row.get("expired") and row.get("key"):
-                    return str(row["key"])
     except json.JSONDecodeError:
-        pass
-    import re
-
-    match = re.search(r'"key":\s*"([^"]+)"', text)
-    if match:
-        return match.group(1)
-    line = text.splitlines()[-1].strip()
-    return line or None
-
-
-def _unmasked_preauth_key(value: object) -> str | None:
-    """Return a reusable bearer key only when Headscale disclosed it in full."""
-    key = str(value or "").strip()
-    return key if key and "*" not in key else None
+        return None
+    if isinstance(data, dict):
+        key = data.get("key")
+        return key.strip() if isinstance(key, str) and key.strip() else None
+    if isinstance(data, list):
+        for row in data:
+            if isinstance(row, dict):
+                key = row.get("key")
+                if isinstance(key, str) and key.strip():
+                    return key.strip()
+    return None
 
 
 def headscale_preauth_key_for_deploy(cfg: Config, root: Path, *, tags: list[str] | None = None) -> str | None:
@@ -151,50 +176,69 @@ def headscale_preauth_key_for_deploy(cfg: Config, root: Path, *, tags: list[str]
     from toolkit.core.manifest.placement import service_address
 
     infra_ip = service_address(cfg, "headscale")
-    list_cmd = "docker exec headscale headscale -o json preauthkeys list"
-    rc, out, _ = ssh_run_on_vm(cfg, infra_ip, list_cmd, root=root, timeout=60)
-    if rc == 0 and out:
-        try:
-            from toolkit.core.registry.mesh import preauth_key_tags_match
-
-            keys = json.loads(out)
-            for row in keys if isinstance(keys, list) else []:
-                user = row.get("user") or {}
-                if user.get("id") not in (None, 1) and user.get("name") not in (None, "homelab"):
-                    continue
-                if (
-                    row.get("reusable")
-                    and not row.get("used")
-                    and not row.get("expired")
-                    and preauth_key_tags_match(row, tags)
-                    and _unmasked_preauth_key(row.get("key"))
-                ):
-                    return _unmasked_preauth_key(row.get("key"))
-        except json.JSONDecodeError:
-            pass
+    user_id = _remote_homelab_user_id(cfg, root)
+    if user_id is None:
+        return None
     tag_args = "".join(f" --tags {shlex.quote(t.strip())}" for t in (tags or []) if t.strip())
-    create_cmd = f"docker exec headscale headscale -o json preauthkeys create -u 1 --reusable -e 168h{tag_args}"
+    create_cmd = f"docker exec headscale headscale -o json preauthkeys create -u {shlex.quote(user_id)} -e 1h{tag_args}"
     rc, out, _ = ssh_run_on_vm(cfg, infra_ip, create_cmd, root=root, timeout=60)
     if rc != 0:
         return None
     return _parse_headscale_preauth_output(out or "")
 
 
-def bootstrap_headscale_preauth(*, tags: list[str] | None = None) -> list[str]:
+def bootstrap_headscale_preauth(
+    cfg: Config | None = None,
+    root: Path | None = None,
+    *,
+    tags: list[str] | None = None,
+) -> list[str]:
+    """Verify enrollment prerequisites without creating an unused bearer key."""
+    del tags
     logs: list[str] = []
-    key = headscale_preauth_key(tags=tags)
-    if key:
-        # Preauth keys are bearer credentials. Never include even a prefix in
-        # deployment output: logs are persisted and routinely forwarded to
-        # dashboards, CI, and support tooling.
-        logs.append("Headscale: preauth key ready")
+    if cfg is not None and cfg.is_multi_node:
+        user_id = _remote_homelab_user_id(cfg, root or Path("."))
     else:
-        logs.append("Headscale: preauth key create failed")
+        user_id = _local_homelab_user_id()
+    if user_id is not None:
+        logs.append("Headscale: preauth prerequisites ready")
+    else:
+        logs.append("Headscale: preauth prerequisites unavailable")
     return logs
 
 
+def headscale_control_state_verified(login_server: str) -> bool:
+    """Return whether Tailscale is running against the exact Headscale URL."""
+    try:
+        status = subprocess.run(
+            ["tailscale", "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        prefs = subprocess.run(
+            ["tailscale", "debug", "prefs"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        status_data = json.loads(status.stdout or "{}") if status.returncode == 0 else {}
+        prefs_data = json.loads(prefs.stdout or "{}") if prefs.returncode == 0 else {}
+    except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired):
+        return False
+    control_url = str(prefs_data.get("ControlURL") or "").rstrip("/")
+    return status_data.get("BackendState") == "Running" and control_url == login_server.rstrip("/")
+
+
 def ensure_controller_mesh_joined(
-    cfg: Config, *, preauth_key: str | None = None, root: Path | None = None, fleet: bool = False
+    cfg: Config,
+    *,
+    preauth_key: str | None = None,
+    root: Path | None = None,
+    fleet: bool = False,
+    hostname: str = "homelab-controller",
 ) -> list[str]:
     """Join the deploy controller to Headscale (opt-in only).
 
@@ -245,7 +289,7 @@ def ensure_controller_mesh_joined(
                         control = str(json.loads(prefs.stdout).get("ControlURL") or "")
                 except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired):
                     pass
-                if control and login_server in control:
+                if control.rstrip("/") == login_server:
                     logs.append("Headscale: controller mesh active")
                     return logs
                 if control and "tailscale.com" in control:
@@ -272,23 +316,39 @@ def ensure_controller_mesh_joined(
             "tailscale",
             "up",
             f"--login-server={login_server}",
-            f"--authkey={key}",
-            "--hostname=homelab-controller",
+            f"--auth-key={key}",
+            f"--hostname={hostname}",
             "--accept-routes",
             "--reset",
         ]
     else:
-        up_cmd = personal_mesh_up_args(cfg)
+        up_cmd = personal_mesh_up_args(cfg, hostname=hostname)
 
-    up = subprocess.run(up_cmd, capture_output=True, text=True, timeout=120, check=False)
+    try:
+        up = subprocess.run(up_cmd, capture_output=True, text=True, timeout=120, check=False)
+    except subprocess.TimeoutExpired:
+        logs.append("Headscale: tailscale up timed out; mesh state was not verified")
+        return logs
+    except FileNotFoundError:
+        logs.append("Headscale: tailscale CLI is unavailable")
+        return logs
     if up.returncode == 0:
-        logs.append("Headscale: controller joined mesh (OIDC)" if not fleet else "Headscale: fleet node joined mesh")
+        if headscale_control_state_verified(login_server):
+            logs.append(
+                "Headscale: controller joined mesh (OIDC)" if not fleet else "Headscale: fleet node joined mesh"
+            )
+        else:
+            logs.append("Headscale: tailscale up returned success, but Headscale control state was not verified")
     else:
         detail = (up.stderr or up.stdout or "tailscale up failed")[:160]
         if fleet and ("Access denied" in detail or "sudo" in detail.lower()):
-            logs.append("Headscale: run `homelab-toolkit mesh join-cmd --fleet` and execute the printed command")
+            logs.append(
+                "Headscale: rerun the managed join with privileges: "
+                f"`{_fleet_join_recovery_command(login_server, fleet=True)}`"
+            )
         elif not fleet and "needs login" not in detail.lower():
-            logs.append(f"Headscale: OIDC mesh join — run `homelab-toolkit mesh join-cmd` ({detail})")
+            command = _fleet_join_recovery_command(login_server, fleet=False)
+            logs.append(f"Headscale: OIDC mesh join — run `{command}` ({detail})")
         else:
             logs.append(f"Headscale: complete browser login if prompted ({detail})")
     return logs
@@ -319,49 +379,64 @@ def approve_mesh_registration(
     if not hs_user:
         return ["Mesh approve: could not resolve Headscale username"]
 
-    run = _run_cmd(cfg, root)
+    from toolkit.core.manifest.placement import service_address
+    from toolkit.services.sdk import docker_exec_on_vm
+
+    vm_ip = service_address(cfg, "headscale") if cfg.is_multi_node else "127.0.0.1"
     logs: list[str] = []
 
-    rc, out, _ = run(
-        ["docker", "exec", "headscale", "headscale", "users", "list", "-o", "json"],
-        30,
+    rc, out = docker_exec_on_vm(
+        cfg,
+        "headscale",
+        ["headscale", "users", "list", "-o", "json"],
+        vm_ip,
+        root,
+        timeout=30,
     )
     if rc != 0:
         return [f"Mesh approve: headscale users list failed ({(out or '')[:100]})"]
 
     try:
-        users = json.loads(out or "[]")
-    except json.JSONDecodeError:
-        users = []
+        users = json.loads(out or "")
+    except (TypeError, json.JSONDecodeError):
+        return ["Mesh approve: headscale users list returned invalid JSON"]
+    if not isinstance(users, list) or any(not isinstance(item, dict) for item in users):
+        return ["Mesh approve: headscale users list returned an invalid response"]
 
-    known = {str(u.get("name") or u.get("Name") or "").strip() for u in users if isinstance(u, dict)}
+    known = [str(item.get("name") or item.get("Name") or "").strip() for item in users]
+    if known.count(hs_user) > 1:
+        return [f"Mesh approve: multiple Headscale users matched {hs_user!r}"]
     if hs_user not in known:
-        rc_c, out_c, err_c = run(
-            ["docker", "exec", "headscale", "headscale", "users", "create", hs_user, "--force"],
-            30,
+        rc_c, create_output = docker_exec_on_vm(
+            cfg,
+            "headscale",
+            ["headscale", "users", "create", hs_user, "--force"],
+            vm_ip,
+            root,
+            timeout=30,
         )
         if rc_c != 0:
-            detail = (err_c or out_c or "").strip()[:120]
+            detail = (create_output or "").strip()[:120]
             return [f"Mesh approve: could not create user {hs_user!r} ({detail})"]
         logs.append(f"Mesh approve: created Headscale user {hs_user!r}")
 
-    rc_r, out_r, err_r = run(
+    rc_r, register_output = docker_exec_on_vm(
+        cfg,
+        "headscale",
         [
-            "docker",
-            "exec",
-            "headscale",
-            "headscale",
-            "nodes",
-            "register",
-            "--user",
+            "/bin/busybox",
+            "sh",
+            "-ec",
+            'IFS= read -r registration_key; exec headscale auth register --user "$1" --auth-id "$registration_key"',
+            "homelab-headscale-register",
             hs_user,
-            "--key",
-            key,
-            "--force",
         ],
-        45,
+        vm_ip,
+        root,
+        timeout=45,
+        stdin=f"{key}\n",
     )
-    detail = (err_r or out_r or "").strip()
+    detail = (register_output or "").strip()
     error_lines = [ln for ln in detail.splitlines() if "WRN " not in ln and ln.strip()]
     err_msg = "\n".join(error_lines).strip() or detail
     if rc_r == 0:

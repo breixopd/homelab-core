@@ -59,6 +59,35 @@ management:
       copyable: true
     - label: Managed-host agents
       value: Add or edit hosts in Homelab UI; agent enrollment and reporting are verified automatically
+  metrics:
+  - key: agents_total
+    label: Agents
+    source: status
+    field: agents_total
+    unit: count
+  - key: agents_active
+    label: Active agents
+    source: status
+    field: agents_active
+    unit: count
+  - key: agents_disconnected
+    label: Disconnected agents
+    source: status
+    field: agents_disconnected
+    unit: count
+  resources:
+  - key: agents
+    label: Agent inventory
+    description: Registered Wazuh agents and their current manager status.
+    columns:
+    - key: id
+      label: ID
+    - key: name
+      label: Name
+    - key: address
+      label: Address
+    - key: status
+      label: Status
 required_secrets:
 - name: WAZUH_DASHBOARD_PASSWORD
   tier: generated

@@ -245,8 +245,17 @@ class CloudflareDNS:
         return stats
 
 
-def email_dns_records(domain: str, mail_ip: str, *, dkim_txt: str = "") -> list[DNSRecord]:
+def email_dns_records(
+    domain: str,
+    mail_ip: str,
+    *,
+    dkim_txt: str = "",
+    mail_public_access: bool = True,
+    autoconfig_enabled: bool = True,
+) -> list[DNSRecord]:
     """Generate MX, SPF, DKIM, and DMARC DNS records for email."""
+    if not mail_public_access:
+        return []
     records = [
         DNSRecord(name=domain, type="MX", content=f"10 mail.{domain}", proxied=False),
         DNSRecord(name=f"mail.{domain}", type="A", content=mail_ip, proxied=False),
@@ -257,9 +266,9 @@ def email_dns_records(domain: str, mail_ip: str, *, dkim_txt: str = "") -> list[
             content=f"v=DMARC1; p=quarantine; rua=mailto:dmarc@{domain}",
             proxied=False,
         ),
-        DNSRecord(name=f"autoconfig.{domain}", type="CNAME", content=f"mail.{domain}", proxied=False),
-        DNSRecord(name=f"autodiscover.{domain}", type="CNAME", content=f"mail.{domain}", proxied=False),
     ]
+    if autoconfig_enabled:
+        records.append(DNSRecord(name=f"autoconfig.{domain}", type="CNAME", content=f"mail.{domain}", proxied=False))
     if dkim_txt and "placeholder" not in dkim_txt.lower():
         records.append(
             DNSRecord(
@@ -382,7 +391,16 @@ def desired_records_from_config(cfg, public_ip: str) -> list[DNSRecord]:
             dkim_txt = fetch_dms_dkim_txt(cfg.domain, cfg=cfg)
         except Exception:
             logger.debug("Could not fetch DKIM TXT from DMS — will be omitted until bootstrap runs")
-        records.extend(email_dns_records(cfg.domain, public_ip, dkim_txt=dkim_txt))
+        autoconfig_enabled = any(route.host == f"autoconfig.{cfg.domain}" for route in public_routes(cfg))
+        records.extend(
+            email_dns_records(
+                cfg.domain,
+                public_ip,
+                dkim_txt=dkim_txt,
+                mail_public_access=cfg.network.mail_public_access,
+                autoconfig_enabled=autoconfig_enabled,
+            )
+        )
 
     for record in external_hosts_dns_records(cfg):
         if record.name not in seen:

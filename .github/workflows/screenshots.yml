@@ -1,0 +1,52 @@
+name: README screenshots
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "toolkit/webui/**"
+      - "toolkit/controller/read_models.py"
+      - "scripts/capture_readme_screenshots.py"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: readme-screenshots
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    if: github.repository_owner == 'breixopd'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4.2.2
+      - uses: astral-sh/setup-uv@4db96194c50b4fd8c2f2b4e55a0c4ae475c44b86 # v6.4.1
+        with:
+          version: "0.8.13"
+          enable-cache: true
+      - name: Install locked application and browser driver
+        run: uv sync --locked --all-extras && uv pip install playwright==1.62.0
+      - name: Install Chromium
+        run: uv run playwright install --with-deps chromium
+      - name: Capture screenshots
+        run: uv run python scripts/capture_readme_screenshots.py
+      - name: Open screenshot refresh pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- docs/screenshots; then
+            exit 0
+          fi
+          branch="automation/readme-screenshots-${GITHUB_RUN_ID}"
+          git switch -c "${branch}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          git commit -m "docs: refresh README screenshots"
+          git push --set-upstream origin "${branch}"
+          gh pr create --base main --head "${branch}" --title "docs: refresh README screenshots" --body "Automated browser capture from the real Homelab setup and identity surfaces."

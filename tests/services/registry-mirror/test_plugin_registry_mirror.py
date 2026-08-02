@@ -37,28 +37,49 @@ class TestRegistryMirrorVerify:
         assert checks[0].passed is False
         assert checks[0].detail == "container missing"
 
-    def test_ca_v2_pull_through(self, tmp_path, monkeypatch):
+    def test_ca_and_v2_endpoint(self, tmp_path, monkeypatch):
         cfg = Config(domain="example.com", services=ServicesConfig(management=True))
 
         def fake_ssh(_cfg, _ip, cmd, root=None, timeout=30):
             if "ca.crt" in cmd or "/dev/null && echo OK" in cmd:
                 return 0, "OK", ""
-            if "registry-1.docker.io" in cmd:
-                return 0, "401", ""
             return 1, "", ""
 
         monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
         monkeypatch.setattr("toolkit.services.sdk.docker_health_status_on_vm", lambda *_a, **_k: ("running", "healthy"))
         monkeypatch.setattr("toolkit.services.sdk.registry_mirror_running", lambda **_: True)
         monkeypatch.setattr("toolkit.services.sdk.ssh_on_vm", fake_ssh)
-        monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_a, **_k: (0, "{}"))
         monkeypatch.setattr(
             "toolkit.services.sdk.docker_exec_on_vm",
-            lambda *_a, **_k: (0, "401"),
+            lambda *_a, **_k: (0, "  HTTP/1.1 200 OK"),
         )
 
         checks = {c.check: c for c in _plugin().verify(cfg, {}, "10.10.10.10", tmp_path)}
         assert checks["running"].passed
         assert checks["ca_cert"].passed
         assert checks["v2_endpoint"].passed
-        assert checks["pull_through"].passed
+
+    def test_v2_endpoint_requires_successful_valid_response(self, tmp_path, monkeypatch):
+        cfg = Config(domain="example.com", services=ServicesConfig(management=True))
+        monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
+        monkeypatch.setattr("toolkit.services.sdk.docker_health_status_on_vm", lambda *_a, **_k: ("", "healthy"))
+        monkeypatch.setattr("toolkit.services.sdk.registry_mirror_running", lambda **_: True)
+        monkeypatch.setattr("toolkit.services.sdk.ssh_on_vm", lambda *_a, **_k: (0, "OK", ""))
+        monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", lambda *_a, **_k: (1, ""))
+        checks = {c.check: c for c in _plugin().verify(cfg, {}, "10.10.10.10", tmp_path)}
+        assert checks["v2_endpoint"].passed is False
+
+    def test_v2_endpoint_accepts_registry_auth_challenge(self, tmp_path, monkeypatch):
+        cfg = Config(domain="example.com", services=ServicesConfig(management=True))
+        monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_a, **_k: True)
+        monkeypatch.setattr("toolkit.services.sdk.docker_health_status_on_vm", lambda *_a, **_k: ("", "healthy"))
+        monkeypatch.setattr("toolkit.services.sdk.registry_mirror_running", lambda **_: True)
+        monkeypatch.setattr("toolkit.services.sdk.ssh_on_vm", lambda *_a, **_k: (0, "OK", ""))
+        monkeypatch.setattr(
+            "toolkit.services.sdk.docker_exec_on_vm",
+            lambda *_a, **_k: (1, "  HTTP/1.1 401 Unauthorized"),
+        )
+
+        checks = {c.check: c for c in _plugin().verify(cfg, {}, "10.10.10.10", tmp_path)}
+
+        assert checks["v2_endpoint"].passed is True

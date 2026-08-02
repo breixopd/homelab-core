@@ -873,10 +873,10 @@ def deploy_verify(ctx, vm, url, as_json, hooks, run_qa, sso, strict, manual_step
                 AuditAction.VERIFY,
                 actor="cli",
                 ok=result.all_passed,
-                detail=f"{sum(1 for c in result.checks if c.passed)}/{len(result.checks)} passed",
+                detail=result.summary,
                 vm=vm,
                 extra={
-                    "failed": [f"{c.service}.{c.check}" for c in result.checks if not c.passed][:20],
+                    "failed": [f"{c.service}.{c.check}" for c in result.failed_checks][:20],
                 },
             )
         except Exception:

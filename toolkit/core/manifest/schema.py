@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 Exposure = Literal["public", "private"]
 RotationPolicy = Literal["restart", "reconcile", "persistent"]
-AuthMode = Literal["forward_auth", "oidc", "native", "split"]
+AuthMode = Literal["forward_auth", "oidc", "native", "split", "none"]
 ProbeMethod = Literal["GET", "HEAD", "OPTIONS"]
 MatchKind = Literal["exact", "prefix"]
 NodeId = str
@@ -175,6 +175,7 @@ class RouteManifest(StrictManifestModel):
     match: RouteMatch | None = None
     variants: tuple[RouteVariant, ...] = ()
     file_server_root: str = Field(default="", max_length=4_096)
+    response_body: str = Field(default="", max_length=32_768)
     request_body_max_mb: int | None = Field(default=None, ge=1, le=100)
     deny: tuple[RouteMatch, ...] = ()
     response_headers: tuple[ResponseHeader, ...] = ()
@@ -198,13 +199,28 @@ class RouteManifest(StrictManifestModel):
             raise ValueError("file server root must be absolute")
         return value
 
+    @field_validator("response_body")
+    @classmethod
+    def safe_response_body(cls, value: str) -> str:
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise ValueError("static response bodies cannot contain control characters")
+        return value
+
     @model_validator(mode="after")
     def validate_target(self) -> RouteManifest:
-        if self.file_server_root:
+        if self.response_body and (self.file_server_root or self.upstream or self.variants or self.compose_service):
+            raise ValueError("response routes cannot declare proxy or file-server targets")
+        if self.response_body and self.auth.mode != "none":
+            raise ValueError("response routes must be unauthenticated")
+        if self.response_body:
+            pass
+        elif self.file_server_root:
             if self.upstream or self.variants or self.compose_service or self.published_port is not None:
                 raise ValueError("file-server routes cannot declare proxy targets")
         elif not self.upstream and not self.variants:
             raise ValueError("proxy routes require an upstream or variant")
+        if self.auth.mode == "none" and not self.response_body:
+            raise ValueError("unauthenticated routes must use a static response target")
         if self.auth.mode == "split" and self.match is not None:
             raise ValueError("split authentication belongs on a default route")
         if self.deny and self.match is not None:

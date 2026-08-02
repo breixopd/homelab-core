@@ -32,6 +32,7 @@ from toolkit.core.machines.models import validate_machine_id
 DEFAULT_PROXMOX_NODE = "pve"
 DEFAULT_LXC_TEMPLATE_URL = "http://download.proxmox.com/images/system/debian-12-standard_12.12-1_amd64.tar.zst"
 DEFAULT_LXC_TEMPLATE_SHA256 = "ff5c55cba730fc1e93bc7de3e0ea4aecb05c692094009cfcf2999973a56f15e5"
+DEFAULT_SMTP_PASSWORD_SECRET = "OPERATOR_SMTP_PASSWORD"
 _SERVICE_SETTING_OWNER = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 _SERVICE_SETTING_KEY = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 ServiceSettingScalar = StrictBool | StrictInt | StrictFloat | StrictStr
@@ -287,6 +288,10 @@ class SMTPNotificationConfig(BaseModel):
     def complete_external_transport(self) -> SMTPNotificationConfig:
         if self.mode == "external" and not self.host:
             raise ValueError("external SMTP mode requires host")
+        if self.mode == "external" and not self.starttls and self.port != 465:
+            raise ValueError("external SMTP requires STARTTLS or implicit TLS on port 465")
+        if self.mode == "external" and self.starttls and self.port == 465:
+            raise ValueError("SMTP port 465 requires implicit TLS with STARTTLS disabled")
         if bool(self.username) != bool(self.password_secret):
             raise ValueError("SMTP authentication requires both username and password_secret")
         return self

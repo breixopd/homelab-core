@@ -104,7 +104,7 @@ def selected_services_require_backup(root: Path, cfg: Config, services: set[str]
     for manifest in catalog.manifests:
         if not manifest.stateful or not service_is_enabled(cfg, manifest):
             continue
-        compose_path = root / "toolkit" / "services" / manifest.name / "compose.yaml"
+        compose_path = catalog.compose_path(manifest.name)
         try:
             document = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError) as exc:

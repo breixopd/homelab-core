@@ -531,6 +531,66 @@ class TestRegisterTautulliWebhook:
         assert mock_get.call_count == 2
 
     @patch.object(cache_client_module.httpx, "get")
+    def test_skips_when_authenticated_webhook_headers_match(self, mock_get: MagicMock) -> None:
+        expected_headers = '{"X-Media-Cache-Webhook-Token":"webhook-secret"}'
+        notifiers = [{"id": 7, "agent_id": 25, "agent_name": "webhook", "friendly_name": "media-cache"}]
+        notifier_cfg = {
+            "id": 7,
+            "agent_id": 25,
+            "friendly_name": "media-cache",
+            "config": {"hook": self.WEBHOOK_URL, "method": "POST"},
+            "notify_text": {
+                "on_play": {"subject": expected_headers},
+                "on_resume": {"subject": expected_headers},
+            },
+        }
+        mock_get.side_effect = [
+            _tautulli_response("success", notifiers),
+            _tautulli_response("success", notifier_cfg),
+        ]
+
+        ok, message = register_tautulli_webhook(
+            tautulli_url="http://tautulli:8181",
+            api_key="key",
+            webhook_url=self.WEBHOOK_URL,
+            webhook_token="webhook-secret",
+        )
+
+        assert ok is True
+        assert "already registered" in message
+        assert mock_get.call_count == 2
+
+    @patch.object(cache_client_module.httpx, "get")
+    def test_reconfigures_stale_authenticated_webhook_headers(self, mock_get: MagicMock) -> None:
+        notifiers = [{"id": 7, "agent_id": 25, "agent_name": "webhook", "friendly_name": "media-cache"}]
+        notifier_cfg = {
+            "id": 7,
+            "agent_id": 25,
+            "friendly_name": "media-cache",
+            "config": {"hook": self.WEBHOOK_URL, "method": "POST"},
+            "notify_text": {
+                "on_play": {"subject": '{"X-Media-Cache-Webhook-Token":"old"}'},
+                "on_resume": {"subject": '{"X-Media-Cache-Webhook-Token":"old"}'},
+            },
+        }
+        mock_get.side_effect = [
+            _tautulli_response("success", notifiers),
+            _tautulli_response("success", notifier_cfg),
+            _tautulli_response("success", None),
+        ]
+
+        ok, message = register_tautulli_webhook(
+            tautulli_url="http://tautulli:8181",
+            api_key="key",
+            webhook_url=self.WEBHOOK_URL,
+            webhook_token="webhook-secret",
+        )
+
+        assert ok is True
+        assert "authentication updated" in message
+        assert mock_get.call_args.kwargs["params"]["on_play_subject"].endswith('"webhook-secret"}')
+
+    @patch.object(cache_client_module.httpx, "get")
     def test_creates_and_configures_new_notifier(self, mock_get: MagicMock) -> None:
         """When no existing webhook matches, create a new notifier then configure it."""
         empty_notifiers: list = []
@@ -546,6 +606,7 @@ class TestRegisterTautulliWebhook:
             tautulli_url="http://tautulli:8181",
             api_key="key",
             webhook_url=TestRegisterTautulliWebhook.WEBHOOK_URL,
+            webhook_token="webhook-secret",
         )
 
         assert ok is True
@@ -557,6 +618,9 @@ class TestRegisterTautulliWebhook:
         assert set_call.kwargs["params"]["notifier_id"] == 12
         assert set_call.kwargs["params"]["webhook_hook"] == TestRegisterTautulliWebhook.WEBHOOK_URL
         assert set_call.kwargs["params"]["webhook_method"] == "POST"
+        expected_headers = '{"X-Media-Cache-Webhook-Token":"webhook-secret"}'
+        assert set_call.kwargs["params"]["on_play_subject"] == expected_headers
+        assert set_call.kwargs["params"]["on_resume_subject"] == expected_headers
         assert set_call.kwargs["params"]["on_play"] == 1
         assert set_call.kwargs["params"]["on_resume"] == 1
         assert "{action}" in set_call.kwargs["params"]["on_play_body"]

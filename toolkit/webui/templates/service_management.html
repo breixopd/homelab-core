@@ -13,6 +13,21 @@
   <div><span>Status</span><strong id="service-reporting-status">Loading live data</strong></div>
 </section>
 
+<section class="content-band service-verification-panel" aria-labelledby="service-verification-heading">
+  <div class="section-head"><div><h2 id="service-verification-heading">Deep verification</h2><p class="muted text-sm">Controller checks run asynchronously and retain the previous result while queued or running.</p></div>
+  <form method="post" action="/services/{{ service.service }}/verification"><button type="submit" class="btn btn-ghost btn-sm" {% if not service.enabled or verification.state in ['queued', 'running'] %}disabled{% endif %}>Run verification</button></form></div>
+  {% if verification.state in ['queued', 'running'] %}<p class="notice" role="status">Verification {{ verification.state }}{% if verification.stale %}; previous result is stale{% endif %}.</p>{% endif %}
+  {% if not service.enabled %}<p class="muted">Enable this service before running its verification checks.</p>
+  {% elif verification.state == 'never' %}<p class="muted">No verification has been run yet.</p>
+  {% elif verification.checks %}
+  <div class="verification-state verification-{{ verification.overall_status }}" data-status="{{ verification.overall_status }}" role="status" aria-label="Verification result: {{ verification.overall_status|replace('_', ' ') }}">{{ verification.overall_status|replace('_', ' ')|title }}{% if verification.state in ['queued', 'running'] %} · previous result{% endif %}</div>
+  {% if verification.checks %}<ul class="verification-checks" aria-label="Verification checks">{% for check in verification.checks %}<li data-status="{{ check.status }}"><strong>{{ check.check }}</strong> <span class="verification-check-status">{{ check.status|replace('_', ' ')|title }}</span>{% if check.detail %}<small>{{ check.detail }}</small>{% endif %}</li>{% endfor %}</ul>{% endif %}
+  {% if verification.observed_at %}<p class="muted text-sm">Observed {{ verification.observed_at }}{% if verification.stale %} · stale{% endif %}</p>{% endif %}
+  {% elif verification.state in ['queued', 'running'] %}<p class="muted">Waiting for the first result.</p>
+  {% elif verification.state == 'complete' %}<p class="notice error">Verification did not produce a usable result.{% if verification.job_id %} <a href="/jobs/{{ verification.job_id }}">View job</a>{% endif %}</p>
+  {% endif %}
+</section>
+
 {% if service.panels %}
 <div class="service-info-grid" aria-label="Service information">
   {% for panel in service.panels %}

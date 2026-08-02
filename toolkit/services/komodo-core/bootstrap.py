@@ -45,8 +45,7 @@ def _komodo_post(
     endpoint: str, payload: dict, *, jwt: str = "", api_key: str = "", api_secret: str = ""
 ) -> dict | list | None:
     """POST to Komodo Core without placing credentials in process arguments."""
-    from toolkit.core.net.curl_config import render_curl_config
-    from toolkit.core.ops.automation import docker_exec
+    from toolkit.core.ops.automation import docker_curl
 
     headers = {"Content-Type": "application/json"}
     if jwt:
@@ -56,14 +55,14 @@ def _komodo_post(
     if api_secret:
         headers["X-Api-Secret"] = api_secret
 
-    request_config = render_curl_config(
+    rc, out = docker_curl(
+        "komodo-core",
         f"{_komodo_core_base()}{endpoint}",
         method="POST",
         headers=headers,
         body=json.dumps(payload, separators=(",", ":")),
         timeout=30,
     )
-    rc, out = docker_exec("komodo-core", ["curl", "--disable", "--config", "-"], stdin=request_config)
     if rc != 0 or not out:
         return None
     try:

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from starlette.datastructures import FormData
 from toolkit.controller.client import ControllerUnavailableError
 from toolkit.controller.read_models import (
     BootstrapInitializeRequest,
@@ -117,6 +118,32 @@ def _client(app: FastAPI) -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="https://testserver", follow_redirects=False)
 
 
+def test_management_setup_request_omits_proxmox_credentials() -> None:
+    from toolkit.webui.routers.setup import _initialize_request
+
+    request = _initialize_request(
+        FormData(
+            {
+                "deployment_mode": "management",
+                "domain": "home.example.com",
+                "email": "operator@example.com",
+                "timezone": "UTC",
+                "cloudflare_api_token": "cloudflare-token-value-0123456789",
+                "cloudflare_zone_id": "0123456789abcdef0123456789abcdef",
+                "owner_password": "correct horse battery staple",
+                "owner_password_confirm": "correct horse battery staple",
+            }
+        ),
+        "00000000-0000-4000-8000-000000000000.session-secret-value",
+        [],
+        [],
+    )
+
+    assert request.desired_state.deployment_mode == "management"
+    assert request.desired_state.proxmox_api_url == ""
+    assert all(not name.startswith("PROXMOX_") for name in request.credential_values)
+
+
 async def test_setup_session_cookie_works_over_loopback_http(tmp_path: Path, monkeypatch) -> None:
     controller = BootstrapController()
     monkeypatch.setenv("WEBUI_SECURE_COOKIES", "false")
@@ -173,6 +200,9 @@ async def test_setup_exchanges_capability_then_initializes_through_controller(tm
         wizard = await client.get("/setup")
         assert wizard.status_code == 200
         assert "Owner password" in wizard.text
+        assert 'name="deployment_mode" value="management"' in wizard.text
+        assert 'name="deployment_mode" value="provision" checked' in wizard.text
+        assert 'id="proxmox-setup"' in wizard.text
         assert '<script src="/static/js/setup.js?v=' in wizard.text
         assert "(function ()" not in wizard.text
         assert "ssh_public_key" not in wizard.text

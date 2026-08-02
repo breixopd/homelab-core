@@ -25,13 +25,27 @@ from toolkit.controller.read_models import (
     SettingsValues,
     SettingsView,
 )
-from toolkit.core.config.config import Config, ProjectEntry, ServicesConfig, load_config, save_config, save_local_config
+from toolkit.core.config.config import (
+    DEFAULT_SMTP_PASSWORD_SECRET,
+    Config,
+    ProjectEntry,
+    ServicesConfig,
+    load_config,
+    save_config,
+    save_local_config,
+)
 from toolkit.core.config.mutations import config_revision, configuration_lock, configuration_mutation
 from toolkit.core.config.storage import config_path, secrets_path
 from toolkit.core.machines import MachineSpec
 from toolkit.core.ops.dns import desired_records_from_config, resolve_public_dns_ip
+from toolkit.core.ops.notifications import probe_smtp_transport, resolve_smtp_transport
 from toolkit.core.projects.placement import project_placement_options
-from toolkit.core.secrets.secrets import load_secrets_plaintext
+from toolkit.core.secrets.secrets import (
+    SecretTier,
+    get_required_secrets,
+    load_secrets_plaintext,
+    save_secrets_plaintext,
+)
 
 
 class DesiredStateConflictError(RuntimeError):
@@ -40,6 +54,12 @@ class DesiredStateConflictError(RuntimeError):
 
 class DesiredStateValidationError(RuntimeError):
     pass
+
+
+class SMTPSettingsValidationError(DesiredStateValidationError):
+    def __init__(self, stage: str, message: str):
+        super().__init__(message)
+        self.stage = stage
 
 
 def _dns_source(value: str) -> Literal["config", "override", "autodetect", "proxmox-url", "missing"]:
@@ -94,8 +114,10 @@ def update_dns_public_ip(root: Path, update: DnsIpUpdate) -> DnsView:
     return read_dns_view(root)
 
 
-def _settings_values(cfg: Config) -> SettingsValues:
+def _settings_values(cfg: Config, secrets: dict[str, str] | None = None) -> SettingsValues:
     toggles = _service_toggles()
+    secrets = secrets or {}
+    smtp_secret = cfg.notifications.smtp.password_secret
     return SettingsValues(
         domain=cfg.domain,
         email=cfg.email,
@@ -108,6 +130,7 @@ def _settings_values(cfg: Config) -> SettingsValues:
         smtp_starttls=cfg.notifications.smtp.starttls,
         smtp_username=cfg.notifications.smtp.username,
         smtp_password_secret=cfg.notifications.smtp.password_secret,
+        smtp_password_configured=bool(smtp_secret and secrets.get(smtp_secret)),
         smtp_from_address=cfg.notifications.smtp.from_address,
         ssh_auth=cfg.ssh.auth_method,
         ssh_key_file=cfg.ssh.key_file,
@@ -139,9 +162,11 @@ def read_settings_view(root: Path) -> SettingsView:
     root = root.resolve()
     with configuration_lock(root):
         cfg = load_config(config_path(root))
+        secret_path = secrets_path(root)
+        secrets = load_secrets_plaintext(secret_path) if secret_path.exists() else {}
         return SettingsView(
             revision=config_revision(root),
-            values=_settings_values(cfg),
+            values=_settings_values(cfg, secrets),
             service_toggles=list(_service_toggles()),
         )
 
@@ -182,7 +207,11 @@ def update_settings(root: Path, update: SettingsUpdate) -> SettingsView:
                                 "port": values.smtp_port,
                                 "starttls": values.smtp_starttls,
                                 "username": values.smtp_username,
-                                "password_secret": values.smtp_password_secret,
+                                "password_secret": (
+                                    DEFAULT_SMTP_PASSWORD_SECRET
+                                    if values.smtp_mode == "external" and values.smtp_username
+                                    else ""
+                                ),
                                 "from_address": values.smtp_from_address,
                             }
                         ),
@@ -234,8 +263,68 @@ def update_settings(root: Path, update: SettingsUpdate) -> SettingsView:
             }
         )
         validated = Config.model_validate(candidate.model_dump(mode="python"))
-        save_config(validated, config_path(root))
-        save_local_config(validated, root)
+        secret_path = secrets_path(root)
+        current_secrets = load_secrets_plaintext(secret_path) if secret_path.exists() else {}
+        updated_secrets = dict(current_secrets)
+        smtp_password = update.smtp_password
+        if smtp_password:
+            if not smtp_password.strip():
+                raise SMTPSettingsValidationError("config", "SMTP password must not be blank")
+            smtp = validated.notifications.smtp
+            if smtp.mode != "external" or not smtp.username or not smtp.password_secret:
+                raise SMTPSettingsValidationError(
+                    "config",
+                    "SMTP password requires authenticated external SMTP",
+                )
+            allowed = {spec.name for spec in get_required_secrets(validated) if spec.tier is SecretTier.USER}
+            if smtp.password_secret not in allowed:
+                raise SMTPSettingsValidationError(
+                    "config",
+                    "SMTP password secret is not user-configurable",
+                )
+            updated_secrets[smtp.password_secret] = smtp_password
+        if validated.notifications.smtp.mode == "external":
+            try:
+                transport = resolve_smtp_transport(validated, updated_secrets)
+            except ValueError as exc:
+                raise SMTPSettingsValidationError("config", str(exc)) from exc
+            if transport is None:
+                raise SMTPSettingsValidationError(
+                    "config",
+                    "external SMTP transport is unavailable",
+                )
+            probe = probe_smtp_transport(transport)
+            if not probe.ok:
+                raise SMTPSettingsValidationError(
+                    probe.stage,
+                    f"SMTP verification failed during {probe.stage}: {probe.detail}",
+                )
+        secret_changed = updated_secrets != current_secrets
+        if secret_changed:
+            save_secrets_plaintext(updated_secrets, secret_path)
+        try:
+            save_config(validated, config_path(root))
+            save_local_config(validated, root)
+        except Exception as original_error:
+            rollback_errors: list[Exception] = []
+            if secret_changed:
+                try:
+                    save_secrets_plaintext(current_secrets, secret_path)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            try:
+                save_config(cfg, config_path(root))
+            except Exception as rollback_error:
+                rollback_errors.append(rollback_error)
+            try:
+                save_local_config(cfg, root)
+            except Exception as rollback_error:
+                rollback_errors.append(rollback_error)
+            if rollback_errors:
+                raise DesiredStateValidationError(
+                    "Settings write failed and automatic rollback was incomplete; explicit recovery is required"
+                ) from original_error
+            raise
     return read_settings_view(root)
 
 

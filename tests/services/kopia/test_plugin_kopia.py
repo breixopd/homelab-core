@@ -12,6 +12,7 @@ import yaml
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import BackupsConfig, Config, ServicesConfig
 from toolkit.core.machines import MachineSpec
+from toolkit.core.verify.models import VerifyStatus
 
 
 def _plugin():
@@ -63,6 +64,7 @@ class TestKopiaVerify:
         cfg.backups = BackupsConfig(enabled=False)
         checks = _plugin().verify(cfg, {}, "10.10.10.10", tmp_path)
         assert checks[0].passed
+        assert checks[0].status is VerifyStatus.NOT_APPLICABLE
         assert "disabled" in checks[0].detail
 
     def test_multi_vm_snapshots_recent(self, tmp_path, monkeypatch):

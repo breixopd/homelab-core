@@ -17,10 +17,16 @@ def _check_tdarr_status(cfg: Config, vm_ip: str, root: Path) -> VerifyCheck:
     """Tdarr server status API must respond."""
     import httpx
     from toolkit.core.manifest.settings import service_enabled
-    from toolkit.services.sdk import VerifyCheck, container_exists_on_vm, docker_curl
+    from toolkit.services.sdk import VerifyCheck, VerifyStatus, container_exists_on_vm, docker_curl
 
     if not service_enabled(cfg, "tdarr"):
-        return VerifyCheck("tdarr", "server", True, "Tdarr not enabled — skip")
+        return VerifyCheck(
+            "tdarr",
+            "server",
+            True,
+            "Tdarr not enabled",
+            status=VerifyStatus.NOT_APPLICABLE,
+        )
     if not container_exists_on_vm(cfg, vm_ip, "tdarr", root):
         return VerifyCheck("tdarr", "server", False, "container missing")
     if cfg.is_multi_node:
@@ -39,10 +45,16 @@ def _check_tdarr_nodes(cfg: Config, vm_ip: str, root: Path) -> VerifyCheck:
     """At least one Tdarr node registered."""
     import httpx
     from toolkit.core.manifest.settings import service_enabled
-    from toolkit.services.sdk import VerifyCheck, docker_curl
+    from toolkit.services.sdk import VerifyCheck, VerifyStatus, docker_curl
 
     if not service_enabled(cfg, "tdarr"):
-        return VerifyCheck("tdarr", "nodes", True, "Tdarr not enabled — skip")
+        return VerifyCheck(
+            "tdarr",
+            "nodes",
+            True,
+            "Tdarr not enabled",
+            status=VerifyStatus.NOT_APPLICABLE,
+        )
     if cfg.is_multi_node:
         rc, body = docker_curl(
             cfg,
@@ -91,10 +103,16 @@ def _check_tdarr_flows(cfg: Config, vm_ip: str, root: Path) -> VerifyCheck:
     """Probe the Tdarr transcode-pipeline API and report configured flow count."""
     import httpx
     from toolkit.core.manifest.settings import service_enabled
-    from toolkit.services.sdk import VerifyCheck, docker_curl
+    from toolkit.services.sdk import VerifyCheck, VerifyStatus, docker_curl
 
     if not service_enabled(cfg, "tdarr"):
-        return VerifyCheck("tdarr", "flows", True, "Tdarr not enabled — skip")
+        return VerifyCheck(
+            "tdarr",
+            "flows",
+            True,
+            "Tdarr not enabled",
+            status=VerifyStatus.NOT_APPLICABLE,
+        )
     if cfg.is_multi_node:
         rc, body = docker_curl(
             cfg,
@@ -138,10 +156,16 @@ def _check_tdarr_flow_assets(cfg: Config, vm_ip: str, root: Path) -> VerifyCheck
     """Require the current Tdarr flow-template API to expose community assets."""
     import httpx
     from toolkit.core.manifest.settings import service_enabled
-    from toolkit.services.sdk import VerifyCheck, docker_curl
+    from toolkit.services.sdk import VerifyCheck, VerifyStatus, docker_curl
 
     if not service_enabled(cfg, "tdarr"):
-        return VerifyCheck("tdarr", "flow_assets", True, "Tdarr not enabled — skip")
+        return VerifyCheck(
+            "tdarr",
+            "flow_assets",
+            True,
+            "Tdarr not enabled",
+            status=VerifyStatus.NOT_APPLICABLE,
+        )
     payload = json.dumps({"data": {"string": "", "pluginType": "Community"}})
     if cfg.is_multi_node:
         rc, body = docker_curl(

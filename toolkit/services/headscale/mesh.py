@@ -311,7 +311,12 @@ def _parse_curl_headers(output: str) -> tuple[int | None, dict[str, str]]:
     return status, headers
 
 
-def _mesh_private_https_check(host: str, ingress_ip: str, auth_host: str) -> tuple[bool, str]:
+def _mesh_private_https_check(
+    host: str,
+    ingress_ip: str,
+    auth_host: str,
+    auth_mode: str,
+) -> tuple[bool, str]:
     """Probe one private route through the mesh/LAN ingress address."""
     try:
         proc = subprocess.run(
@@ -335,8 +340,17 @@ def _mesh_private_https_check(host: str, ingress_ip: str, auth_host: str) -> tup
         return False, str(exc)[:80]
     status, headers = _parse_curl_headers(proc.stdout or proc.stderr or "")
     location = headers.get("location", "")
-    ok = status in (302, 307, 308) and auth_host in location
-    return ok, f"HTTP {status} -> auth" if ok else f"HTTP {status or '?'}"
+    if auth_mode in {"forward_auth", "split"}:
+        ok = status in (302, 303, 307, 308) and auth_host in location
+        return ok, f"HTTP {status} -> auth" if ok else f"HTTP {status or '?'}"
+
+    # OIDC and native-auth applications own their login surface. Requiring a
+    # Caddy forward-auth redirect here incorrectly marks healthy private apps
+    # such as Grafana and Komodo as failed. Their service hooks verify the
+    # identity-provider contract in depth; this mesh probe only proves that the
+    # private ingress can reach a non-error application response.
+    ok = status is not None and 200 <= status < 400
+    return ok, f"HTTP {status} ({auth_mode})" if ok else f"HTTP {status or '?'}"
 
 
 def controller_mesh_access_checks(cfg: Config, root: Path):
@@ -360,8 +374,9 @@ def controller_mesh_access_checks(cfg: Config, root: Path):
     checks = [VerifyCheck("mesh", label, ok, detail) for label, ok, detail in probe_mesh_internal(cfg)]
     ingress_ip = service_address(cfg, provider_service_name("ingress"))
     auth_host = f"auth.{cfg.domain}"
-    for check_name, host in sorted({(f"private-{route.service}", route.host) for route in private_routes(cfg)}):
-        ok, detail = _mesh_private_https_check(host, ingress_ip, auth_host)
+    private_route_checks = {(f"private-{route.service}", route.host, route.auth.mode) for route in private_routes(cfg)}
+    for check_name, host, auth_mode in sorted(private_route_checks):
+        ok, detail = _mesh_private_https_check(host, ingress_ip, auth_host, auth_mode)
         checks.append(VerifyCheck("mesh", check_name, ok, detail))
     return checks
 

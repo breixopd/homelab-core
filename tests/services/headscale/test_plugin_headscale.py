@@ -9,6 +9,7 @@ import pytest
 import yaml
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config, ExternalHost, ServicesConfig
+from toolkit.core.verify.models import VerifyStatus
 
 
 def _plugin():
@@ -35,7 +36,7 @@ def test_post_start_reconciles_health_oidc_preauth_and_router(tmp_path, monkeypa
     )
     monkeypatch.setattr(
         "toolkit.services.headscale.bootstrap.bootstrap_headscale_preauth",
-        lambda **_k: ["Headscale: preauth key ready"],
+        lambda *_a, **_k: ["Headscale: preauth prerequisites ready"],
     )
     monkeypatch.setattr(
         "toolkit.services.headscale.mesh.bootstrap_infra_subnet_router",
@@ -50,7 +51,7 @@ def test_post_start_reconciles_health_oidc_preauth_and_router(tmp_path, monkeypa
     assert logs == [
         "Headscale: API reachable",
         "Headscale: OIDC ready",
-        "Headscale: preauth key ready",
+        "Headscale: preauth prerequisites ready",
         "Headscale: subnet router ready",
     ]
 
@@ -59,7 +60,7 @@ def test_post_start_fails_when_preauth_key_cannot_be_created(tmp_path, monkeypat
     monkeypatch.setattr("toolkit.services.headscale.bootstrap.ensure_headscale_oidc_provider", lambda *_a, **_k: [])
     monkeypatch.setattr(
         "toolkit.services.headscale.bootstrap.bootstrap_headscale_preauth",
-        lambda **_k: ["Headscale: preauth key create failed"],
+        lambda *_a, **_k: ["Headscale: preauth prerequisites unavailable"],
     )
     with (
         patch("toolkit.services.sdk.wait_for_http", return_value=True),
@@ -101,6 +102,19 @@ def test_deselecting_mesh_integration_runs_revocation(tmp_path, monkeypatch):
 
     assert plugin.reconcile_host_integration("vpn-client", _cfg(), host, tmp_path, selected=False) == ["revoked"]
     cleanup.assert_called_once_with("vpn-client", _cfg(), host, tmp_path)
+
+
+def test_optional_subnet_router_and_acl_checks_are_not_applicable(tmp_path, monkeypatch):
+    module = load_plugin("headscale")
+    cfg = _cfg()
+    monkeypatch.setattr(type(cfg), "is_multi_node", property(lambda _self: False))
+    cfg.services = ServicesConfig(security=False)
+
+    router = module.check_subnet_router(cfg, "10.10.10.10", tmp_path)
+    acl = module.check_acl(cfg, tmp_path)
+
+    assert router.status is VerifyStatus.NOT_APPLICABLE
+    assert acl.status is VerifyStatus.NOT_APPLICABLE
 
 
 def test_management_status_and_resources_expose_mesh_inventory(tmp_path, monkeypatch):

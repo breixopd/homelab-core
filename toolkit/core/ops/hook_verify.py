@@ -18,19 +18,23 @@ import shlex
 import subprocess
 import time as _time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from toolkit.core.verify.models import HookVerifyResult, VerifyCheck, format_verify_report
+from toolkit.core.verify.models import HookVerifyResult, VerifyCheck, VerifyStatus, format_verify_report
 
 if TYPE_CHECKING:
     from toolkit.core.config.config import Config
 
 logger = logging.getLogger(__name__)
 
+_PLUGIN_VERIFY_WORKERS = 4
+
 __all__ = [
     "HookVerifyResult",
     "VerifyCheck",
+    "VerifyStatus",
     "format_verify_report",
     "verify_hooks",
 ]
@@ -68,11 +72,22 @@ def _check_caddy_forward_auth_route(
     """Unauthenticated request to a forward-auth route should redirect to Authelia."""
     from toolkit.core.ansible.ansible_ssh import ssh_run_on_vm
 
-    auth_host = f"auth.{cfg.domain}"
     shell = (
         f"curl -skI --max-time 10 --resolve {host}:443:{caddy_ip} -H 'X-Forwarded-Proto: https' https://{host}/ 2>&1"
     )
     rc, out, _ = ssh_run_on_vm(cfg, source_ip, shell, root=root, timeout=20)
+    return _forward_auth_check_from_output(cfg, service, host, rc, out)
+
+
+def _forward_auth_check_from_output(
+    cfg: Config,
+    service: str,
+    host: str,
+    rc: int,
+    out: str,
+) -> VerifyCheck:
+    """Interpret one forward-auth probe result from local or batched SSH work."""
+    auth_host = f"auth.{cfg.domain}"
     if rc != 0 and not out:
         return VerifyCheck(service, "forward_auth", False, "curl failed")
     status, headers = _parse_curl_headers(out)
@@ -92,6 +107,64 @@ def _check_caddy_forward_auth_route(
     else:
         detail = f"HTTP {status}, location={location[:80] or '(missing)'}"
     return VerifyCheck(service, "forward_auth", ok, detail)
+
+
+def _check_caddy_forward_auth_routes_batch(
+    cfg: Config,
+    entries: list[tuple[str, str, str, str]],
+    root: Path,
+) -> list[VerifyCheck]:
+    """Probe ordinary forward-auth routes in one bounded remote SSH operation."""
+    if not entries:
+        return []
+    if len(entries) == 1:
+        service, host, source_ip, caddy_ip = entries[0]
+        return [_check_caddy_forward_auth_route(cfg, service, host, source_ip, caddy_ip, root)]
+
+    from toolkit.core.ansible.ansible_ssh import ssh_run_on_vm
+
+    # Every entry is currently sourced from the same peer/caddy pair for one
+    # invocation.  Grouping by source avoids silently probing from the wrong VM.
+    grouped: dict[tuple[str, str], list[tuple[int, str, str]]] = {}
+    for index, (service, host, source_ip, caddy_ip) in enumerate(entries):
+        grouped.setdefault((source_ip, caddy_ip), []).append((index, service, host))
+
+    checks: dict[int, VerifyCheck] = {}
+    for (source_ip, _caddy_ip), group in grouped.items():
+        # Run one bounded shell per source group so probes always originate
+        # from the correct peer and ingress address.
+        group_entries = [entries[index] for index, _service, _host in group]
+        group_commands: list[str] = []
+        for local_index, (_service, host, _source, caddy_ip) in enumerate(group_entries):
+            resolve = shlex.quote(f"{host}:443:{caddy_ip}")
+            url = shlex.quote(f"https://{host}/")
+            group_commands.append(
+                f"(result=$(curl -skI --max-time 10 --resolve {resolve} "
+                f"-H 'X-Forwarded-Proto: https' -o /dev/null "
+                f"-w '%{{http_code}}\\t%{{redirect_url}}' {url} 2>/dev/null || true); "
+                f"printf '__HOMELAB_FORWARD_{local_index}__\\t%s\\n' \"$result\") &"
+            )
+            if (local_index + 1) % 8 == 0:
+                group_commands.append("wait")
+        if not group_commands or group_commands[-1] != "wait":
+            group_commands.append("wait")
+        rc, output, _error = ssh_run_on_vm(cfg, source_ip, "\n".join(group_commands), root=root, timeout=30)
+        observed: dict[int, str] = {}
+        for line in (output or "").splitlines():
+            if line.startswith("__HOMELAB_FORWARD_"):
+                marker, _, payload = line.partition("\t")
+                if not marker.endswith("__"):
+                    continue
+                marker = marker.removeprefix("__HOMELAB_FORWARD_").removesuffix("__")
+                if marker.isdigit():
+                    observed[int(marker)] = payload
+        for local_index, (global_index, service, host) in enumerate(group):
+            payload = observed.get(local_index, "")
+            status_text, separator, location = payload.partition("\t")
+            body = f"HTTP/1.1 {status_text}\nLocation: {location}" if separator and status_text.isdigit() else ""
+            checks[global_index] = _forward_auth_check_from_output(cfg, service, host, 0 if body else rc, body)
+
+    return [checks[index] for index in range(len(entries))]
 
 
 def _check_caddy_split_native_paths(
@@ -162,6 +235,7 @@ def _check_forward_auth_routes(cfg: Config, root: Path, *, vm_role: str | None =
     from toolkit.core.manifest.routes import compile_routes
 
     checks: list[VerifyCheck] = []
+    ordinary_routes: list[tuple[str, str, str, str]] = []
     seen: set[tuple[str, str]] = set()
     skip_hosts = {f"auth.{cfg.domain}", f"vpn.{cfg.domain}"}
     ingress_service = provider_service_name("ingress")
@@ -184,16 +258,8 @@ def _check_forward_auth_routes(cfg: Config, root: Path, *, vm_role: str | None =
         if key in seen:
             continue
         seen.add(key)
-        checks.append(
-            _check_caddy_forward_auth_route(
-                cfg,
-                route.service,
-                route.host,
-                probe_source_ip,
-                caddy_ip,
-                root,
-            )
-        )
+        if route.auth.mode in {"forward_auth", "split"}:
+            ordinary_routes.append((route.service, route.host, probe_source_ip, caddy_ip))
         if route.auth.mode == "split":
             checks.extend(
                 _check_caddy_split_native_paths(
@@ -207,7 +273,7 @@ def _check_forward_auth_routes(cfg: Config, root: Path, *, vm_role: str | None =
                     probe_method=route.auth.probe_method,
                 )
             )
-    return checks
+    return [*_check_caddy_forward_auth_routes_batch(cfg, ordinary_routes, root), *checks]
 
 
 def _check_sssd_active(cfg: Config, vm: str, vm_ip: str, root: Path) -> VerifyCheck:
@@ -404,6 +470,7 @@ def verify_hooks(
     vm: str | None = None,
     on_progress: Callable[[str], None] | None = None,
     only_services: frozenset[str] | None = None,
+    include_framework: bool = True,
 ) -> HookVerifyResult:
     """Run framework cross-service checks, then dispatch every enabled service plugin's verify()."""
     root = root or Path.cwd()
@@ -427,31 +494,31 @@ def verify_hooks(
 
     # ── Framework-level cross-service checks (not owned by any single plugin) ──
     # SSSD + LDAP getent: per-guest, run on every enabled VM role.
-    for vm_name in cfg.enabled_nodes:
+    for vm_name in cfg.enabled_nodes if include_framework else ():
         if not _runs_on(vm_name):
             continue
         vm_ip = cfg.node_ip(vm_name) if cfg.is_multi_node else "localhost"
         result.checks.append(_check_sssd_active(cfg, vm_name, vm_ip, root))
         result.checks.append(_check_ldap_getent(cfg, vm_name, vm_ip, root))
 
-    if cfg.category_enabled("management"):
+    if include_framework and cfg.category_enabled("management"):
         result.checks.extend(_check_forward_auth_routes(cfg, root, vm_role=vm_role))
 
-    if cfg.category_enabled("management") and _runs_service("prometheus"):
+    if include_framework and cfg.category_enabled("management") and _runs_service("prometheus"):
         from toolkit.core.ops.monitoring_verify import verify_monitoring_stack
 
         result.checks.extend(verify_monitoring_stack(cfg, secrets, root))
 
-    if vm_role is None:
+    if include_framework and vm_role is None:
         result.checks.extend(_check_repo_parity(cfg, root))
 
-    if cfg.category_enabled("management") and vm_role is None:
+    if include_framework and cfg.category_enabled("management") and vm_role is None:
         result.checks.append(_check_cloudflare_public_dns_parity(cfg, secrets))
         result.checks.append(_check_private_fqdns_not_in_cloudflare(cfg, secrets))
         for _, plugin in plugin_entries:
             result.checks.extend(plugin.controller_access_checks(cfg, root))
 
-    if cfg.category_enabled("email") and _runs_service("mailserver"):
+    if include_framework and cfg.category_enabled("email") and _runs_service("mailserver"):
         result.checks.append(_check_mail_dns_records(cfg, secrets, root))
 
     # ── Plugin-dispatched per-service checks ─────────────────────────────────
@@ -469,14 +536,22 @@ def verify_hooks(
             ]
 
     total_plugins = len(plugin_entries)
-    for index, entry in enumerate(plugin_entries, start=1):
-        if on_progress is not None:
-            on_progress(f"Verifying {entry[1].service} ({index}/{total_plugins})")
-        _service, checks = _verify_plugin(entry)
+    # Plugin checks are independent read-only probes.  Submit them together so
+    # a slow remote service does not serialize every later service, but collect
+    # futures in catalog order to keep reports and persisted results stable.
+    with ThreadPoolExecutor(max_workers=min(_PLUGIN_VERIFY_WORKERS, total_plugins or 1)) as executor:
+        futures = []
+        for index, entry in enumerate(plugin_entries, start=1):
+            if on_progress is not None:
+                on_progress(f"Verifying {entry[1].service} ({index}/{total_plugins})")
+            futures.append((entry, executor.submit(_verify_plugin, entry)))
+
         existing = {(check.service, check.check) for check in result.checks}
-        for check in checks:
-            if (check.service, check.check) not in existing:
-                result.checks.append(check)
-                existing.add((check.service, check.check))
+        for entry, future in futures:
+            _service, checks = future.result()
+            for check in checks:
+                if (check.service, check.check) not in existing:
+                    result.checks.append(check)
+                    existing.add((check.service, check.check))
 
     return result

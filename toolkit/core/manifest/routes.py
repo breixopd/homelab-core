@@ -45,6 +45,7 @@ class CompiledRoute:
     auth: RouteAuth
     match: RouteMatch | None
     file_server_root: str
+    response_body: str
     request_body_max_mb: int | None
     deny: tuple[RouteMatch, ...]
     response_headers: tuple[ResponseHeader, ...]
@@ -124,7 +125,7 @@ def compile_routes(cfg: Config, catalog: ServiceCatalog | None = None) -> tuple[
                 raise RouteCompilationError(f"route for {manifest.name!r} matched multiple variants")
             variant = matching_variants[0] if matching_variants else None
             upstream = variant.upstream if variant is not None else route.upstream
-            if not route.file_server_root and not upstream:
+            if not route.file_server_root and not route.response_body and not upstream:
                 raise RouteCompilationError(f"route for {manifest.name!r} has no active upstream")
             compose_service = (
                 (variant.compose_service if variant is not None else "") or route.compose_service or manifest.name
@@ -149,6 +150,7 @@ def compile_routes(cfg: Config, catalog: ServiceCatalog | None = None) -> tuple[
                     auth=route.auth,
                     match=route.match,
                     file_server_root=route.file_server_root,
+                    response_body=route.response_body.replace("{domain}", cfg.domain),
                     request_body_max_mb=route.request_body_max_mb,
                     deny=route.deny,
                     response_headers=route.response_headers,
@@ -175,6 +177,7 @@ def compile_routes(cfg: Config, catalog: ServiceCatalog | None = None) -> tuple[
                 auth=RouteAuth(mode=project.auth_mode),
                 match=None,
                 file_server_root="",
+                response_body="",
                 request_body_max_mb=None,
                 deny=(),
                 response_headers=(),

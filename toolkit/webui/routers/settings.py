@@ -2,19 +2,29 @@ from __future__ import annotations
 
 import uuid
 from typing import Literal, cast
+from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from toolkit.controller.client import ControllerClientError
+from toolkit.controller.client import ControllerClientError, ControllerRejectedError
 from toolkit.controller.contracts import GenerateOperation, JobRequest
 from toolkit.controller.read_models import SettingsUpdate, SettingsValues
 from toolkit.webui.error_pages import render_error
 from toolkit.webui.templates_ctx import page_context
 
 router = APIRouter(tags=["settings"])
+_SMTP_FAILURE_MESSAGES = {
+    "dns": "SMTP hostname could not be resolved.",
+    "connect": "SMTP server could not be reached.",
+    "ehlo": "SMTP server did not complete its handshake.",
+    "tls": "SMTP TLS verification failed.",
+    "auth": "SMTP authentication failed; check the username and app password.",
+    "envelope": "SMTP rejected the From address; use the account address or a configured alias.",
+    "config": "SMTP settings are incomplete or inconsistent.",
+}
 
 
 def _checked(form, key: str) -> bool:
@@ -58,18 +68,21 @@ async def settings_index(request: Request):
 
 
 def _form_values(form, current: SettingsValues) -> SettingsValues:
+    smtp_mode = cast(Literal["auto", "external", "disabled"], _text(form, "smtp_mode", current.smtp_mode))
+    smtp_username = _text(form, "smtp_username", current.smtp_username)
     return SettingsValues(
         domain=str(form.get("domain") or current.domain).strip(),
         email=str(form.get("email") or current.email).strip(),
         timezone=str(form.get("timezone") or current.timezone).strip(),
         services={name: _checked(form, f"svc_{name}") for name in current.services},
         deploy_ntfy_url=_text(form, "deploy_ntfy_url", current.deploy_ntfy_url),
-        smtp_mode=cast(Literal["auto", "external", "disabled"], _text(form, "smtp_mode", current.smtp_mode)),
+        smtp_mode=smtp_mode,
         smtp_host=_text(form, "smtp_host", current.smtp_host),
         smtp_port=_integer(form, "smtp_port", current.smtp_port),
         smtp_starttls=_checked(form, "smtp_starttls"),
-        smtp_username=_text(form, "smtp_username", current.smtp_username),
-        smtp_password_secret=_text(form, "smtp_password_secret", current.smtp_password_secret),
+        smtp_username=smtp_username,
+        smtp_password_secret=current.smtp_password_secret,
+        smtp_password_configured=current.smtp_password_configured,
         smtp_from_address=_text(form, "smtp_from_address", current.smtp_from_address),
         ssh_auth=cast(Literal["key", "password"], str(form.get("ssh_auth") or current.ssh_auth)),
         ssh_key_file=_text(form, "ssh_key_file", current.ssh_key_file),
@@ -128,9 +141,24 @@ async def settings_save(request: Request):
         values = _form_values(form, current.values)
         await run_in_threadpool(
             request.app.state.controller.update_settings,
-            SettingsUpdate(expected_revision=str(form.get("revision") or ""), values=values),
+            SettingsUpdate(
+                expected_revision=str(form.get("revision") or ""),
+                values=values,
+                smtp_password=str(form.get("smtp_password") or ""),
+            ),
         )
         await _queue(request, GenerateOperation(validate_output=True))
+    except ControllerRejectedError as exc:
+        if exc.details.get("field") == "smtp":
+            message = _SMTP_FAILURE_MESSAGES.get(
+                str(exc.details.get("stage") or ""),
+                "SMTP settings could not be verified.",
+            )
+            return RedirectResponse(
+                f"/settings?flash={quote_plus(message)}&ok=0",
+                status_code=303,
+            )
+        return RedirectResponse("/settings?flash=Settings+update+was+rejected&ok=0", status_code=303)
     except (ControllerClientError, ValidationError, ValueError):
         return RedirectResponse("/settings?flash=Settings+update+was+rejected&ok=0", status_code=303)
     return RedirectResponse("/settings?flash=Saved;+generation+queued&ok=1", status_code=303)

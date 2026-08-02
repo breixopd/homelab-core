@@ -7,9 +7,13 @@ create admin users, and wire services together without manual UI steps.
 from __future__ import annotations
 
 import functools
+import shlex
 import time
 
 import httpx
+
+from toolkit.core.net.curl_config import DEFAULT_PROBE_RESPONSE_BYTES
+from toolkit.core.process import run_text_process_group
 
 
 def retry_hook(max_retries: int = 3, base_delay: int = 5, backoff: float = 2.0):
@@ -119,6 +123,7 @@ def docker_exec(
     secret_environment: dict[str, str] | None = None,
     stdin: str | None = None,
     docker_bin: str = "docker",
+    max_output_bytes: int | None = None,
 ) -> tuple[int, str]:
     """Run a command inside a running container on this host.
 
@@ -135,6 +140,10 @@ def docker_exec(
         secret_environment=secret_environment,
         stdin=stdin,
     )
+    if max_output_bytes is not None and (
+        not isinstance(max_output_bytes, int) or isinstance(max_output_bytes, bool) or max_output_bytes < 1
+    ):
+        raise ValueError("docker exec max output bytes must be a positive integer")
     try:
         args = [docker_bin, "exec"]
         if input_payload is not None:
@@ -144,15 +153,19 @@ def docker_exec(
         for key, value in (environment or {}).items():
             args.extend(["-e", f"{key}={value}"])
         args.extend([service, *wrapped_cmd])
-        proc = subprocess.run(
-            args,
-            capture_output=True,
-            input=input_payload,
-            text=True,
+        run_args = args
+        if max_output_bytes is not None:
+            pipeline = f"{shlex.join(args)} 2>&1 | head -c {max_output_bytes + 1}"
+            run_args = ["bash", "-o", "pipefail", "-c", pipeline]
+        proc = run_text_process_group(
+            run_args,
+            input_text=input_payload,
             timeout=timeout,
-            check=False,
         )
-        out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+        raw_out = (proc.stdout or "") + (proc.stderr or "")
+        if max_output_bytes is not None and len(raw_out.encode("utf-8", errors="replace")) > max_output_bytes:
+            return 1, "Command output exceeds configured byte limit"
+        out = raw_out.strip()
         return proc.returncode, out
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
@@ -171,6 +184,7 @@ def docker_curl(
     cookie_file: str | None = None,
     cookie_jar: str | None = None,
     docker_bin: str = "docker",
+    max_response_bytes: int | None = DEFAULT_PROBE_RESPONSE_BYTES,
 ) -> tuple[int, str]:
     """Make a container HTTP request without putting request data in argv."""
     from toolkit.core.net.curl_config import render_curl_config
@@ -181,6 +195,7 @@ def docker_curl(
         headers=headers,
         body=body,
         timeout=timeout,
+        max_response_bytes=max_response_bytes,
         insecure_tls=insecure_tls,
         ca_file=ca_file,
         cookie_file=cookie_file,
@@ -190,6 +205,7 @@ def docker_curl(
         service,
         ["curl", "--disable", "--config", "-"],
         stdin=request_config,
-        timeout=timeout + 10,
+        timeout=timeout,
         docker_bin=docker_bin,
+        max_output_bytes=max_response_bytes,
     )

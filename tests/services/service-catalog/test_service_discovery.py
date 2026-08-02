@@ -8,6 +8,9 @@ compose_service() + env_vars() on it generically.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from pathlib import Path
+
 import pytest
 import yaml
 
@@ -31,6 +34,128 @@ class TestServiceDiscovery:
         grafana = plugins["grafana"]
         assert grafana.category == "management"
         assert grafana.placement == "control"
+
+    def test_discovers_installed_entry_point_bundle(self, monkeypatch, tmp_path):
+        from toolkit.services import ServiceBundle, ServicePlugin, _reset_cache, discover_service_plugins
+
+        addon = tmp_path / "example-addon"
+        addon.mkdir()
+        (addon / "service.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "name": "example-addon",
+                    "label": "Example add-on",
+                    "description": "External service used by discovery tests",
+                    "icon": "box",
+                    "category": "management",
+                    "placement": "control",
+                    "priority": 50,
+                    "runtime": "embedded",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (addon / "compose.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "services": {
+                        "example-addon": {
+                            "image": "docker.io/library/busybox:1.37.0@sha256:" + ("a" * 64),
+                            "command": ["sleep", "infinity"],
+                            "logging": {"driver": "local"},
+                        }
+                    }
+                },
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+
+        class ExamplePlugin(ServicePlugin):
+            pass
+
+        entry_point_loads: list[str] = []
+
+        @dataclass(frozen=True)
+        class EntryPoint:
+            name: str = "example"
+            value: str = "example_addon:bundle"
+
+            def load(self):
+                entry_point_loads.append(self.name)
+                return ServiceBundle(root=addon, plugin=ExamplePlugin)
+
+        class EntryPoints(tuple):
+            def select(self, **params):
+                return self if params == {"group": "homelab.services"} else ()
+
+        monkeypatch.setattr("toolkit.services.metadata.entry_points", lambda: EntryPoints((EntryPoint(),)))
+        _reset_cache()
+        try:
+            plugins = {plugin.service: plugin for plugin in discover_service_plugins()}
+            assert plugins["example-addon"]._plugin_dir == addon.resolve()
+
+            from toolkit.core.config.config import Config
+            from toolkit.core.generate.compose_assemble import assemble_compose_text
+            from toolkit.core.manifest.catalog import load_service_catalog
+
+            catalog = load_service_catalog()
+            assert catalog.require("example-addon").label == "Example add-on"
+            assert catalog.compose_path("example-addon") == addon.resolve() / "compose.yaml"
+            generated = yaml.safe_load(assemble_compose_text(Path.cwd(), Config(), include_release=False))
+            assert generated["services"]["example-addon"]["image"].startswith("docker.io/library/busybox")
+
+            from toolkit.core.config.service_metadata import _runtime_service_owners
+
+            assert _runtime_service_owners()["example-addon"] == "example-addon"
+            assert entry_point_loads == ["example"]
+
+            isolated_root = tmp_path / "isolated-catalog"
+            isolated_service = isolated_root / "local-only"
+            isolated_service.mkdir(parents=True)
+            (isolated_service / "service.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "name": "local-only",
+                        "label": "Local only",
+                        "description": "Fixture-isolated service",
+                        "icon": "box",
+                        "category": "management",
+                        "placement": "control",
+                        "priority": 50,
+                        "runtime": "embedded",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            assert load_service_catalog(isolated_root).names == ("local-only",)
+        finally:
+            _reset_cache()
+
+    def test_rejects_entry_point_with_incompatible_api(self, monkeypatch, tmp_path):
+        from toolkit.services import ServiceBundle, ServicePlugin, _reset_cache, discover_service_plugins
+
+        class ExamplePlugin(ServicePlugin):
+            pass
+
+        class EntryPoint:
+            name = "future"
+            value = "future_addon:bundle"
+
+            def load(self):
+                return ServiceBundle(root=tmp_path, plugin=ExamplePlugin, api_version=999)
+
+        class EntryPoints(tuple):
+            def select(self, **params):
+                return self if params == {"group": "homelab.services"} else ()
+
+        monkeypatch.setattr("toolkit.services.metadata.entry_points", lambda: EntryPoints((EntryPoint(),)))
+        _reset_cache()
+        try:
+            with pytest.raises(ValueError, match="targets API 999"):
+                discover_service_plugins()
+        finally:
+            _reset_cache()
 
 
 class TestGrafanaComposeService:

@@ -621,6 +621,22 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .service-info-list dt { color: var(--muted); font-size: 0.72rem; }
 .service-info-list dd { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; min-width: 0; margin: 0; }
 .service-info-list code, .service-info-list a { min-width: 0; overflow-wrap: anywhere; }
+.verification-state { display: inline-flex; align-items: center; min-height: 1.75rem; margin-bottom: 0.75rem; padding: 0.25rem 0.65rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.025em; }
+.verification-pass { border-color: var(--ok); background: var(--ok-soft); color: var(--ok-text); }
+.verification-fail { border-color: var(--critical); background: var(--critical-soft); color: var(--critical-text); }
+.verification-degraded, .verification-not_ready { border-color: var(--warn); background: var(--warn-soft); color: var(--warn-text); }
+.verification-not_applicable { background: var(--bg-elevated); color: var(--muted); }
+.verification-checks { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+.verification-checks li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.25rem 0.75rem; min-width: 0; padding: 0.65rem 0.75rem; border: 1px solid var(--border-soft); border-left: 3px solid var(--border-hover); border-radius: var(--radius-sm); background: var(--bg-surface); }
+.verification-checks li[data-status="pass"] { border-left-color: var(--ok); }
+.verification-checks li[data-status="fail"] { border-left-color: var(--critical); }
+.verification-checks li[data-status="degraded"], .verification-checks li[data-status="not_ready"] { border-left-color: var(--warn); }
+.verification-checks strong { min-width: 0; overflow-wrap: anywhere; }
+.verification-check-status { color: var(--muted); font-size: 0.72rem; font-weight: 650; }
+.verification-checks li[data-status="pass"] .verification-check-status { color: var(--ok-text); }
+.verification-checks li[data-status="fail"] .verification-check-status { color: var(--critical-text); }
+.verification-checks li[data-status="degraded"] .verification-check-status, .verification-checks li[data-status="not_ready"] .verification-check-status { color: var(--warn-text); }
+.verification-checks small { grid-column: 1 / -1; color: var(--muted); overflow-wrap: anywhere; }
 .service-metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); border-block: 1px solid var(--border-soft); }
 .service-metric { display: grid; gap: 0.25rem; padding: 0.75rem 1rem; border-right: 1px solid var(--border-soft); }
 .service-metric:last-child { border-right: 0; }
@@ -730,6 +746,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 
 /* ── Settings ── */
 .settings-section-select { display: none; }
+.settings-page-actions { display: flex; align-items: center; gap: 0.5rem; }
 .settings-layout { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: 2rem; align-items: start; }
 .settings-index { position: sticky; top: 1.5rem; padding-right: 1rem; border-right: 1px solid var(--border-soft); }
 .settings-index nav { display: grid; gap: 0.125rem; }
@@ -864,6 +881,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .workspace-header h1 { font-size: 1rem; }
   .workspace-body { padding-top: 1rem; padding-bottom: 2rem; }
   .page-toolbar { gap: 0.375rem; }
+  .settings-page-actions { display: none; }
   .stat-card .stat-value { font-size: 1.2rem; }
   .span-1,
   .span-2,
@@ -1019,6 +1037,13 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .service-manage-summary > div:nth-child(-n+2) { border-bottom: 1px solid var(--border-soft); }
   .service-action-row { align-items: stretch; flex-direction: column; }
   .service-action-row .btn { width: 100%; justify-content: center; }
+  .service-verification-panel .section-head { align-items: stretch; flex-direction: column; }
+  .service-verification-panel .section-head form,
+  .service-verification-panel .section-head .btn { width: 100%; }
+  .service-verification-panel .section-head .btn { justify-content: center; }
+  .verification-checks li { grid-template-columns: minmax(0, 1fr); }
+  .verification-check-status { justify-self: start; }
+  .verification-checks small { grid-column: 1; }
   .service-info-list > div { grid-template-columns: 1fr; gap: 0.25rem; }
   .service-info-list dd { align-items: flex-start; flex-direction: column; }
   .service-boolean-grid { grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 0.5rem; }

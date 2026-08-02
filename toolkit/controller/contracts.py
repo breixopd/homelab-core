@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 class JobKind(StrEnum):
     GENERATE = "GENERATE"
     VERIFY = "VERIFY"
+    SERVICE_VERIFY = "SERVICE_VERIFY"
     DEPLOY = "DEPLOY"
     RECOVER = "RECOVER"
     DESTROY_INFRA = "DESTROY_INFRA"
@@ -126,6 +127,11 @@ class VerifyOperation(StrictModel):
     @classmethod
     def unique_targets(cls, values: list[MachineId]) -> list[MachineId]:
         return _require_unique(values)
+
+
+class ServiceVerifyOperation(StrictModel):
+    kind: Literal[JobKind.SERVICE_VERIFY] = JobKind.SERVICE_VERIFY
+    service: ServiceName
 
 
 class DeployOperation(StrictModel):
@@ -376,6 +382,7 @@ class WebhookHealOperation(StrictModel):
 OperationPayload = Annotated[
     GenerateOperation
     | VerifyOperation
+    | ServiceVerifyOperation
     | DeployOperation
     | RecoverOperation
     | DestroyInfraOperation

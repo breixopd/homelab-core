@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -40,6 +41,58 @@ def _ntfy_integration_installed() -> bool:
 class WazuhPlugin(ServicePlugin):
     service = "wazuh-dashboard"
     category = "security"
+
+    def _agent_summary(self, cfg: Config, root: Path):
+        """Return the manager inventory through the SDK's authenticated transport."""
+        from toolkit.services.sdk import wazuh_list_agents
+
+        summary, _error = wazuh_list_agents(cfg, self.runtime_address(cfg), root)
+        return summary
+
+    def status(self, cfg: Config, secrets: dict[str, str], root: Path) -> dict[str, object]:
+        """Expose only bounded numeric agent inventory counters."""
+        summary = self._agent_summary(cfg, root)
+        if summary is None:
+            return {}
+        total = max(0, int(summary.total))
+        active = min(total, max(0, int(summary.active)))
+        disconnected = sum(1 for line in summary.lines if re.search(r"\bdisconnected\b", line, re.IGNORECASE))
+        if not summary.lines:
+            disconnected = total - active
+        return {"agents_total": total, "agents_active": active, "agents_disconnected": min(total, disconnected)}
+
+    def resources(
+        self,
+        cfg: Config,
+        secrets: dict[str, str],
+        root: Path,
+    ) -> dict[str, list[dict[str, object]]]:
+        """Expose a bounded, credential-free agent inventory table."""
+        summary = self._agent_summary(cfg, root)
+        if summary is None:
+            raise RuntimeError("Wazuh agent inventory is unavailable")
+        rows: list[dict[str, object]] = []
+        for line in summary.lines[:100]:
+            fields = {
+                key.strip().lower(): value.strip()
+                for key, value in re.findall(r"(?:^|,)\s*([A-Za-z][A-Za-z _-]*)\s*:\s*([^,]*)", line)
+            }
+            agent_id = fields.get("id")
+            name = fields.get("name")
+            address = fields.get("ip") or fields.get("address")
+            status_match = re.search(r",\s*([^,]+)\s*$", line)
+            status = status_match.group(1).strip() if status_match else "Unknown"
+            if not (agent_id or name):
+                continue
+            rows.append(
+                {
+                    "id": agent_id or "",
+                    "name": name or "",
+                    "address": address or "",
+                    "status": status,
+                }
+            )
+        return {"agents": rows}
 
     def post_start(self, cfg: Config, secrets: dict[str, str], *, root: Path | None = None) -> list[str]:
         """Report the host Wazuh manager and notification integration state."""

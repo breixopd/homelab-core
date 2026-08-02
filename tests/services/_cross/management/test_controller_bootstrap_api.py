@@ -48,6 +48,42 @@ def _credentials() -> dict[str, str]:
     }
 
 
+def test_management_mode_does_not_require_proxmox_configuration_or_credentials() -> None:
+    desired = _desired_state().model_copy(
+        update={
+            "deployment_mode": "management",
+            "proxmox_api_url": "",
+            "proxmox_node": "",
+            "proxmox_storage": "",
+        }
+    )
+    request = BootstrapInitializeRequest(
+        session_token="00000000-0000-4000-8000-000000000000.session-secret-value",
+        desired_state=desired,
+        credential_values={name: value for name, value in _credentials().items() if not name.startswith("PROXMOX_")},
+    )
+
+    config = bootstrap_api._validate_desired_state(request)
+    credentials = bootstrap_api._validated_credentials(request, config)
+
+    assert config.proxmox.provision_machines is False
+    assert "PROXMOX_API_TOKEN_ID" not in credentials
+    assert "PROXMOX_API_TOKEN_SECRET" not in credentials
+
+
+def test_management_mode_rejects_proxmox_credentials() -> None:
+    desired = _desired_state().model_copy(update={"deployment_mode": "management"})
+    request = BootstrapInitializeRequest(
+        session_token="00000000-0000-4000-8000-000000000000.session-secret-value",
+        desired_state=desired,
+        credential_values=_credentials(),
+    )
+    config = bootstrap_api._validate_desired_state(request)
+
+    with pytest.raises(BootstrapInitializationError, match="not accepted"):
+        bootstrap_api._validated_credentials(request, config)
+
+
 def _grant(store: ControllerStore) -> str:
     capability = store.issue_bootstrap_capability(
         principal="local:operator",

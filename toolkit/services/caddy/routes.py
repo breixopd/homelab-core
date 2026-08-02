@@ -40,6 +40,7 @@ class CaddyHandler:
     auth_mode: AuthMode | None
     upstream: str
     file_server_root: str
+    response_body: str
     respond_status: int | None = None
 
 
@@ -56,7 +57,7 @@ class CaddyRoute:
 
 
 def _target(cfg: Config, route: CompiledRoute) -> str:
-    if route.file_server_root:
+    if route.file_server_root or route.response_body:
         return ""
     _service, separator, port = route.upstream.partition(":")
     if not separator or not port:
@@ -73,6 +74,7 @@ def _proxy_handler(cfg: Config, route: CompiledRoute, kind: HandlerKind, paths: 
         auth_mode=route.auth.mode,
         upstream=_target(cfg, route),
         file_server_root=route.file_server_root,
+        response_body=route.response_body,
     )
 
 
@@ -112,6 +114,7 @@ def _compile_site(cfg: Config, host: str, routes: list[CompiledRoute]) -> CaddyR
                 auth_mode=None,
                 upstream="",
                 file_server_root="",
+                response_body="",
                 respond_status=403,
             )
         )
@@ -128,6 +131,7 @@ def _compile_site(cfg: Config, host: str, routes: list[CompiledRoute]) -> CaddyR
                 auth_mode="native",
                 upstream=_target(cfg, default),
                 file_server_root=default.file_server_root,
+                response_body=default.response_body,
             )
         )
         default_handler = _proxy_handler(cfg, default, "default", ())
@@ -137,6 +141,7 @@ def _compile_site(cfg: Config, host: str, routes: list[CompiledRoute]) -> CaddyR
             auth_mode="forward_auth",
             upstream=default_handler.upstream,
             file_server_root=default_handler.file_server_root,
+            response_body=default_handler.response_body,
         )
     else:
         default_handler = _proxy_handler(cfg, default, "default", ())

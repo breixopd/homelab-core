@@ -7,6 +7,7 @@ import shlex
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -30,10 +31,12 @@ from toolkit.controller.contracts import (
     SealedInviteUserCommand,
     SecretRotationOperation,
     ServiceActionOperation,
+    ServiceVerifyOperation,
     UpdateOperation,
     VerifyOperation,
     WebhookHealOperation,
 )
+from toolkit.controller.sanitization import sanitize_message
 from toolkit.controller.worker import (
     OperationCancelledError,
     OperationContext,
@@ -58,6 +61,47 @@ class OperationExecutionError(SafeOperationError):
 class OperationPolicyDisabledError(OperationExecutionError):
     def __init__(self, message: str):
         super().__init__(message, code="OPERATION_REJECTED")
+
+
+def _redact_secret_fragments(value: str, secret: str, *, minimum: int) -> str:
+    """Redact every meaningful contiguous fragment without quadratic matching."""
+    if len(value) < minimum or len(secret) < minimum:
+        return value
+    secret_windows = {secret[index : index + minimum] for index in range(len(secret) - minimum + 1)}
+    redacted = [False] * len(value)
+    for index in range(len(value) - minimum + 1):
+        if value[index : index + minimum] in secret_windows:
+            redacted[index : index + minimum] = [True] * minimum
+    if not any(redacted):
+        return value
+    parts: list[str] = []
+    index = 0
+    while index < len(value):
+        if not redacted[index]:
+            parts.append(value[index])
+            index += 1
+            continue
+        parts.append("[REDACTED]")
+        while index < len(value) and redacted[index]:
+            index += 1
+    return "".join(parts)
+
+
+def _safe_verification_text(value: str, secrets: dict[str, str], *, limit: int) -> str:
+    safe = value[:limit]
+    for secret in sorted(set(secrets.values()), key=len, reverse=True):
+        if not secret:
+            continue
+        safe = safe.replace(secret, "[REDACTED]")
+        if len(secret) <= 3:
+            continue
+        minimum_fragment = 8 if len(secret) > 8 else len(secret) - 1
+        safe = _redact_secret_fragments(
+            safe,
+            secret,
+            minimum=minimum_fragment,
+        )
+    return sanitize_message(safe)[:limit]
 
 
 def _config_apply_targets(
@@ -170,6 +214,74 @@ def _verify_handler(root: Path) -> OperationHandler:
         return {"ok": True, "nodes": summary}
 
     return verify
+
+
+def _service_verify_handler(root: Path) -> OperationHandler:
+    def service_verify(context: OperationContext, operation: OperationPayload) -> dict[str, Any]:
+        if not isinstance(operation, ServiceVerifyOperation):
+            raise OperationExecutionError("invalid service verify operation payload")
+        from toolkit.core.config.config import load_config
+        from toolkit.core.config.storage import config_path, secrets_path
+        from toolkit.core.ops.hook_verify import verify_hooks
+        from toolkit.core.secrets.secrets import load_secrets_plaintext
+        from toolkit.services import get_service_plugin
+
+        cfg = load_config(config_path(root))
+        plugin = get_service_plugin(operation.service)
+        if plugin is None:
+            raise OperationExecutionError("service is not managed", code="OPERATION_REJECTED")
+        if not plugin.is_enabled(cfg):
+            raise OperationExecutionError("service is disabled", code="OPERATION_REJECTED")
+        secret_file = secrets_path(root)
+        secrets = load_secrets_plaintext(secret_file) if secret_file.exists() else {}
+        context.check_cancelled()
+        result = verify_hooks(
+            cfg,
+            secrets,
+            root,
+            only_services=frozenset({operation.service}),
+            include_framework=False,
+            on_progress=lambda message: context.log(message, {"service": operation.service}),
+        )
+        if not result.checks:
+            raise OperationExecutionError("service has no verification checks", code="OPERATION_REJECTED")
+        selected_checks = result.checks[:63] if len(result.checks) > 64 else result.checks
+        checks = [
+            {
+                "service": operation.service,
+                "check": _safe_verification_text(check.check, secrets, limit=63) or "unnamed",
+                "status": check.status.value,
+                "detail": _safe_verification_text(check.detail, secrets, limit=200),
+            }
+            for check in selected_checks
+        ]
+        statuses = [check.status.value for check in result.checks]
+        if len(result.checks) > 64:
+            checks.append(
+                {
+                    "service": operation.service,
+                    "check": "result_limit",
+                    "status": "degraded",
+                    "detail": f"{len(result.checks) - 63} additional checks were omitted",
+                }
+            )
+            statuses.append("degraded")
+        overall = (
+            "not_applicable"
+            if not statuses or all(item == "not_applicable" for item in statuses)
+            else next(
+                (item for item in ("fail", "not_ready", "degraded", "pass") if item in statuses),
+                "not_applicable",
+            )
+        )
+        return {
+            "service": operation.service,
+            "checks": checks,
+            "overall_status": overall,
+            "observed_at": datetime.now(UTC).isoformat(),
+        }
+
+    return service_verify
 
 
 def _deploy_handler(root: Path) -> OperationHandler:
@@ -1087,6 +1199,7 @@ def build_operation_registry(root: Path) -> OperationRegistry:
     registry = OperationRegistry()
     registry.register(JobKind.GENERATE, _generate_handler(root))
     registry.register(JobKind.VERIFY, _verify_handler(root))
+    registry.register(JobKind.SERVICE_VERIFY, _service_verify_handler(root))
     registry.register(JobKind.DEPLOY, _deploy_handler(root))
     registry.register(JobKind.RECOVER, _recover_handler(root))
     registry.register(JobKind.DESTROY_INFRA, _destroy_handler(root))

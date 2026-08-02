@@ -191,6 +191,7 @@ def _initialize_request(
 
     desired_state = BootstrapDesiredState.model_validate(
         {
+            "deployment_mode": _text(form, "deployment_mode", "provision"),
             "domain": _text(form, "domain"),
             "email": _text(form, "email"),
             "timezone": _text(form, "timezone", "Europe/Madrid"),

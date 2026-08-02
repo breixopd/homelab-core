@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config, ServicesConfig
+from toolkit.core.verify.models import VerifyStatus
 
 
 def _plugin():
@@ -60,6 +61,42 @@ def test_post_start_retries_transient_connect_error(tmp_path, monkeypatch):
 
 
 class TestAdguardVerify:
+    def test_disabled_public_dns_is_not_applicable(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("toolkit.core.ops.dns.dns_public_access_enabled", lambda _cfg: False)
+
+        check = _plugin()._check_dns_public(_cfg(), "10.10.10.10", tmp_path)
+
+        assert check.status is VerifyStatus.NOT_APPLICABLE
+
+    def test_public_dns_missing_a_record_is_not_ready(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("toolkit.core.ops.dns.dns_public_access_enabled", lambda _cfg: True)
+        monkeypatch.setattr("toolkit.core.ops.dns.resolve_public_dns_ip", lambda _cfg: ("203.0.113.10", ""))
+        monkeypatch.setattr("toolkit.core.ops.dns.dns_resolver_fqdn", lambda _cfg: "dns.example.com")
+        monkeypatch.setattr(
+            load_plugin("adguard"),
+            "ssh_on_vm",
+            lambda *_a, **_k: (0, "*:53\n", ""),
+        )
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="")):
+            check = _plugin()._check_dns_public(_cfg(), "10.10.10.10", tmp_path)
+        assert check.passed is False
+        assert check.status is VerifyStatus.NOT_READY
+
+    def test_public_dns_without_resolver_ip_is_not_ready(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("toolkit.core.ops.dns.dns_public_access_enabled", lambda _cfg: True)
+        monkeypatch.setattr("toolkit.core.ops.dns.resolve_public_dns_ip", lambda _cfg: ("", "not configured"))
+        monkeypatch.setattr("toolkit.core.ops.dns.dns_resolver_fqdn", lambda _cfg: "dns.example.com")
+        monkeypatch.setattr(
+            load_plugin("adguard"),
+            "ssh_on_vm",
+            lambda *_a, **_k: (0, "*:53\n", ""),
+        )
+
+        check = _plugin()._check_dns_public(_cfg(), "10.10.10.10", tmp_path)
+
+        assert check.passed is False
+        assert check.status is VerifyStatus.NOT_READY
+
     def test_protection_status_and_dns_resolve(self, tmp_path, monkeypatch):
         rewrites = [
             {"domain": "auth.example.com", "answer": "10.10.10.10"},

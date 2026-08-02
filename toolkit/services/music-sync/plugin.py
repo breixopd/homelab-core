@@ -117,7 +117,13 @@ class MusicSyncPlugin(ServicePlugin):
         return [f"WARNING: music-sync: initial sync trigger failed{f' ({detail})' if detail else ''}"]
 
     def verify(self, cfg: Config, secrets: dict[str, str], vm_ip: str, root: Path) -> list[VerifyCheck]:
-        from toolkit.services.sdk import VerifyCheck, basic_auth_header, container_exists_on_vm, docker_curl
+        from toolkit.services.sdk import (
+            VerifyCheck,
+            basic_auth_header,
+            container_exists_on_vm,
+            docker_curl,
+            validate_integration_contract,
+        )
 
         if not self.is_enabled(cfg):
             return [VerifyCheck("music-sync", "health", True, "skipped (music sync disabled)")]
@@ -136,6 +142,23 @@ class MusicSyncPlugin(ServicePlugin):
         username = secrets.get("MUSIC_SYNC_WEB_USERNAME", "music-admin")
         password = secrets.get("MUSIC_SYNC_WEB_PASSWORD", "")
         headers = {"Authorization": basic_auth_header(username, password)} if password else None
+        expected = self.manifest.integration_contract
+        if expected is None:
+            checks.append(VerifyCheck("music-sync", "integration_contract", False, "manifest contract missing"))
+        else:
+            rc_contract, contract_body = docker_curl(
+                cfg,
+                vm_ip,
+                "music-sync",
+                f"http://localhost:8845{expected.endpoint}",
+                root=root,
+                headers=headers,
+                timeout=5,
+            )
+            if rc_contract != 0 or not contract_body or len(contract_body.encode("utf-8")) > 64 * 1024:
+                checks.append(VerifyCheck("music-sync", "integration_contract", False, "contract API unreachable"))
+            else:
+                checks.append(validate_integration_contract("music-sync", expected, contract_body))
         rc_status, body = docker_curl(
             cfg, vm_ip, "music-sync", "http://localhost:8845/api/status", root=root, headers=headers
         )

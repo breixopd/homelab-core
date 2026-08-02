@@ -46,6 +46,8 @@ def mesh_status_snapshot(cfg: Config, root: Path) -> MeshStatusSnapshot:
     headscale_address = service_address(cfg, "headscale")
     router = check_subnet_router(cfg, headscale_address, root)
     nodes = check_nodes(cfg, headscale_address, root)
+    from toolkit.core.verify.models import VerifyStatus
+
     online = nodes_total = None
     if nodes.passed and "/" in nodes.detail:
         try:
@@ -58,7 +60,7 @@ def mesh_status_snapshot(cfg: Config, root: Path) -> MeshStatusSnapshot:
         enabled=True,
         login_server=login,
         lan_cidr=cidr,
-        subnet_router_ok=router.passed,
+        subnet_router_ok=None if router.status is VerifyStatus.NOT_APPLICABLE else router.passed,
         subnet_router_detail=router.detail,
         nodes_online=online,
         nodes_total=nodes_total,

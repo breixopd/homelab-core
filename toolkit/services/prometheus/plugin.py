@@ -7,6 +7,7 @@ of the base ServicePlugin defaults read from service.yaml.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,6 +22,82 @@ if TYPE_CHECKING:
 class PrometheusPlugin(ServicePlugin):
     service = "prometheus"
     category = "management"
+
+    _TARGETS_BODY_LIMIT = 512 * 1024
+    _RESOURCE_LIMIT = 100
+    _TEXT_LIMIT = 200
+
+    @classmethod
+    def _safe_target_text(cls, value: object) -> str:
+        """Return a short, printable target field with credential-like values redacted."""
+        if not isinstance(value, str):
+            return ""
+        text = "".join(char for char in value.strip() if ord(char) >= 32 and ord(char) != 127)
+        # Prometheus errors can echo a scrape URL. Never expose URL userinfo in the
+        # service-management projection, even when the API returned it verbatim.
+        text = re.sub(r"(https?://)[^/\s@]+@", r"\1[REDACTED]@", text)
+        from toolkit.controller.sanitization import sanitize_message
+
+        return sanitize_message(text)[: cls._TEXT_LIMIT]
+
+    def _target_snapshot(self, cfg: Config, root: Path, *, address: str | None = None) -> list[dict[str, object]]:
+        """Read the bounded active-target projection from Prometheus' stable API."""
+        from toolkit.services.sdk import docker_curl
+
+        rc, body = docker_curl(
+            cfg,
+            address or self.runtime_address(cfg),
+            "prometheus",
+            "http://localhost:9090/api/v1/targets",
+            root=root,
+            timeout=5,
+        )
+        if rc != 0 or not body or len(body.encode("utf-8", errors="replace")) > self._TARGETS_BODY_LIMIT:
+            raise RuntimeError("Prometheus targets API is unavailable")
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, UnicodeError) as exc:
+            raise RuntimeError("Prometheus targets API returned invalid data") from exc
+        data = payload.get("data") if isinstance(payload, dict) and payload.get("status") == "success" else None
+        active = data.get("activeTargets") if isinstance(data, dict) else None
+        if not isinstance(active, list):
+            raise RuntimeError("Prometheus targets API returned invalid data")
+        # The response byte limit bounds the parsed collection. Resource projection
+        # is capped separately, while status counts remain exact for accepted data.
+        return [target for target in active if isinstance(target, dict)]
+
+    def status(self, cfg: Config, secrets: dict[str, str], root: Path) -> dict[str, object]:
+        try:
+            targets = self._target_snapshot(cfg, root)
+        except RuntimeError:
+            return {}
+        healthy = sum(target.get("health") == "up" for target in targets)
+        return {
+            "target_count": len(targets),
+            "healthy_targets": healthy,
+            "unhealthy_targets": len(targets) - healthy,
+        }
+
+    def resources(
+        self,
+        cfg: Config,
+        secrets: dict[str, str],
+        root: Path,
+    ) -> dict[str, list[dict[str, object]]]:
+        targets = self._target_snapshot(cfg, root)
+        rows: list[dict[str, object]] = []
+        for target in targets[: self._RESOURCE_LIMIT]:
+            labels = target.get("labels")
+            labels = labels if isinstance(labels, dict) else {}
+            rows.append(
+                {
+                    "job": self._safe_target_text(labels.get("job")),
+                    "health": self._safe_target_text(target.get("health")),
+                    "last_scrape": self._safe_target_text(target.get("lastScrape")),
+                    "last_error": self._safe_target_text(target.get("lastError")),
+                }
+            )
+        return {"targets": rows}
 
     def generate_artifacts(self, context: ArtifactGenerationContext) -> None:
         from toolkit.core.manifest.monitoring import compile_prometheus_targets
@@ -60,7 +137,7 @@ class PrometheusPlugin(ServicePlugin):
             return [f"WARNING: Prometheus targets unavailable ({exc})"]
 
     def verify(self, cfg: Config, secrets: dict[str, str], vm_ip: str, root: Path) -> list[VerifyCheck]:
-        from toolkit.services.sdk import VerifyCheck, container_exists_on_vm, docker_curl
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus, container_exists_on_vm, docker_curl
         from toolkit.services.sdk.monitoring import prometheus_internal_url
 
         checks: list[VerifyCheck] = []
@@ -79,23 +156,32 @@ class PrometheusPlugin(ServicePlugin):
             detail = (body or "").strip()[:80] if body else ("ok" if ok else "unreachable")
             checks.append(VerifyCheck("prometheus", check, ok, detail))
 
-        rc, body = docker_curl(cfg, vm_ip, "prometheus", f"{base}/api/v1/targets", root=root)
-        if rc != 0 or not body:
-            checks.append(VerifyCheck("prometheus", "targets", False, "API unreachable"))
-            return checks
         try:
-            active = json.loads(body).get("data", {}).get("activeTargets", [])
-        except json.JSONDecodeError:
-            checks.append(VerifyCheck("prometheus", "targets", False, "invalid targets JSON"))
+            active = self._target_snapshot(cfg, root, address=vm_ip)
+        except RuntimeError as exc:
+            checks.append(VerifyCheck("prometheus", "targets", False, str(exc)))
             return checks
 
         down = [t for t in active if t.get("health") != "up"]
         down_labels = []
         for target in down[:5]:
-            labels = target.get("labels") or {}
-            down_labels.append(labels.get("job") or labels.get("instance") or "unknown")
+            raw_labels = target.get("labels")
+            labels = raw_labels if isinstance(raw_labels, dict) else {}
+            label = labels.get("job") or labels.get("instance")
+            down_labels.append(str(label) if label else "unknown")
         detail = f"{len(active) - len(down)}/{len(active)} targets up"
         if down:
             detail += f" (down: {', '.join(down_labels)}{'…' if len(down) > 5 else ''})"
-        checks.append(VerifyCheck("prometheus", "targets", len(down) == 0, detail))
+        if not active:
+            checks.append(
+                VerifyCheck(
+                    "prometheus",
+                    "targets",
+                    False,
+                    "no active scrape targets",
+                    status=VerifyStatus.NOT_READY,
+                )
+            )
+        else:
+            checks.append(VerifyCheck("prometheus", "targets", len(down) == 0, detail))
         return checks

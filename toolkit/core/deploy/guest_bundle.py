@@ -44,15 +44,12 @@ def _manifest_role_secrets(root: Path, vm: str, config: Config) -> set[str]:
     from toolkit.core.manifest.routes import service_is_enabled
 
     catalog_root = root if any((root / "toolkit" / "services").glob("*/service.yaml")) else None
-    services_root = (
-        root / "toolkit" / "services" if catalog_root is not None else Path(__file__).resolve().parents[2] / "services"
-    )
     required: set[str] = set()
     catalog = load_service_catalog(catalog_root)
     for manifest in catalog.manifests:
         if not service_is_enabled(config, manifest, catalog):
             continue
-        compose = services_root / manifest.name / "compose.yaml"
+        compose = catalog.compose_path(manifest.name)
         runtime_names = _compose_service_names(compose) if compose.is_file() else (manifest.name,)
         if any(vm in manifest_runtime_nodes(config, manifest, name) for name in runtime_names):
             required.update(secret.name for secret in manifest.required_secrets)
@@ -83,9 +80,6 @@ def required_role_environment(root: Path, vm: str, config: Config | None = None)
             required.update(_manifest_role_secrets(root, vm, cfg))
         return (required | _RUNTIME_ENV_KEYS) - CONTROLLER_ONLY_SECRETS
 
-    services_dir = root / "toolkit" / "services"
-    if not services_dir.is_dir():
-        services_dir = Path(__file__).resolve().parents[2] / "services"
     cfg = config
     config_file = root / "config.yaml"
     if cfg is None:
@@ -101,10 +95,11 @@ def required_role_environment(root: Path, vm: str, config: Config | None = None)
     from toolkit.core.manifest.placement import manifest_runtime_nodes
     from toolkit.core.manifest.routes import service_is_enabled
 
-    for manifest in load_service_catalog().manifests:
+    catalog = load_service_catalog()
+    for manifest in catalog.manifests:
         if not service_is_enabled(cfg, manifest):
             continue
-        compose = services_dir / manifest.name / "compose.yaml"
+        compose = catalog.compose_path(manifest.name)
         if not compose.is_file():
             continue
         runtime_names = _compose_service_names(compose) or (manifest.name,)

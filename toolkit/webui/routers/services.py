@@ -9,12 +9,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from toolkit.controller.client import ControllerClientError
+from toolkit.controller.client import ControllerClientError, ControllerRejectedError
 from toolkit.controller.contracts import (
     ConfigApplyOperation,
     ContainerActionOperation,
     JobRequest,
     ServiceActionOperation,
+    ServiceVerifyOperation,
 )
 from toolkit.controller.read_models import SecretUpdateRequest, ServiceSettingsUpdate
 from toolkit.webui.error_pages import render_error
@@ -128,6 +129,7 @@ async def _service_management(request: Request, service: str, *, collect_status:
 async def service_management(request: Request, service: str):
     try:
         view = await _service_management(request, service, collect_status=False)
+        verification = await run_in_threadpool(request.app.state.controller.service_verification, service)
     except ControllerClientError:
         return render_error(
             request,
@@ -145,8 +147,32 @@ async def service_management(request: Request, service: str):
             flash=request.query_params.get("flash"),
             error=request.query_params.get("error"),
             job_id=request.query_params.get("job"),
+            verification=verification,
         ),
     )
+
+
+@router.post("/services/{service}/verification")
+async def service_verification_start(request: Request, service: str):
+    if not is_toolkit_admin(request):
+        return HTMLResponse("Operator access required", status_code=403)
+    try:
+        operation = ServiceVerifyOperation(service=service)
+        request_model = JobRequest(
+            idempotency_key=f"service-verify-{service}-{uuid.uuid4()}",
+            operation=operation,
+        )
+        job = await run_in_threadpool(request.app.state.controller.submit, request_model)
+    except ControllerRejectedError as exc:
+        message = (
+            "Another deep verification is already queued or running"
+            if exc.status_code == 429
+            else "Verification could not be queued"
+        )
+        return RedirectResponse(_service_url(service, error=message), status_code=303)
+    except (ControllerClientError, ValidationError, ValueError):
+        return RedirectResponse(_service_url(service, error="Verification could not be queued"), status_code=303)
+    return RedirectResponse(_service_url(service, flash="Verification queued", job=job.job_id), status_code=303)
 
 
 @router.get("/partials/services/{service}/observability", response_class=HTMLResponse)

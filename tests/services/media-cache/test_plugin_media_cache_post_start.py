@@ -41,9 +41,18 @@ def test_post_start_registers_tautulli_webhook(tmp_path):
             return_value=(True, "tautulli webhook registered"),
         ) as register,
     ):
-        logs = _plugin().post_start(_cfg(), {"MEDIA_CACHE_TOKEN": "cache", "TAUTULLI_API_KEY": "tok"}, root=tmp_path)
+        logs = _plugin().post_start(
+            _cfg(),
+            {
+                "MEDIA_CACHE_TOKEN": "cache",
+                "MEDIA_CACHE_WEBHOOK_TOKEN": "webhook-secret",
+                "TAUTULLI_API_KEY": "tok",
+            },
+            root=tmp_path,
+        )
 
     assert register.call_args.kwargs["webhook_url"] == "http://media-cache:8686/webhook/tautulli"
+    assert register.call_args.kwargs["webhook_token"] == "webhook-secret"
     assert any("registered tautulli webhook" in line for line in logs)
 
 

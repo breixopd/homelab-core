@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config, ServicesConfig
+from toolkit.core.verify.models import VerifyStatus
 
 
 def _plugin():
@@ -53,7 +54,7 @@ class TestGiteaVerify:
         assert checks["healthz"].passed
         assert checks["admin_api"].passed
         assert checks["oidc_auth"].passed
-        assert checks["ssh_port"].passed
+        assert checks["ssh_port"].status is VerifyStatus.NOT_APPLICABLE
         assert checks["forward_auth"].passed
 
     def test_post_start_uses_admin_bootstrap(self, tmp_path):
@@ -96,6 +97,7 @@ class TestGiteaVerify:
 
         assert checks["admin_api"].passed is False
         assert checks["admin_api"].detail == "GITEA_ADMIN_TOKEN not set"
+        assert checks["oidc_auth"].status is VerifyStatus.NOT_READY
 
     def test_healthz_new_database_ping_format(self, tmp_path, monkeypatch):
         cfg = Config(domain="example.com", services=ServicesConfig(cloud=True))

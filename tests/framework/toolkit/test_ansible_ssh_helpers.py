@@ -1,11 +1,16 @@
 """ansible_ssh helper utilities."""
 
+import json
+import os
 import subprocess
+import sys
+import time
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from toolkit.core.ansible.ansible_ssh import (
+    _bounded_curl_invocation,
     docker_exec_curl,
     resolve_ansible_ssh_key,
     sanitize_probe_output,
@@ -17,6 +22,7 @@ from toolkit.core.ansible.ansible_ssh import (
 )
 from toolkit.core.config.config import Config, ProxmoxConfig
 from toolkit.core.infra.proxmox_ssh import resolve_proxmox_proxy_key
+from toolkit.core.process import run_text_process_group
 
 
 def test_sanitize_probe_output_strips_traceback():
@@ -44,9 +50,143 @@ def test_docker_exec_curl_prefers_container_exec_and_keeps_headers_off_the_comma
     assert body == '{"ok": true}'
     assert captured
     command, stdin = captured[0]
-    assert command == "docker exec -i nextcloud curl --disable --config -"
+    payload = json.loads(stdin or "{}")
+    assert payload["argv"] == ["docker", "exec", "-i", "nextcloud", "curl", "--disable", "--config", "-"]
+    assert payload["limit"] == 8388608
     assert "test-only-secret" not in command
-    assert stdin is not None and "test-only-secret" in stdin
+    assert "test-only-secret" in payload["stdin"]
+
+
+def test_docker_exec_curl_propagates_optional_response_limit(monkeypatch):
+    captured = []
+
+    def fake_ssh(_cfg, _ip, command, **kwargs):
+        captured.append((command, kwargs))
+        return 0, "ok", ""
+
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.ssh_run_on_vm", fake_ssh)
+    assert docker_exec_curl(Config(), "10.10.10.12", "service", "http://localhost/health", max_response_bytes=2048) == (
+        0,
+        "ok",
+    )
+    assert "max-filesize = 2048" in captured[0][1]["stdin"]
+
+
+def test_docker_exec_curl_applies_bounded_default(monkeypatch):
+    captured = []
+
+    def fake_ssh(_cfg, _ip, command, **kwargs):
+        captured.append((command, kwargs))
+        return 0, "ok", ""
+
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.ssh_run_on_vm", fake_ssh)
+    assert docker_exec_curl(Config(), "10.10.10.12", "service", "http://localhost/health") == (0, "ok")
+    assert "max-filesize = 8388608" in captured[0][1]["stdin"]
+
+
+def test_docker_exec_curl_rejects_oversized_success_output(monkeypatch):
+    monkeypatch.setattr(
+        "toolkit.core.ansible.ansible_ssh.ssh_run_on_vm",
+        lambda *_args, **_kwargs: (0, "123456789", ""),
+    )
+
+    assert docker_exec_curl(
+        Config(),
+        "10.10.10.12",
+        "service",
+        "http://localhost/health",
+        max_response_bytes=8,
+    ) == (1, "HTTP response exceeds configured byte limit")
+
+
+def test_bounded_curl_runner_rejects_multibyte_overflow_without_decode_failure() -> None:
+    command, payload = _bounded_curl_invocation(
+        [sys.executable, "-c", "import sys; sys.stdout.buffer.write('€€'.encode())"],
+        "",
+        4,
+        1.0,
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", command],
+        input=payload,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=2,
+        check=False,
+    )
+
+    assert result.returncode == 63
+    assert result.stdout.strip() == "HTTP response exceeds configured byte limit"
+
+
+def test_bounded_curl_runner_kills_process_group_at_deadline(tmp_path: Path) -> None:
+    pid_file = tmp_path / "child.pid"
+    child = "import os, pathlib, sys, time; pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)"
+    command, payload = _bounded_curl_invocation(
+        [sys.executable, "-c", child, str(pid_file)],
+        "",
+        4096,
+        0.2,
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", command],
+        input=payload,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=2,
+        check=False,
+    )
+
+    assert result.returncode == 124
+    assert result.stdout.strip() == "HTTP probe deadline exhausted"
+    child_pid = int(pid_file.read_text())
+    time.sleep(0.05)
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+
+
+def test_outer_deadline_lets_bounded_runner_clean_up_its_child_group(tmp_path: Path) -> None:
+    pid_file = tmp_path / "nested-child.pid"
+    child = "import os, pathlib, sys, time; pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)"
+    command, payload = _bounded_curl_invocation(
+        [sys.executable, "-c", child, str(pid_file)],
+        "",
+        4096,
+        30.0,
+    )
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_text_process_group(["bash", "-c", command], input_text=payload, timeout=0.2)
+
+    child_pid = int(pid_file.read_text())
+    time.sleep(0.05)
+    try:
+        os.kill(child_pid, 0)
+    except ProcessLookupError:
+        return
+    assert Path(f"/proc/{child_pid}/stat").read_text().split()[2] == "Z"
+
+
+def test_docker_exec_curl_does_not_start_fallback_after_deadline(monkeypatch):
+    calls = []
+    clock = iter([100.0, 100.0, 116.0])
+
+    def fake_ssh(_cfg, _ip, command, **kwargs):
+        calls.append((command, kwargs))
+        return 127, "", "curl unavailable"
+
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.time.monotonic", lambda: next(clock))
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.ssh_run_on_vm", fake_ssh)
+
+    assert docker_exec_curl(Config(), "10.10.10.12", "service", "http://localhost/health", timeout=15) == (
+        127,
+        "curl unavailable",
+    )
+    assert len(calls) == 1
 
 
 def test_docker_exec_curl_verifies_https_by_default(monkeypatch) -> None:
@@ -90,17 +230,42 @@ def test_docker_exec_curl_fallbacks_keep_headers_off_every_command_line(monkeypa
     )
 
     assert (rc, body) == (0, '{"ok":true}')
-    assert [command for command, _stdin in captured[:3]] == [
-        "docker exec -i service curl --disable --config -",
-        "docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}} {{end}}' service",
-        "curl --disable --config -",
-    ]
-    assert 'url = "http://172.20.0.8:8080/health"' in (captured[2][1] or "")
+    container_payload = json.loads(captured[0][1] or "{}")
+    assert container_payload["argv"] == ["docker", "exec", "-i", "service", "curl", "--disable", "--config", "-"]
+    assert container_payload["limit"] == 8388608
+    assert captured[1][0] == "docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}} {{end}}' service"
+    host_payload = json.loads(captured[2][1] or "{}")
+    assert host_payload["argv"] == ["curl", "--disable", "--config", "-"]
+    assert host_payload["limit"] == 8388608
+    assert 'url = "http://172.20.0.8:8080/health"' in host_payload["stdin"]
     assert captured[3][0].startswith("python3 -c ")
     assert all("test-only-secret" not in command for command, _stdin in captured)
     assert "test-only-secret" in (captured[0][1] or "")
     assert "test-only-secret" in (captured[2][1] or "")
     assert "test-only-secret" in (captured[3][1] or "")
+
+
+def test_docker_exec_curl_does_not_replay_post_after_curl_failure(monkeypatch) -> None:
+    captured = []
+
+    def fake_ssh(_cfg, _ip, command, **kwargs):
+        captured.append((command, kwargs))
+        return 63, "", "curl: (63) Maximum file size exceeded"
+
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.ssh_run_on_vm", fake_ssh)
+
+    rc, body = docker_exec_curl(
+        Config(),
+        "10.10.10.12",
+        "service",
+        "http://localhost:8080/api/sync",
+        method="POST",
+        body='{"sync":true}',
+    )
+
+    assert rc == 63
+    assert body == "curl: (63) Maximum file size exceeded"
+    assert len(captured) == 1
 
 
 def test_docker_exec_curl_sends_post_body_and_authentication_via_stdin(monkeypatch) -> None:
@@ -123,12 +288,14 @@ def test_docker_exec_curl_sends_post_body_and_authentication_via_stdin(monkeypat
     )
 
     assert (rc, body) == (0, "accepted")
-    assert captured[0][0] == "docker exec -i service curl --disable --config -"
+    payload = json.loads(captured[0][1] or "{}")
+    assert payload["argv"] == ["docker", "exec", "-i", "service", "curl", "--disable", "--config", "-"]
+    assert payload["limit"] == 8388608
     assert "test-only-secret" not in captured[0][0]
     assert "request-body" not in captured[0][0]
-    assert captured[0][1] is not None and 'request = "POST"' in captured[0][1]
-    assert "test-only-secret" in captured[0][1]
-    assert "request-body" in captured[0][1]
+    assert 'request = "POST"' in payload["stdin"]
+    assert "test-only-secret" in payload["stdin"]
+    assert "request-body" in payload["stdin"]
 
 
 def test_docker_exec_curl_keeps_cookie_sessions_inside_the_target_container(monkeypatch) -> None:
@@ -152,8 +319,9 @@ def test_docker_exec_curl_keeps_cookie_sessions_inside_the_target_container(monk
     assert rc == 22
     assert body == "session request failed"
     assert len(captured) == 1
-    assert 'cookie = "/tmp/session.cookies"' in (captured[0][1] or "")
-    assert 'cookie-jar = "/tmp/session.cookies"' in (captured[0][1] or "")
+    payload = json.loads(captured[0][1] or "{}")
+    assert 'cookie = "/tmp/session.cookies"' in payload["stdin"]
+    assert 'cookie-jar = "/tmp/session.cookies"' in payload["stdin"]
 
 
 def test_should_verify_remote_false_on_guest(tmp_path: Path):
@@ -257,14 +425,14 @@ def test_ssh_run_on_vm_uses_controller_proxy_when_guest_is_not_directly_reachabl
     cfg = Config(domain="lab.test", dns={"public_ip": "203.0.113.10"})
     monkeypatch.setenv("HOMELAB_NODE", cfg.control_node)
     monkeypatch.setattr("toolkit.core.ansible.ansible_ssh._is_directly_reachable", lambda *_args: False)
-    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh._local_network_ips", lambda: [])
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh._local_network_ips", lambda **_kwargs: [])
     captured: list[list[str]] = []
 
     def fake_run(command, **_kwargs):
         captured.append(command)
         return type("Result", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
 
-    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.subprocess.run", fake_run)
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.run_text_process_group", fake_run)
 
     rc, stdout, _stderr = ssh_run_on_vm(cfg, "10.10.10.12", "true", root=tmp_path)
 

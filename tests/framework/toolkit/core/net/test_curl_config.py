@@ -42,6 +42,22 @@ def test_render_curl_config_supports_validated_cookie_files() -> None:
     assert 'cookie-jar = "/tmp/session.cookies"' in config
 
 
+def test_render_curl_config_applies_optional_response_limit() -> None:
+    config = render_curl_config("https://service.example.test", max_response_bytes=4096)
+    assert "max-filesize = 4096" in config
+
+
+def test_render_curl_config_keeps_response_limit_opt_in() -> None:
+    config = render_curl_config("https://service.example.test")
+    assert "max-filesize" not in config
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, "4096"])
+def test_render_curl_config_rejects_invalid_response_limit(limit) -> None:
+    with pytest.raises(ValueError):
+        render_curl_config("https://service.example.test", max_response_bytes=limit)
+
+
 @pytest.mark.parametrize(
     ("url", "headers"),
     [

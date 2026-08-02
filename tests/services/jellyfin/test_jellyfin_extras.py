@@ -7,9 +7,83 @@ from toolkit.core.config.config import Config
 from toolkit.services.jellyfin.extras import (
     LDAP_CONFIG_PATH,
     _configure_jellyfin_ldap,
+    _configure_webhook,
     _restart_jellyfin,
     configure_jellyfin_extras,
 )
+
+
+def test_media_cache_webhook_is_configured_with_authentication_header() -> None:
+    configuration = {"GenericOptions": []}
+    with (
+        patch("toolkit.services.jellyfin.extras._plugin_active", return_value=True),
+        patch(
+            "toolkit.services.jellyfin.extras.httpx.get",
+            return_value=MagicMock(status_code=200, json=MagicMock(return_value=configuration)),
+        ),
+        patch("toolkit.services.jellyfin.extras.httpx.post", return_value=MagicMock(status_code=204)) as post,
+    ):
+        assert _configure_webhook(
+            "http://jellyfin:8096",
+            "api-key",
+            "http://media-cache:8686/webhook/jellyfin",
+            "webhook-secret",
+        )
+
+    option = post.call_args.kwargs["json"]["GenericOptions"][0]
+    assert option["Headers"] == [{"Key": "X-Media-Cache-Webhook-Token", "Value": "webhook-secret"}]
+
+
+def test_media_cache_webhook_preserves_headers_and_rotates_authentication() -> None:
+    configuration = {
+        "GenericOptions": [
+            {
+                "WebhookUri": "http://media-cache:8686/webhook/jellyfin",
+                "Headers": [
+                    {"Key": "X-Trace-Source", "Value": "jellyfin"},
+                    {"Key": "x-media-cache-webhook-token", "Value": "old-secret"},
+                ],
+            }
+        ]
+    }
+    with (
+        patch("toolkit.services.jellyfin.extras._plugin_active", return_value=True),
+        patch(
+            "toolkit.services.jellyfin.extras.httpx.get",
+            return_value=MagicMock(status_code=200, json=MagicMock(return_value=configuration)),
+        ),
+        patch("toolkit.services.jellyfin.extras.httpx.post", return_value=MagicMock(status_code=204)) as post,
+    ):
+        assert _configure_webhook(
+            "http://jellyfin:8096",
+            "api-key",
+            "http://media-cache:8686/webhook/jellyfin",
+            "new-secret",
+        )
+
+    assert post.call_args.kwargs["json"]["GenericOptions"][0]["Headers"] == [
+        {"Key": "X-Trace-Source", "Value": "jellyfin"},
+        {"Key": "X-Media-Cache-Webhook-Token", "Value": "new-secret"},
+    ]
+
+
+def test_media_cache_webhook_rejects_malformed_plugin_configuration() -> None:
+    with (
+        patch("toolkit.services.jellyfin.extras._plugin_active", return_value=True),
+        patch(
+            "toolkit.services.jellyfin.extras.httpx.get",
+            return_value=MagicMock(status_code=200, json=MagicMock(return_value=[])),
+        ),
+        patch("toolkit.services.jellyfin.extras.httpx.post") as post,
+    ):
+        assert not _configure_webhook(
+            "http://jellyfin:8096",
+            "api-key",
+            "http://media-cache:8686/webhook/jellyfin",
+            "new-secret",
+        )
+
+    post.assert_not_called()
 
 
 def test_restart_polls_host_reachable_base_url() -> None:

@@ -87,7 +87,7 @@ def compose_stagger_waves(
     for manifest in catalog.manifests:
         if not service_is_enabled(cfg, manifest):
             continue
-        application_path = root / "toolkit" / "services" / manifest.name / "compose.yaml"
+        application_path = catalog.compose_path(manifest.name)
         if not application_path.is_file():
             continue
         application_services = _application_services(application_path)

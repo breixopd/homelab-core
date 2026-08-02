@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import ValidationError
 
+from toolkit.controller.contracts import JobState
 from toolkit.controller.desired_state_api import DesiredStateConflictError
 from toolkit.controller.prometheus_api import read_service_metric_history, read_service_metrics
 from toolkit.controller.read_models import (
@@ -23,8 +25,11 @@ from toolkit.controller.read_models import (
     ManagedServiceSettingView,
     ServiceManagementView,
     ServiceSettingsUpdate,
+    ServiceVerificationCheckView,
+    ServiceVerificationView,
 )
 from toolkit.controller.sanitization import sanitize_message
+from toolkit.controller.store import ControllerStore
 from toolkit.core.config.config import Config, load_config, save_config, save_local_config
 from toolkit.core.config.mutations import config_revision, configuration_lock, configuration_mutation
 from toolkit.core.config.storage import config_path, secrets_path
@@ -81,6 +86,68 @@ class ServiceManagementNotFoundError(RuntimeError):
 
 class ServiceSettingValidationError(RuntimeError):
     pass
+
+
+ServiceVerificationStatus = Literal["pass", "fail", "not_applicable", "degraded", "not_ready"]
+
+
+def aggregate_verification_status(statuses: list[ServiceVerificationStatus]) -> ServiceVerificationStatus:
+    if not statuses:
+        return "not_applicable"
+    if all(status == "not_applicable" for status in statuses):
+        return "not_applicable"
+    precedence: tuple[ServiceVerificationStatus, ...] = ("fail", "not_ready", "degraded", "pass")
+    for status in precedence:
+        if status in statuses:
+            return status
+    return "not_applicable"
+
+
+def read_service_verification(root: Path, store: ControllerStore, service: str) -> ServiceVerificationView:
+    """Project the latest durable service verification without introducing a schema."""
+    from toolkit.services import get_service_plugin
+
+    if get_service_plugin(service) is None:
+        raise ServiceManagementNotFoundError(service)
+    relevant = store.recent_service_verification_jobs(service)
+    if not relevant:
+        return ServiceVerificationView(service=service, state="never")
+    active_states = {JobState.QUEUED, JobState.RUNNING, JobState.CANCEL_REQUESTED}
+    active = next((job for job in relevant if job.state in active_states), None)
+    terminal_states = {JobState.SUCCEEDED, JobState.PARTIAL_FAILURE, JobState.FAILED, JobState.CANCELLED}
+    terminal = next((job for job in relevant if job.state in terminal_states), None)
+    source = terminal.result if terminal and isinstance(terminal.result, dict) else {}
+    checks_raw = source.get("checks", []) if isinstance(source, dict) else []
+    checks: list[ServiceVerificationCheckView] = []
+    if isinstance(checks_raw, list):
+        for item in checks_raw[:64]:
+            if not isinstance(item, dict):
+                continue
+            try:
+                checks.append(ServiceVerificationCheckView.model_validate(item))
+            except ValidationError:
+                logger.warning("Ignoring invalid persisted verification check for %s", service)
+    statuses = [item.status for item in checks]
+    overall = aggregate_verification_status(statuses) if checks else "not_ready" if terminal is not None else None
+    raw_observed_at = source.get("observed_at") if isinstance(source, dict) else None
+    try:
+        observed_at = datetime.fromisoformat(raw_observed_at) if isinstance(raw_observed_at, str) else None
+    except ValueError:
+        observed_at = None
+    if observed_at is None and terminal and checks:
+        observed_at = terminal.updated_at
+    if observed_at is not None and observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=UTC)
+    stale = observed_at is not None and (datetime.now(UTC) - observed_at).total_seconds() > 900
+    return ServiceVerificationView(
+        service=service,
+        state="queued" if active and active.state is JobState.QUEUED else "running" if active else "complete",
+        overall_status=overall,
+        checks=checks,
+        observed_at=observed_at,
+        stale=stale,
+        job_id=active.job_id if active else (terminal.job_id if terminal else None),
+    )
 
 
 def _status_value(status: dict[str, object], path: str) -> object:
@@ -167,7 +234,13 @@ def read_service_management(
     enabled = plugin.is_enabled(cfg)
     manifest_queries = {metric.key: metric.query for metric in capabilities.metrics if metric.source == "prometheus"}
     container_metrics = (
-        read_service_metrics(root, cfg, plugin.service, manifest_queries=manifest_queries)
+        read_service_metrics(
+            root,
+            cfg,
+            plugin.service,
+            manifest_queries=manifest_queries,
+            include_history=True,
+        )
         if collect_status and enabled
         else {}
     )

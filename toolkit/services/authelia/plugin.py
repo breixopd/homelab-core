@@ -72,6 +72,40 @@ class AutheliaPlugin(ServicePlugin):
             catalog.require(self.service),
             catalog=catalog,
         )
+        from toolkit.core.ops.notifications import resolve_smtp_transport
+
+        smtp_address = ""
+        smtp_username = ""
+        smtp_sender = f"Authelia <authelia@{context.config.domain}>"
+        smtp_disable_require_tls = False
+        smtp_password = ""
+        if context.config.notifications.smtp.mode == "external":
+            import ipaddress
+
+            transport = resolve_smtp_transport(context.config, secrets)
+            if transport is None:
+                raise ValueError("external SMTP transport is unavailable")
+            scheme = "submissions" if transport.implicit_tls else "submission"
+            try:
+                parsed_host = ipaddress.ip_address(transport.host)
+            except ValueError:
+                uri_host = transport.host
+            else:
+                uri_host = f"[{transport.host}]" if parsed_host.version == 6 else transport.host
+            smtp_address = f"{scheme}://{uri_host}:{transport.port}"
+            smtp_username = transport.username
+            smtp_sender = f"Authelia <{transport.from_address}>"
+            smtp_password = transport.password
+        elif context.config.notifications.smtp.mode == "auto":
+            managed_address = integration_vars.get("AUTHELIA_SMTP_ADDRESS", "")
+            if managed_address:
+                smtp_address = f"smtp://{managed_address}"
+                smtp_disable_require_tls = True
+        context.write_text("generated/authelia/smtp-password", smtp_password)
+        context.write_text(
+            "generated/authelia/notifier.env",
+            ("AUTHELIA_NOTIFIER_SMTP_PASSWORD_FILE=/config/smtp-password\n" if smtp_address and smtp_password else ""),
+        )
         context.write_text(
             hashes_relative,
             yaml.safe_dump({client.secret_env_var: client.secret_hash for client in clients}, sort_keys=True),
@@ -86,7 +120,10 @@ class AutheliaPlugin(ServicePlugin):
             "mail_attribute": "mail",
             "postgres_host": "postgres",
             "postgres_port": 5432,
-            "smtp_address": integration_vars.get("AUTHELIA_SMTP_ADDRESS", ""),
+            "smtp_address": smtp_address,
+            "smtp_username": smtp_username,
+            "smtp_sender": smtp_sender,
+            "smtp_disable_require_tls": smtp_disable_require_tls,
             "oidc_clients": clients,
             "oidc_hmac_secret": secrets["AUTHELIA_OIDC_HMAC_SECRET"],
             "access_rules": build_authelia_access_rules(context.config),
@@ -107,6 +144,7 @@ class AutheliaPlugin(ServicePlugin):
             authelia_oidc_issuer,
             container_exists_on_vm,
             docker_curl,
+            docker_exec_on_vm,
             ldap_bind_search_on_vm,
         )
         from toolkit.services.sdk.ldap import base_dn, bind_dn, lldap_bind_uid
@@ -116,6 +154,94 @@ class AutheliaPlugin(ServicePlugin):
             return [VerifyCheck("authelia", "skipped", True, "skipped (localhost)")]
         if not container_exists_on_vm(cfg, vm_ip, "authelia", root):
             return [VerifyCheck("authelia", "health", False, "container missing")]
+
+        from toolkit.core.ops.notifications import probe_smtp_transport, resolve_smtp_transport
+
+        try:
+            transport = resolve_smtp_transport(cfg, secrets)
+        except ValueError as exc:
+            checks.append(VerifyCheck("authelia", "notifier_smtp", False, str(exc)[:120]))
+        else:
+            if transport is None:
+                checks.append(
+                    VerifyCheck(
+                        "authelia",
+                        "notifier_smtp",
+                        True,
+                        "not applicable: SMTP notifier disabled",
+                    )
+                )
+            elif cfg.notifications.smtp.mode == "auto":
+                rc, smtp_output = docker_exec_on_vm(
+                    cfg,
+                    "authelia",
+                    [
+                        "sh",
+                        "-c",
+                        "printf 'EHLO authelia\\r\\nQUIT\\r\\n' | nc -w 5 mailserver 25",
+                    ],
+                    vm_ip,
+                    root,
+                    timeout=10,
+                )
+                smtp_ready = rc == 0 and smtp_output.startswith("220") and "\n250" in smtp_output
+                checks.append(
+                    VerifyCheck(
+                        "authelia",
+                        "notifier_smtp",
+                        smtp_ready,
+                        (
+                            "Authelia container completed an SMTP EHLO to the managed mailserver"
+                            if smtp_ready
+                            else f"managed SMTP path failed (rc={rc})"
+                        ),
+                    )
+                )
+            else:
+                smtp_probe = probe_smtp_transport(transport)
+                checks.append(
+                    VerifyCheck(
+                        "authelia",
+                        "notifier_smtp",
+                        smtp_probe.ok,
+                        smtp_probe.detail,
+                    )
+                )
+
+        # ── config_validate — static, read-only configuration validation ─────
+        # Keep this command literal: no secrets or user-controlled arguments are
+        # needed for readiness and the config path is fixed by the container.
+        for check_name, command, success_detail in (
+            (
+                "config_validate",
+                [
+                    "sh",
+                    "-c",
+                    "exec authelia config validate --config /config/configuration.yml >/dev/null 2>&1",
+                ],
+                "configuration valid",
+            ),
+            (
+                "storage_encryption",
+                [
+                    "sh",
+                    "-c",
+                    "exec authelia storage encryption check --config /config/configuration.yml >/dev/null 2>&1",
+                ],
+                "storage encryption valid",
+            ),
+        ):
+            rc, _output = docker_exec_on_vm(
+                cfg,
+                "authelia",
+                command,
+                vm_ip,
+                root,
+                timeout=10,
+                user="1000:1000",
+            )
+            detail = success_detail if rc == 0 else f"{check_name} failed (rc={rc})"
+            checks.append(VerifyCheck("authelia", check_name, rc == 0, detail))
 
         expected_issuer = authelia_oidc_issuer(cfg)
 

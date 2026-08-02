@@ -172,6 +172,14 @@ class TestBazarrVerify:
 
 
 class TestJellyfinVerify:
+    def test_ldap_without_admin_credentials_is_not_ready(self, tmp_path):
+        plugin = _plugin("jellyfin")
+
+        check = plugin._check_ldap_plugin_active(_cfg(), {}, "10.10.10.11", tmp_path, lambda *_args: "")
+
+        assert check.passed is False
+        assert check.status.value == "not_ready"
+
     def test_health_endpoint(self, tmp_path, monkeypatch):
         cfg = _cfg()
         plugin = _plugin("jellyfin")
@@ -203,6 +211,36 @@ class TestJellyfinVerify:
         )
         checks = {c.check: c for c in plugin.verify(cfg, {}, "10.10.10.11", tmp_path)}
         assert checks["health"].passed is True
+
+
+class TestTautulliVerify:
+    def test_missing_api_key_is_not_ready(self, tmp_path):
+        checks = _plugin("tautulli").verify(_cfg(), {}, "10.10.10.11", tmp_path)
+
+        assert checks[0].passed is False
+        assert checks[0].status.value == "not_ready"
+
+    def test_requires_configured_plex_server(self, tmp_path, monkeypatch):
+        payload = '{"response":{"result":"success","data":{}}}'
+        monkeypatch.setattr("toolkit.services.sdk.docker_curl", lambda *_a, **_k: (0, payload))
+
+        checks = _plugin("tautulli").verify(_cfg(), {"TAUTULLI_API_KEY": "key"}, "10.10.10.11", tmp_path)
+
+        assert checks[0].passed is False
+
+    def test_authenticated_server_info_passes(self, tmp_path, monkeypatch):
+        payload = '{"response":{"result":"success","data":{"pms_identifier":"plex-1"}}}'
+        requests = []
+
+        def fake_curl(_cfg, _ip, _container, url, **_kwargs):
+            requests.append(url)
+            return 0, payload
+
+        monkeypatch.setattr("toolkit.services.sdk.docker_curl", fake_curl)
+        checks = _plugin("tautulli").verify(_cfg(), {"TAUTULLI_API_KEY": "key"}, "10.10.10.11", tmp_path)
+
+        assert checks[0].passed is True
+        assert "apikey=key" in requests[0]
 
     def test_plugin_inventory_uses_secure_authenticated_requests(self, tmp_path, monkeypatch):
         cfg = _cfg()
@@ -240,6 +278,14 @@ class TestJellyfinVerify:
 
 
 class TestPlexVerify:
+    def test_missing_token_is_not_ready_not_pass(self, tmp_path):
+        checks = _plugin("plex").verify(_cfg(), {}, "10.10.10.11", tmp_path)
+
+        assert len(checks) == 1
+        assert checks[0].check == "identity"
+        assert checks[0].passed is False
+        assert checks[0].status.value == "not_ready"
+
     def test_identity_and_libraries(self, tmp_path, monkeypatch):
         cfg = _cfg()
         calls = []

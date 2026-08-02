@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 from defusedxml import ElementTree
-from toolkit.core.ops.automation import docker_exec, resolve_docker_service_url
+from toolkit.core.ops.automation import docker_curl, resolve_docker_service_url
 from toolkit.services.sdk import resolve_bootstrap_password
 
 if TYPE_CHECKING:
@@ -129,7 +129,7 @@ def _reset_jellyfin_startup_wizard(config_dir: Path) -> bool:
 def _wait_jellyfin_healthy(timeout: int = 120) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        rc, _ = docker_exec("jellyfin", ["curl", "-sf", "http://127.0.0.1:8096/health"])
+        rc, _ = docker_curl("jellyfin", "http://127.0.0.1:8096/health")
         if rc == 0:
             return True
         time.sleep(5)
@@ -257,6 +257,7 @@ def bootstrap_jellyfin(
                     api_key,
                     base_url=base,
                     lldap_bind_password=secrets.get("LLDAP_BIND_PASSWORD", ""),
+                    media_cache_webhook_token=secrets.get("MEDIA_CACHE_WEBHOOK_TOKEN", ""),
                 )
             )
     except httpx.HTTPError as exc:

@@ -20,6 +20,7 @@ from toolkit.controller.read_models import (
     SecretMutationResult,
     ServiceManagementView,
     ServiceSettingsUpdate,
+    ServiceVerificationView,
 )
 
 pytestmark = pytest.mark.anyio
@@ -32,6 +33,7 @@ class ServiceController:
         self.secret_updates = []
         self.jobs = []
         self.management_calls: list[bool] = []
+        self.verification = ServiceVerificationView(service="music-sync", state="never")
         self.view = ServiceManagementView(
             revision="a" * 64,
             service="music-sync",
@@ -134,6 +136,10 @@ class ServiceController:
         if self.unavailable:
             raise ControllerClientError("unavailable")
         return self.view
+
+    def service_verification(self, service: str) -> ServiceVerificationView:
+        assert service == "music-sync"
+        return self.verification
 
     def update_service_settings(self, service: str, update: ServiceSettingsUpdate) -> ServiceManagementView:
         self.updates.append((service, update))
@@ -375,3 +381,14 @@ async def test_service_management_failure_is_bounded(tmp_path: Path, monkeypatch
     assert response.status_code == 503
     assert response.headers.get("location") is None
     assert "temporarily unavailable" in response.text
+
+
+def test_service_redirect_url_cannot_escape_same_origin() -> None:
+    from toolkit.webui.routers.services import _service_url
+
+    location = _service_url("https://attacker.invalid/path?next=//attacker.invalid", error="rejected")
+
+    assert location.startswith("/services/")
+    assert not location.startswith("//")
+    assert "https://" not in location
+    assert "attacker.invalid" in location

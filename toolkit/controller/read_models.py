@@ -80,12 +80,13 @@ class BootstrapServiceSecretView(StrictModel):
 
 
 class BootstrapDesiredState(StrictModel):
+    deployment_mode: Literal["management", "provision"] = "provision"
     domain: str = Field(min_length=1, max_length=253)
     email: str = Field(min_length=3, max_length=254)
     timezone: str = Field(min_length=1, max_length=100)
-    proxmox_api_url: str = Field(max_length=2_048, pattern=r"^[^\x00-\x1f\x7f]*$")
-    proxmox_node: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._-]+$")
-    proxmox_storage: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
+    proxmox_api_url: str = Field(default="", max_length=2_048, pattern=r"^[^\x00-\x1f\x7f]*$")
+    proxmox_node: str = Field(default="", max_length=100, pattern=r"^(?:[A-Za-z0-9._-]+)?$")
+    proxmox_storage: str = Field(default="", max_length=100, pattern=r"^(?:[A-Za-z0-9._:-]+)?$")
     service_settings: dict[
         ServiceName,
         dict[BootstrapServiceSettingKey, BootstrapServiceSettingScalar],
@@ -178,7 +179,7 @@ class FamilyServiceSection(StrictModel):
 class ServiceRouteSummary(StrictModel):
     url: str = Field(min_length=1, max_length=2_048)
     exposure: Literal["public", "private"]
-    auth_mode: Literal["forward_auth", "oidc", "native", "split"]
+    auth_mode: Literal["forward_auth", "oidc", "native", "split", "none"]
     scope: str = Field(min_length=1, max_length=500)
 
 
@@ -434,6 +435,23 @@ class ServiceManagementView(StrictModel):
     metrics: list[ManagedServiceMetricView] = Field(max_length=256)
     metric_series: list[ManagedServiceMetricSeriesView] = Field(default_factory=list, max_length=8)
     resources: list[ManagedServiceResourceView] = Field(default_factory=list, max_length=8)
+
+
+class ServiceVerificationCheckView(StrictModel):
+    service: str = Field(min_length=1, max_length=63)
+    check: str = Field(min_length=1, max_length=63)
+    status: Literal["pass", "fail", "not_applicable", "degraded", "not_ready"]
+    detail: str = Field(default="", max_length=200)
+
+
+class ServiceVerificationView(StrictModel):
+    service: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    state: Literal["never", "queued", "running", "complete"]
+    overall_status: Literal["pass", "fail", "not_applicable", "degraded", "not_ready"] | None = None
+    checks: list[ServiceVerificationCheckView] = Field(default_factory=list, max_length=64)
+    observed_at: datetime | None = None
+    stale: bool = False
+    job_id: str | None = Field(default=None, max_length=128)
 
 
 ServiceSettingKey = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9-]{0,62}$")]
@@ -739,6 +757,7 @@ class SettingsValues(StrictModel):
     smtp_starttls: bool
     smtp_username: str = Field(max_length=320)
     smtp_password_secret: str = Field(pattern=r"^(?:[A-Z][A-Z0-9_]{0,127})?$")
+    smtp_password_configured: bool = False
     smtp_from_address: str = Field(max_length=254)
     ssh_auth: Literal["key", "password"]
     ssh_key_file: str = Field(max_length=1_024)
@@ -774,6 +793,7 @@ class SettingsView(StrictModel):
 class SettingsUpdate(StrictModel):
     expected_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
     values: SettingsValues
+    smtp_password: str = Field(default="", max_length=65_536, repr=False)
 
 
 class MachineView(StrictModel):

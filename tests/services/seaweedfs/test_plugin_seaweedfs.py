@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config, ServicesConfig
 
@@ -179,6 +180,61 @@ def test_s3_host_exposure_requires_both_peer_ports_to_be_blocked(monkeypatch, tm
 
     assert not check.passed
     assert "open" in check.detail
+
+
+def test_management_resources_bound_bucket_inventory(monkeypatch, tmp_path):
+    output = (
+        "> s3.bucket.list\n" + "\n".join(f"  bucket-{idx}\tactive" for idx in range(150)) + "\n__HOMELAB_BUCKET_RC__0\n"
+    )
+    calls = []
+
+    def fake_exec(*args, **kwargs):
+        calls.append((args, kwargs))
+        return 0, output
+
+    monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", fake_exec)
+    cfg = Config(domain="example.com", services=ServicesConfig(cloud=True))
+    rows = _plugin().resources(cfg, {}, tmp_path)["buckets"]
+    assert len(rows) == 100
+    assert rows[0] == {"name": "bucket-0"}
+    assert calls[0][0][2] == [
+        "sh",
+        "-c",
+        "{ weed shell; printf '\\n__HOMELAB_BUCKET_RC__%s\\n' \"$?\"; } 2>&1 | head -c 65537",
+    ]
+    assert calls[0][1]["stdin"] == "s3.bucket.list\n"
+
+
+def test_management_resources_reject_shell_errors(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "toolkit.services.sdk.docker_exec_on_vm",
+        lambda *_args, **_kwargs: (
+            0,
+            "error: read buckets: filer unreachable\n__HOMELAB_BUCKET_RC__0\n",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="inventory is unavailable"):
+        _plugin().resources(Config(domain="example.com"), {}, tmp_path)
+
+
+def test_management_resources_accept_empty_inventory(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "toolkit.services.sdk.docker_exec_on_vm",
+        lambda *_args, **_kwargs: (0, "__HOMELAB_BUCKET_RC__0\n"),
+    )
+
+    assert _plugin().resources(Config(domain="example.com"), {}, tmp_path) == {"buckets": []}
+
+
+def test_management_resources_reject_command_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "toolkit.services.sdk.docker_exec_on_vm",
+        lambda *_args, **_kwargs: (0, "sh: weed: not found\n__HOMELAB_BUCKET_RC__127\n"),
+    )
+
+    with pytest.raises(RuntimeError, match="inventory is unavailable"):
+        _plugin().resources(Config(domain="example.com"), {}, tmp_path)
 
 
 class TestSeaweedfsVerify:

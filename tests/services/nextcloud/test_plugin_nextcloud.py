@@ -40,6 +40,18 @@ def test_apache_server_name_config_is_service_owned_and_read_only():
 
 
 class TestNextcloudVerify:
+    def test_redis_probe_failure_cannot_pass(self, tmp_path):
+        plugin = _plugin()
+
+        def fake_occ(*_args, **_kwargs):
+            command = next((arg for arg in _args if isinstance(arg, list)), [])
+            if command[-2:] == ["memcache:redis:command", "PING"]:
+                return 1, "connection refused"
+            return 0, "installed: true\nmaintenance: false\nneedsDbUpgrade: false"
+
+        check = plugin._check_db_redis(Config(), "10.10.10.12", tmp_path, fake_occ)
+        assert check.passed is False
+
     def test_skips_when_cloud_off(self, tmp_path):
         cfg = Config(domain="example.com", services=ServicesConfig(cloud=False))
         checks = _plugin().verify(cfg, {}, "10.10.10.12", tmp_path)
@@ -63,7 +75,7 @@ class TestNextcloudVerify:
             joined = " ".join(args)
             if "status" in joined and "db:" not in joined:
                 return 0, "installed: true\nmaintenance: false\nneedsDbUpgrade: false"
-            if "redis:command" in joined:
+            if "memcache:redis:command" in joined:
                 return 0, "PONG"
             if "user_oidc:provider" in joined:
                 return 0, "authelia https://auth.example.com"

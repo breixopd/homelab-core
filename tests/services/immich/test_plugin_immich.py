@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 import yaml
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config, ServicesConfig
+from toolkit.core.verify.models import VerifyStatus
 
 SERVICE_ROOT = Path(__file__).resolve().parents[3] / "toolkit" / "services" / "immich-server"
 
@@ -49,6 +50,59 @@ class TestImmichServerVerify:
         assert checks["version"].passed
         assert checks["storage_writable"].passed
         assert checks["ml_ping"].passed
+
+    def test_db_path_keeps_admin_credentials_out_of_command_and_diagnostics(self, tmp_path, monkeypatch):
+        cfg = Config(domain="example.com", services=ServicesConfig(cloud=True))
+        email = "admin@example.com"
+        password = 'p@ss"word'
+        calls = []
+
+        def fake_curl(_cfg, _ip, _container, url, **_kw):
+            if url.endswith("/ping"):
+                return 0, "pong"
+            if url.endswith("/users/me"):
+                return 1, json.dumps({"email": email, "password": password})
+            return 1, ""
+
+        def fake_exec(_cfg, _container, command, _ip, _root, **kwargs):
+            calls.append((command, kwargs))
+            return 0, json.dumps({"accessToken": "token"})
+
+        monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", fake_exec)
+        check = _plugin("immich-server")._check_db_path(
+            cfg,
+            "10.10.10.12",
+            tmp_path,
+            fake_curl,
+            {
+                "IMMICH_ADMIN_EMAIL": email,
+                "IMMICH_ADMIN_PASSWORD": password,
+            },
+        )
+
+        assert not check.passed
+        assert email not in check.detail
+        assert password not in check.detail
+        assert calls
+        command, kwargs = calls[0]
+        assert email not in " ".join(command)
+        assert password not in " ".join(command)
+        assert kwargs["secret_environment"] == {
+            "HOMELAB_VERIFY_EMAIL": email,
+            "HOMELAB_VERIFY_PASSWORD": password,
+        }
+
+    def test_db_path_missing_admin_credentials_is_not_ready(self, tmp_path, monkeypatch):
+        cfg = Config(domain="example.com", services=ServicesConfig(cloud=True))
+        curl = MagicMock(return_value=(0, '{"major": 2}'))
+        monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", MagicMock())
+
+        check = _plugin("immich-server")._check_db_path(cfg, "10.10.10.12", tmp_path, curl, {})
+
+        assert check.status is VerifyStatus.NOT_READY
+        assert not check.passed
+        assert "credentials unavailable" in check.detail
+        curl.assert_not_called()
 
 
 class TestImmichPostgresVerify:

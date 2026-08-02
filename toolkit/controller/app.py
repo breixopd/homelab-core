@@ -44,6 +44,7 @@ from toolkit.controller.deployment_api import DEPLOYMENT_JOB_KINDS, read_deploym
 from toolkit.controller.desired_state_api import (
     DesiredStateConflictError,
     DesiredStateValidationError,
+    SMTPSettingsValidationError,
     create_machine,
     create_project,
     machine_retirement_blockers,
@@ -112,6 +113,7 @@ from toolkit.controller.read_models import (
     ServiceSettingsUpdate,
     ServicesView,
     ServiceTopology,
+    ServiceVerificationView,
     SettingsUpdate,
     SettingsView,
 )
@@ -119,6 +121,7 @@ from toolkit.controller.service_management_api import (
     ServiceManagementNotFoundError,
     ServiceSettingValidationError,
     read_service_management,
+    read_service_verification,
     update_service_settings,
 )
 from toolkit.controller.settings_api import (
@@ -160,6 +163,7 @@ _ENABLED_API_KINDS = frozenset(
     {
         JobKind.GENERATE,
         JobKind.VERIFY,
+        JobKind.SERVICE_VERIFY,
         JobKind.DEPLOY,
         JobKind.RECOVER,
         JobKind.DNS_SYNC,
@@ -356,7 +360,7 @@ def create_controller_app(
 
     @app.exception_handler(JobQueueLimitError)
     async def job_queue_limit(_request: Request, _exc: JobQueueLimitError):
-        return _error_response(429, "OPERATION_REJECTED", "Webhook heal queue is at capacity")
+        return _error_response(429, "OPERATION_REJECTED", "Operation queue is at capacity")
 
     @app.exception_handler(ApprovalError)
     async def approval_error(_request: Request, _exc: ApprovalError):
@@ -397,6 +401,15 @@ def create_controller_app(
     @app.exception_handler(DesiredStateConflictError)
     async def desired_state_conflict(_request: Request, _exc: DesiredStateConflictError):
         return _error_response(409, "CONFLICT", "Desired state changed; reload and retry")
+
+    @app.exception_handler(SMTPSettingsValidationError)
+    async def smtp_settings_validation(_request: Request, exc: SMTPSettingsValidationError):
+        return _error_response(
+            422,
+            "VALIDATION_ERROR",
+            "SMTP settings could not be verified",
+            {"field": "smtp", "stage": exc.stage},
+        )
 
     @app.exception_handler(DesiredStateValidationError)
     async def desired_state_validation(_request: Request, _exc: DesiredStateValidationError):
@@ -776,6 +789,17 @@ def create_controller_app(
         except ServiceManagementNotFoundError as exc:
             raise ControllerAPIError(404, "NOT_FOUND", "Service management resource was not found") from exc
 
+    @app.get("/v1/services/{service}/verification")
+    async def service_verification(
+        service: str,
+        principal: ControllerPrincipal = Depends(_principal),
+    ) -> ServiceVerificationView:
+        _require_ui_or_local(principal)
+        try:
+            return await run_blocking(read_service_verification, app.state.root, store, service)
+        except ServiceManagementNotFoundError as exc:
+            raise ControllerAPIError(404, "NOT_FOUND", "Service management resource was not found") from exc
+
     @app.get("/v1/operations")
     async def operations_view(
         principal: ControllerPrincipal = Depends(_principal),
@@ -943,6 +967,10 @@ def create_controller_app(
         elif request.kind is JobKind.IDENTITY:
             job, created = store.submit_job(request, principal=principal.identity, active_limit=1)
         elif request.kind is JobKind.VERIFY:
+            job, created = store.submit_job(request, principal=principal.identity, active_limit=1)
+        elif request.kind is JobKind.SERVICE_VERIFY:
+            # Deep checks may open several network connections. Keep one global
+            # slot while allowing a completed service check to be run again.
             job, created = store.submit_job(request, principal=principal.identity, active_limit=1)
         elif request.kind in _HOST_MUTATION_KINDS:
             job, created = store.submit_job(
