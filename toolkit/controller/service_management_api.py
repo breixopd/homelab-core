@@ -234,7 +234,13 @@ def read_service_management(
     enabled = plugin.is_enabled(cfg)
     manifest_queries = {metric.key: metric.query for metric in capabilities.metrics if metric.source == "prometheus"}
     container_metrics = (
-        read_service_metrics(root, cfg, plugin.service, manifest_queries=manifest_queries)
+        read_service_metrics(
+            root,
+            cfg,
+            plugin.service,
+            manifest_queries=manifest_queries,
+            include_history=True,
+        )
         if collect_status and enabled
         else {}
     )

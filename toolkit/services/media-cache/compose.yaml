@@ -4,7 +4,7 @@ services:
     profiles:
     - media-cache
     - svc-media-cache
-    image: ghcr.io/breixopd/media-cache:v1.1.1@sha256:054f060098c2a9510349950e257e7c0e1e39fd48709d6b137afe13d8717c8c10
+    image: ghcr.io/breixopd/media-cache:v1.2.0@sha256:5659d9e46751ba8f9d7cbf2bc999d1318ef8c4d612aaaaecc55630bff6eef7a8
     container_name: media-cache
     logging:
       driver: json-file
@@ -18,6 +18,7 @@ services:
     environment:
       TZ: ${TZ:-UTC}
       MEDIA_CACHE_TOKEN: ${MEDIA_CACHE_TOKEN:?MEDIA_CACHE_TOKEN is required}
+      MEDIA_CACHE_WEBHOOK_TOKEN: ${MEDIA_CACHE_WEBHOOK_TOKEN:?MEDIA_CACHE_WEBHOOK_TOKEN is required}
       RCLONE_CONFIG: /config/rclone/rclone.conf
       SONARR_URL: http://sonarr:8989
       SONARR_API_KEY: ${SONARR_API_KEY:-}
@@ -46,7 +47,7 @@ services:
       - CMD
       - curl
       - -sf
-      - http://localhost:8686/health
+      - http://localhost:8686/health/ready
       interval: 30s
       timeout: 5s
       retries: 3

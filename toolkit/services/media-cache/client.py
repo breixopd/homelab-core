@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -184,6 +185,7 @@ def register_tautulli_webhook(
     tautulli_url: str,
     api_key: str,
     webhook_url: str,
+    webhook_token: str = "",
     friendly_name: str = "media-cache",
 ) -> tuple[bool, str]:
     """Idempotently register media-cache as a Tautulli webhook notifier.
@@ -237,6 +239,9 @@ def register_tautulli_webhook(
 
     def _configure(notifier_id: int) -> bool:
         body = _tautulli_webhook_body_template()
+        webhook_headers = (
+            json.dumps({"X-Media-Cache-Webhook-Token": webhook_token}, separators=(",", ":")) if webhook_token else ""
+        )
         return _cmd_ok(
             "set_notifier_config",
             notifier_id=notifier_id,
@@ -245,9 +250,9 @@ def register_tautulli_webhook(
             webhook_method="POST",
             on_play=1,
             on_resume=1,
-            on_play_subject="",
+            on_play_subject=webhook_headers,
             on_play_body=body,
-            on_resume_subject="",
+            on_resume_subject=webhook_headers,
             on_resume_body=body,
             friendly_name=friendly_name,
         )
@@ -264,8 +269,24 @@ def register_tautulli_webhook(
             cfg = _cmd("get_notifier_config", notifier_id=notifier_id)
             if not isinstance(cfg, dict):
                 continue
-            if cfg.get("config", {}).get("hook") == webhook_url:
-                return True, f"tautulli webhook already registered (notifier {notifier_id})"
+            notifier_config = cfg.get("config", {})
+            if notifier_config.get("hook") == webhook_url:
+                expected_headers = (
+                    json.dumps({"X-Media-Cache-Webhook-Token": webhook_token}, separators=(",", ":"))
+                    if webhook_token
+                    else ""
+                )
+                notify_text = cfg.get("notify_text")
+                configured_headers = isinstance(notify_text, dict) and all(
+                    isinstance(notify_text.get(action), dict)
+                    and notify_text[action].get("subject", "") == expected_headers
+                    for action in ("on_play", "on_resume")
+                )
+                if not webhook_token or configured_headers:
+                    return True, f"tautulli webhook already registered (notifier {notifier_id})"
+                if _configure(notifier_id):
+                    return True, f"tautulli webhook authentication updated (notifier {notifier_id})"
+                return False, f"tautulli notifier {notifier_id} authentication update failed"
             if cfg.get("friendly_name") == friendly_name:
                 if _configure(notifier_id):
                     return True, f"tautulli webhook reconfigured (notifier {notifier_id})"

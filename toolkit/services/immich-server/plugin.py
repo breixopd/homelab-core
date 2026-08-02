@@ -141,13 +141,18 @@ class ImmichPlugin(ServicePlugin):
         # Keep the command static: credentials are expanded inside the
         # container from the stdin-backed secret environment wrapper, never
         # serialized into Docker/SSH argv or emitted in diagnostics.
+        login_script = "".join(
+            [
+                "node -e 'process.stdout.write(JSON.stringify({",
+                "email:process.env.HOMELAB_VERIFY_EMAIL,password:process.env.HOMELAB_VERIFY_PASSWORD}))' ",
+                "| curl -sf --max-time 12 -X POST http://localhost:2283/api/auth/login ",
+                "-H 'Content-Type: application/json' --data-binary @-",
+            ]
+        )
         login_command = [
             "sh",
             "-c",
-            "node -e 'process.stdout.write(JSON.stringify({"
-            "email:process.env.HOMELAB_VERIFY_EMAIL,password:process.env.HOMELAB_VERIFY_PASSWORD}))' "
-            "| curl -sf --max-time 12 -X POST http://localhost:2283/api/auth/login "
-            "-H 'Content-Type: application/json' --data-binary @-",
+            login_script,
         ]
         login_rc, login_body = 1, ""
         for _attempt in range(5):

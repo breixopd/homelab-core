@@ -22,6 +22,7 @@ import importlib.util
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
+from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from toolkit.core.ops.hook_verify import VerifyCheck
 
 _SERVICES_DIR = Path(__file__).parent
+_SERVICE_ENTRYPOINT_GROUP = "homelab.services"
+_SERVICE_BUNDLE_API = 1
 
 
 @dataclass
@@ -477,6 +480,20 @@ class ServicePlugin:
         return f"<{self.__class__.__name__} service={self.service!r}>"
 
 
+@dataclass(frozen=True, slots=True)
+class ServiceBundle:
+    """One independently packaged service contributed to Homelab Core.
+
+    External distributions expose an instance through the
+    ``homelab.services`` Python entry-point group. ``root`` is the directory
+    containing that service's ``service.yaml`` and optional ``compose.yaml``.
+    """
+
+    root: Path
+    plugin: type[ServicePlugin]
+    api_version: int = _SERVICE_BUNDLE_API
+
+
 # Cache: list[ServicePlugin] — cached after first call; cleared by tests
 # that add/remove service dirs at runtime via ``_reset_cache()``.
 _cache: list[ServicePlugin] | None = None
@@ -515,6 +532,36 @@ def _find_plugin_class(module) -> type[ServicePlugin] | None:
         if isinstance(attr, type) and issubclass(attr, ServicePlugin) and attr is not ServicePlugin:
             return attr
     return None
+
+
+def _materialize_service_bundle(bundle: ServiceBundle, *, source: str) -> ServicePlugin:
+    if bundle.api_version != _SERVICE_BUNDLE_API:
+        raise ValueError(
+            f"service bundle {source!r} targets API {bundle.api_version}; core requires API {_SERVICE_BUNDLE_API}"
+        )
+    plugin_dir = bundle.root.resolve()
+    if not plugin_dir.is_dir():
+        raise ValueError(f"service bundle {source!r} root is not a directory: {plugin_dir}")
+    if not isinstance(bundle.plugin, type) or not issubclass(bundle.plugin, ServicePlugin):
+        raise TypeError(f"service bundle {source!r} plugin must be a ServicePlugin subclass")
+
+    instance = bundle.plugin()
+    yaml_data = _load_service_yaml(plugin_dir)
+    if not yaml_data.get("name"):
+        raise ValueError(f"service bundle {source!r} has no manifest name")
+    instance.service = yaml_data["name"]
+    instance.category = yaml_data["category"]
+    instance.placement = yaml_data["placement"]
+    instance.icon = yaml_data.get("icon", instance.icon)
+    instance.essential = bool(yaml_data.get("essential", False))
+    instance._yaml_data = yaml_data
+    instance._plugin_dir = plugin_dir
+    _validate_management_contract(instance)
+    _validate_generated_artifact_contract(instance)
+    _validate_runtime_environment_contract(instance)
+    _validate_identity_contract(instance)
+    _validate_host_integration_contract(instance)
+    return instance
 
 
 def _validate_management_contract(plugin: ServicePlugin) -> None:
@@ -611,11 +658,12 @@ def _import_plugin_module(module_name: str, plugin_file: Path):
 
 
 def discover_service_plugins() -> list[ServicePlugin]:
-    """Scan ``toolkit/services/*/plugin.py`` and return all ServicePlugin instances.
+    """Return built-in and installed add-on service plugins.
 
-    Each plugin's ``service``, ``category``, ``placement``, ``icon`` attributes are
-    populated from the ``service.yaml`` next to it — so the plugin knows its
-    identity without directory-structure coupling.
+    Built-ins are loaded from ``toolkit/services``. Independent distributions
+    contribute :class:`ServiceBundle` objects through the
+    ``homelab.services`` entry-point group, so installing an add-on never
+    requires a core source-code change.
 
     Cached: the scan runs once per process. Call ``_reset_cache()`` in tests
     that add/remove service dirs at runtime.
@@ -643,29 +691,23 @@ def discover_service_plugins() -> list[ServicePlugin]:
         if cls is None:
             raise ValueError(f"service plugin {plugin_dir.name!r} does not define a ServicePlugin subclass")
 
-        instance = cls()
+        plugins.append(
+            _materialize_service_bundle(
+                ServiceBundle(root=plugin_dir, plugin=cls),
+                source=f"built-in:{plugin_dir.name}",
+            )
+        )
 
-        # Populate identity from service.yaml (overrides class-level defaults).
-        yaml_data = _load_service_yaml(plugin_dir)
-        if yaml_data.get("name"):
-            instance.service = yaml_data["name"]
-        if yaml_data.get("category"):
-            instance.category = yaml_data["category"]
-        if yaml_data.get("placement"):
-            instance.placement = yaml_data["placement"]
-        if yaml_data.get("icon"):
-            instance.icon = yaml_data["icon"]
-        instance.essential = bool(yaml_data.get("essential", False))
-        # Store the manifest and folder for default behavior.
-        instance._yaml_data = yaml_data
-        instance._plugin_dir = plugin_dir
-        _validate_management_contract(instance)
-        _validate_generated_artifact_contract(instance)
-        _validate_runtime_environment_contract(instance)
-        _validate_identity_contract(instance)
-        _validate_host_integration_contract(instance)
-
-        plugins.append(instance)
+    entry_points = metadata.entry_points()
+    selected = entry_points.select(group=_SERVICE_ENTRYPOINT_GROUP)
+    for entry_point in sorted(selected, key=lambda item: (item.name, item.value)):
+        try:
+            bundle = entry_point.load()
+        except Exception as exc:
+            raise RuntimeError(f"failed to load service bundle entry point {entry_point.name!r}") from exc
+        if not isinstance(bundle, ServiceBundle):
+            raise TypeError(f"service bundle entry point {entry_point.name!r} must expose a ServiceBundle instance")
+        plugins.append(_materialize_service_bundle(bundle, source=f"entry-point:{entry_point.name}"))
 
     names = [plugin.service for plugin in plugins]
     duplicates = sorted({name for name in names if names.count(name) > 1})

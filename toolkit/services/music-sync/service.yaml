@@ -15,8 +15,12 @@ host_sources:
 image_release:
   compose_service: music-sync
   repository: ghcr.io/breixopd/music-sync
-  version: v1.1.2
-  digest: sha256:04bf5917092baa9275f5d3244a4a9d038ba12afe5152add5c9853b7dec7b047e
+  version: v1.2.0
+  digest: sha256:b2868c5c3561821554faabeda0ac4de7d279365152fd3297138566cfcaf0aa83
+integration_contract:
+  version: 1
+  compatibility: 1.x
+  capabilities: [manual-sync, metrics, provider-authorization, status]
 stateful: true
 data_specs:
 - name: music-sync-config

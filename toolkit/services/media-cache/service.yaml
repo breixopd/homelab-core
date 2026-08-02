@@ -12,8 +12,8 @@ memory_tier: light
 image_release:
   compose_service: media-cache
   repository: ghcr.io/breixopd/media-cache
-  version: v1.1.1
-  digest: sha256:054f060098c2a9510349950e257e7c0e1e39fd48709d6b137afe13d8717c8c10
+  version: v1.2.0
+  digest: sha256:5659d9e46751ba8f9d7cbf2bc999d1318ef8c4d612aaaaecc55630bff6eef7a8
 stateful: true
 data_specs:
 - name: cache-tier
@@ -120,4 +120,9 @@ required_secrets:
   tier: generated
   length: 32
   description: Administrative API token
+  rotation: restart
+- name: MEDIA_CACHE_WEBHOOK_TOKEN
+  tier: generated
+  length: 32
+  description: Authentication token for inbound media webhooks
   rotation: restart

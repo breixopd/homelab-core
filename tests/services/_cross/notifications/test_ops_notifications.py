@@ -7,13 +7,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import ValidationError
 from toolkit.core.config.config import Config, NotificationsConfig, ServicesConfig, SMTPNotificationConfig
-from toolkit.core.ops.notifications import SMTPTransport, _resolve_smtp_transport, probe_smtp_transport, send_email
+from toolkit.core.ops.notifications import SMTPTransport, probe_smtp_transport, resolve_smtp_transport, send_email
 
 
 def test_auto_smtp_uses_manifest_declared_mailserver_endpoint() -> None:
     cfg = Config(services=ServicesConfig(email=True))
 
-    transport = _resolve_smtp_transport(cfg, {})
+    transport = resolve_smtp_transport(cfg, {})
 
     assert transport is not None
     assert transport.host == cfg.node_ip(cfg.control_node)
@@ -24,7 +24,7 @@ def test_auto_smtp_uses_manifest_declared_mailserver_endpoint() -> None:
 def test_auto_smtp_is_disabled_without_mailserver() -> None:
     cfg = Config(services=ServicesConfig(email=False))
 
-    assert _resolve_smtp_transport(cfg, {}) is None
+    assert resolve_smtp_transport(cfg, {}) is None
 
 
 def test_external_smtp_uses_encrypted_password_secret() -> None:
@@ -41,7 +41,7 @@ def test_external_smtp_uses_encrypted_password_secret() -> None:
         )
     )
 
-    transport = _resolve_smtp_transport(cfg, {"OPERATOR_SMTP_PASSWORD": "secret"})
+    transport = resolve_smtp_transport(cfg, {"OPERATOR_SMTP_PASSWORD": "secret"})
 
     assert transport is not None
     assert transport.host == "smtp.example.com"

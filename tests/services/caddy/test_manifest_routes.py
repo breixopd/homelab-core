@@ -43,6 +43,7 @@ def _route(
         auth=RouteAuth(mode=auth, passthrough_paths=passthrough_paths),  # type: ignore[arg-type]
         match=match,
         file_server_root="",
+        response_body="",
         request_body_max_mb=request_body_max_mb,
         deny=deny,
         response_headers=response_headers,
@@ -169,3 +170,21 @@ def test_compile_caddy_rejects_host_policy_drift() -> None:
 
     with pytest.raises(CaddyCompilationError, match="exposure"):
         compile_caddy_routes(Config(domain="home.test"), (secondary, default))
+
+
+def test_mail_autoconfig_is_an_unauthenticated_xml_response() -> None:
+    from toolkit.core.manifest.routes import compile_routes
+
+    cfg = Config(domain="home.test")
+    route = next(route for route in compile_routes(cfg) if route.host == "autoconfig.home.test")
+    site = compile_caddy_routes(cfg, (route,))[0]
+
+    assert route.auth.mode == "none"
+    assert route.upstream == ""
+    assert '<clientConfig version="1.1">' in route.response_body
+    assert "mail.home.test" in route.response_body
+    assert "%EMAILADDRESS%" in route.response_body
+    assert site.handlers[0].response_body == route.response_body
+    assert ("Content-Type", "application/xml; charset=utf-8") in {
+        (header.name, header.value) for header in site.response_headers
+    }

@@ -8,6 +8,8 @@ compose_service() + env_vars() on it generically.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 import yaml
 
@@ -31,6 +33,75 @@ class TestServiceDiscovery:
         grafana = plugins["grafana"]
         assert grafana.category == "management"
         assert grafana.placement == "control"
+
+    def test_discovers_installed_entry_point_bundle(self, monkeypatch, tmp_path):
+        from toolkit.services import ServiceBundle, ServicePlugin, _reset_cache, discover_service_plugins
+
+        addon = tmp_path / "example-addon"
+        addon.mkdir()
+        (addon / "service.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "name": "example-addon",
+                    "label": "Example add-on",
+                    "description": "External service used by discovery tests",
+                    "icon": "box",
+                    "category": "management",
+                    "placement": "control",
+                    "priority": 50,
+                    "runtime": "embedded",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        class ExamplePlugin(ServicePlugin):
+            pass
+
+        @dataclass(frozen=True)
+        class EntryPoint:
+            name: str = "example"
+            value: str = "example_addon:bundle"
+
+            def load(self):
+                return ServiceBundle(root=addon, plugin=ExamplePlugin)
+
+        class EntryPoints(tuple):
+            def select(self, **params):
+                return self if params == {"group": "homelab.services"} else ()
+
+        monkeypatch.setattr("toolkit.services.metadata.entry_points", lambda: EntryPoints((EntryPoint(),)))
+        _reset_cache()
+        try:
+            plugins = {plugin.service: plugin for plugin in discover_service_plugins()}
+            assert plugins["example-addon"]._plugin_dir == addon.resolve()
+        finally:
+            _reset_cache()
+
+    def test_rejects_entry_point_with_incompatible_api(self, monkeypatch, tmp_path):
+        from toolkit.services import ServiceBundle, ServicePlugin, _reset_cache, discover_service_plugins
+
+        class ExamplePlugin(ServicePlugin):
+            pass
+
+        class EntryPoint:
+            name = "future"
+            value = "future_addon:bundle"
+
+            def load(self):
+                return ServiceBundle(root=tmp_path, plugin=ExamplePlugin, api_version=999)
+
+        class EntryPoints(tuple):
+            def select(self, **params):
+                return self if params == {"group": "homelab.services"} else ()
+
+        monkeypatch.setattr("toolkit.services.metadata.entry_points", lambda: EntryPoints((EntryPoint(),)))
+        _reset_cache()
+        try:
+            with pytest.raises(ValueError, match="targets API 999"):
+                discover_service_plugins()
+        finally:
+            _reset_cache()
 
 
 class TestGrafanaComposeService:

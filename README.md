@@ -1,15 +1,28 @@
-# Homelab Toolkit
+# Homelab
 
-Automated, config-driven deployment of self-hosted services to Proxmox machines, with a
-FastAPI web UI and a CLI. One local, gitignored `config.yaml` drives OpenTofu (LXC/VM
-lifecycle), Ansible (OS + Docker), and a staggered Docker Compose rollout, with single
-sign-on, monitoring, alerting, and backups wired up automatically. The reusable framework
-is public; operator credentials and deployment topology stay on the operator's system.
+A self-hosted control plane for deploying **or simply managing** servers and services.
+Use the guided web UI for day-to-day operations, health and metrics, identity, mail,
+backups, DNS, and plugin-owned service controls. Power users also get a typed CLI,
+OpenTofu/Proxmox provisioning, Ansible convergence, and health-gated Compose rollouts.
+
+Choose **Manage existing/local services** during setup when you do not want Homelab to
+provision Proxmox machines. Choose **Provision with Proxmox** for the complete
+infrastructure-to-application workflow. Secrets and topology remain on the operator's
+system in both modes.
 
 The [Homelab Platform project](https://github.com/users/breixopd/projects/1) tracks this
 core repository alongside the independently releasable
 [Media Cache](https://github.com/breixopd/media-cache) and
 [Music Sync](https://github.com/breixopd/music-sync) products.
+
+## Screenshots
+
+| Guided setup | Unified sign-in |
+| --- | --- |
+| ![Homelab guided setup](docs/screenshots/setup.png) | ![Authelia sign-in](docs/screenshots/sign-in.png) |
+
+These are browser-captured from the real templates. CI refreshes them when the UI changes
+and weekly to catch drift in the deployed identity surface.
 
 ## Architecture
 
@@ -42,6 +55,9 @@ docker compose -f /opt/homelab/docker-compose.bootstrap.yml exec controller home
 Open `http://localhost:8080/setup` and paste the one-time capability. The setup
 listener is bound to loopback only; the session cookie remains `Secure`,
 `HttpOnly`, and `SameSite=Strict`.
+
+The wizard first asks whether Homelab should manage existing/local services or provision
+Proxmox machines. Proxmox details are neither requested nor accepted in management mode.
 
 The installer pulls the multi-platform toolkit image, resolves its registry tag
 to an immutable digest, and seeds the matching framework snapshot into
@@ -130,6 +146,19 @@ homelab-toolkit images lock --write      # resolve new plugin image tags to immu
 
 Metrics and logs are served by the built-in **Grafana** (dashboards, alerts).
 
+## Add-ons and independent services
+
+Service behavior, settings, panels, metrics, actions, verification, routes, and secrets
+belong to the service plugin—not to name-based branches in the Web UI. Installed Python
+distributions can contribute versioned `ServiceBundle` entry points through the
+`homelab.services` group, including their own manifest and Compose application. Duplicate
+service IDs and incompatible core API versions fail at startup.
+
+An add-on is trusted local code, equivalent to installing any other Python package. Install
+only reviewed packages from publishers you trust. Media Cache and Music Sync remain
+independently runnable products and integrate with Homelab through explicit, versioned HTTP
+contracts and immutable image pins.
+
 ## Documentation
 
 - [Wiki index](docs/wiki/README.md) — start here
@@ -139,26 +168,3 @@ Metrics and logs are served by the built-in **Grafana** (dashboards, alerts).
 - [Repository layout](docs/wiki/repo-layout.md)
 - [Adding a service](docs/adding-a-new-service.md)
 - [Projects (subdomain management)](docs/wiki/projects.md)
-
-## Project structure
-
-See [docs/wiki/repo-layout.md](docs/wiki/repo-layout.md) for the full tree. Summary:
-
-```
-config.yaml              # Local desired state (generated, gitignored)
-toolkit/                 # Python toolkit package (installable)
-  core/                  # config/, deploy/, generate/, ops/, ansible/, infra/, …
-  services/              # Flat plugins: <name>/{service.yaml, compose.yaml, image/, optional plugin.py}
-  services/sdk/          # Shared plugin primitives (http, docker, authelia, …)
-  cli/                   # CLI commands
-  webui/                 # FastAPI + htmx web UI
-  categories/            # Strict category plugins: <name>/{category.yaml, optional plugin.py}
-  registry/              # Stagger overlays and other declarative deploy data
-  templates/             # Jinja2 templates for generated configs
-stacks/                  # Fixed platform networks and named volumes
-automation/              # Ansible playbooks + roles (see automation/README.md)
-infrastructure/          # OpenTofu IaC for declared Proxmox LXC/VM machines
-config/                  # Static service config (mounted into containers)
-generated/               # Generated .env and configs (gitignored)
-docs/wiki/               # Canonical documentation
-```

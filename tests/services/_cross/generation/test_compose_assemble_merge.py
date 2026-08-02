@@ -373,7 +373,7 @@ def test_role_models_root_local_build_contexts_at_install_directory() -> None:
     assert infra["services"]["homelab-ui"]["build"]["context"] == "${INSTALL_ROOT:-.}"
     assert "build" not in media["services"]["music-sync"]
     assert media["services"]["music-sync"]["image"] == (
-        "ghcr.io/breixopd/music-sync:v1.1.2@sha256:04bf5917092baa9275f5d3244a4a9d038ba12afe5152add5c9853b7dec7b047e"
+        "ghcr.io/breixopd/music-sync:v1.2.0@sha256:b2868c5c3561821554faabeda0ac4de7d279365152fd3297138566cfcaf0aa83"
     )
 
 

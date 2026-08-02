@@ -32,13 +32,22 @@ def run_text_process_group(
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
+            # The process group may exit between TimeoutExpired and signalling.
             pass
         try:
             stdout, stderr = process.communicate(timeout=_TERMINATION_GRACE_SECONDS)
+            # The group leader can exit before a descendant finishes handling
+            # SIGTERM. Close that race so timed-out helpers cannot outlive the
+            # bounded operation as runnable processes.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         except subprocess.TimeoutExpired:
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
+                # SIGTERM may have completed while the grace timeout elapsed.
                 pass
             stdout, stderr = process.communicate()
         raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr) from exc

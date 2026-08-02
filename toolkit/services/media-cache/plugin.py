@@ -205,6 +205,7 @@ class MediaCachePlugin(ServicePlugin):
                 tautulli_url=resolve_docker_service_url("tautulli", 8181),
                 api_key=tautulli_key,
                 webhook_url="http://media-cache:8686/webhook/tautulli",
+                webhook_token=secrets.get("MEDIA_CACHE_WEBHOOK_TOKEN", ""),
             )
             if ok:
                 logs.append(f"media-cache: registered tautulli webhook ({message})")

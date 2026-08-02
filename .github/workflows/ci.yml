@@ -29,7 +29,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked development environment
         run: uv sync --locked --all-extras
       - name: Verify lockfile
@@ -69,7 +69,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ matrix.python-version }}
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked test environment
         run: uv sync --locked --extra test
       - name: Run unit tests
@@ -89,7 +89,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked test environment
         run: uv sync --locked --extra test
       - name: Run service-owned plugin tests
@@ -109,7 +109,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked test environment
         run: uv sync --locked --extra test
       - name: Enforce coverage threshold
@@ -145,7 +145,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked test environment
         run: uv sync --locked --all-extras
       - name: Run E2E tests
@@ -163,7 +163,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked test environment
         run: uv sync --locked --extra test
       - name: Install checksum-pinned secret tooling
@@ -209,7 +209,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
           tofu_version: 1.12.4
@@ -241,7 +241,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked runtime environment
         run: uv sync --locked
       - name: Install checksum-pinned secret tooling
@@ -285,7 +285,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked runtime environment
         run: uv sync --locked
       - name: Compile image build plan
@@ -313,7 +313,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked runtime environment
         run: uv sync --locked
       - name: Build image
@@ -387,7 +387,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           python-version: "3.12"
-          enable-cache: false
+          enable-cache: true
       - name: Sync locked runtime environment
         run: uv sync --locked
       - name: Build image

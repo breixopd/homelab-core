@@ -213,10 +213,6 @@ def resolve_smtp_transport(cfg: Config, secrets: dict[str, str]) -> SMTPTranspor
     )
 
 
-# Compatibility for existing internal callers and extensions.
-_resolve_smtp_transport = resolve_smtp_transport
-
-
 def _load_secrets(root: Path) -> dict[str, str]:
     """Load decrypted secrets for the given homelab root (empty dict on failure)."""
     sp = secrets_path(root)

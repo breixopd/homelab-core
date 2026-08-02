@@ -257,6 +257,7 @@ def bootstrap_jellyfin(
                     api_key,
                     base_url=base,
                     lldap_bind_password=secrets.get("LLDAP_BIND_PASSWORD", ""),
+                    media_cache_webhook_token=secrets.get("MEDIA_CACHE_WEBHOOK_TOKEN", ""),
                 )
             )
     except httpx.HTTPError as exc:

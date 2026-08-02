@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from threading import Barrier
 from types import SimpleNamespace
 
 from toolkit.core.config.config import Config, ServicesConfig
@@ -84,3 +85,38 @@ def test_verify_hooks_can_retry_only_selected_plugins(monkeypatch, tmp_path):
 
     assert calls == ["retry-me"]
     assert any(check.service == "retry-me" for check in result.checks)
+
+
+def test_verify_hooks_runs_plugin_probes_concurrently_and_keeps_result_order(monkeypatch, tmp_path):
+    cfg = Config(domain="example.com", services=ServicesConfig(email=False))
+    barrier = Barrier(2, timeout=2)
+
+    def plugin(name: str):
+        def verify(*_args):
+            barrier.wait()
+            return [VerifyCheck(name, "health", True, "ok")]
+
+        return SimpleNamespace(
+            service=name,
+            runtime_address=lambda _cfg: "localhost",
+            verify=verify,
+        )
+
+    monkeypatch.setattr(
+        "toolkit.services.enabled_service_plugins",
+        lambda *_args, **_kwargs: [("test", plugin("first")), ("test", plugin("second"))],
+    )
+    monkeypatch.setattr("toolkit.core.manifest.placement.service_node", lambda *_args, **_kwargs: "apps")
+    monkeypatch.setattr(
+        "toolkit.core.ops.hook_verify._check_sssd_active", lambda *_a, **_k: VerifyCheck("sssd", "apps", True, "ok")
+    )
+    monkeypatch.setattr(
+        "toolkit.core.ops.hook_verify._check_ldap_getent", lambda *_a, **_k: VerifyCheck("ldap", "apps", True, "ok")
+    )
+    monkeypatch.setattr("toolkit.core.ops.hook_verify._check_forward_auth_routes", lambda *_a, **_k: [])
+    monkeypatch.setattr("toolkit.core.ops.monitoring_verify.verify_monitoring_stack", lambda *_a, **_k: [])
+
+    result = verify_hooks(cfg, {}, tmp_path, vm="apps")
+
+    plugin_checks = [check.service for check in result.checks if check.check == "health"]
+    assert plugin_checks == ["first", "second"]

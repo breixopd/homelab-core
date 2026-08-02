@@ -22,7 +22,8 @@ bootstrap_infra_subnet_router = _headscale_mesh.bootstrap_infra_subnet_router
 mesh_internal_hosts = _headscale_mesh.mesh_internal_hosts
 probe_mesh_internal = _headscale_mesh.probe_mesh_internal
 
-_REGISTER_KEY_RE = re.compile(r"(?:[?&]key=|/register/)([A-Za-z0-9_:-]+)")
+_REGISTER_KEY_RE = re.compile(r"/register/(hskey-authreq-[A-Za-z0-9_-]+)")
+_REGISTER_PATH_SECRET_RE = re.compile(r"(/register/)[^/?#\s]+")
 
 
 def _extract_registration_key(text: str) -> str:
@@ -31,7 +32,7 @@ def _extract_registration_key(text: str) -> str:
 
 
 def _redact_registration_keys(text: str) -> str:
-    return _REGISTER_KEY_RE.sub(lambda match: match.group(0).replace(match.group(1), "<REDACTED>"), text)
+    return _REGISTER_PATH_SECRET_RE.sub(r"\1<REDACTED>", text)
 
 
 def _safe_mesh_log(line: str, *secrets: str | None) -> str:

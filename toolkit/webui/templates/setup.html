@@ -72,35 +72,49 @@
             <span>Cloudflare zone ID <span class="required-mark">*</span></span>
             <input name="cloudflare_zone_id" type="text" minlength="32" maxlength="32" autocomplete="off" required>
           </label>
-        </div>
-      </section>
-
-      <section class="setup-card">
-        <h2>Proxmox</h2>
-        <div class="setup-grid">
-          <label>
-            <span>API token ID <span class="required-mark">*</span></span>
-            <input name="proxmox_api_token_id" type="text" placeholder="root@pam!homelab" autocomplete="off" required>
-          </label>
-          <label>
-            <span>API token secret <span class="required-mark">*</span></span>
-            <input name="proxmox_api_token_secret" type="password" autocomplete="new-password" required>
-          </label>
-          <label>
-            <span>API URL <span class="required-mark">*</span></span>
-            <input name="proxmox_api_url" type="url" placeholder="https://192.168.1.100:8006" required>
-          </label>
-          <label>
-            <span>Node <span class="required-mark">*</span></span>
-            <input name="proxmox_node" type="text" value="pve" required>
-          </label>
-          <label>
-            <span>Storage <span class="required-mark">*</span></span>
-            <input name="proxmox_storage" type="text" value="local-zfs" required>
-          </label>
           <label>
             <span>Timezone <span class="required-mark">*</span></span>
             <input name="timezone" type="text" value="Europe/Madrid" required>
+          </label>
+        </div>
+      </section>
+
+      <section class="setup-card" aria-labelledby="deployment-mode-title">
+        <h2 id="deployment-mode-title">How will Homelab run?</h2>
+        <div class="setup-choice-grid">
+          <label class="label-row">
+            <input type="radio" name="deployment_mode" value="management">
+            <span><strong>Manage existing/local services</strong><br><small>Use the dashboard, plugins, monitoring, and host management without provisioning Proxmox machines.</small></span>
+          </label>
+          <label class="label-row">
+            <input type="radio" name="deployment_mode" value="provision" checked>
+            <span><strong>Provision with Proxmox</strong><br><small>Create and configure the Homelab machines as well as managing their services.</small></span>
+          </label>
+        </div>
+      </section>
+
+      <section class="setup-card" id="proxmox-setup" data-deployment-mode="provision">
+        <h2>Proxmox provisioning</h2>
+        <div class="setup-grid">
+          <label>
+            <span>API token ID <span class="required-mark">*</span></span>
+            <input name="proxmox_api_token_id" type="text" placeholder="root@pam!homelab" autocomplete="off">
+          </label>
+          <label>
+            <span>API token secret <span class="required-mark">*</span></span>
+            <input name="proxmox_api_token_secret" type="password" autocomplete="new-password">
+          </label>
+          <label>
+            <span>API URL <span class="required-mark">*</span></span>
+            <input name="proxmox_api_url" type="url" placeholder="https://192.168.1.100:8006">
+          </label>
+          <label>
+            <span>Node <span class="required-mark">*</span></span>
+            <input name="proxmox_node" type="text" value="pve">
+          </label>
+          <label>
+            <span>Storage <span class="required-mark">*</span></span>
+            <input name="proxmox_storage" type="text" value="local-zfs">
           </label>
         </div>
       </section>

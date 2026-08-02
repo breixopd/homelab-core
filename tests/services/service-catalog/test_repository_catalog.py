@@ -138,7 +138,7 @@ def test_repository_contains_no_implicit_or_noncanonical_route_policy() -> None:
         for route in raw.get("routes", []):
             assert route.get("exposure") in {"public", "private"}, path
             assert isinstance(route.get("auth"), dict), path
-            assert route["auth"].get("mode") in {"forward_auth", "oidc", "native", "split"}, path
+            assert route["auth"].get("mode") in {"forward_auth", "oidc", "native", "split", "none"}, path
 
 
 def test_every_sensitive_compose_reference_has_a_declared_owner() -> None:

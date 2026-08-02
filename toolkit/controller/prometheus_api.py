@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import shlex
@@ -20,8 +21,8 @@ _MAX_QUERIES = 24
 _MAX_QUERY_LENGTH = 2_000
 _CACHE_TTL_SECONDS = 10.0
 _CACHE_LIMIT = 256
-_cache: dict[tuple[Path, str, tuple[tuple[str, str], ...]], tuple[float, dict[str, float]]] = {}
-_history_cache: dict[tuple[Path, str], tuple[float, dict[str, list[tuple[int, float]]]]] = {}
+_cache: dict[tuple[Path, str, str, tuple[tuple[str, str], ...]], tuple[float, dict[str, float]]] = {}
+_history_cache: dict[tuple[Path, str, str], tuple[float, dict[str, list[tuple[int, float]]]]] = {}
 _cache_lock = threading.Lock()
 
 
@@ -111,6 +112,11 @@ def _validate_container(container: str) -> None:
         raise ValueError("container name is invalid")
 
 
+def _config_cache_token(cfg: Config) -> str:
+    """Return a stable target token so config edits cannot reuse old-node data."""
+    return hashlib.sha256(cfg.model_dump_json().encode("utf-8")).hexdigest()
+
+
 def read_service_metrics(
     root: Path,
     cfg: Config,
@@ -118,6 +124,7 @@ def read_service_metrics(
     *,
     manifest_queries: dict[str, str] | None = None,
     use_cache: bool = True,
+    include_history: bool = False,
 ) -> dict[str, float]:
     """Return built-in and trusted-manifest telemetry for one validated service."""
     _validate_container(container)
@@ -125,15 +132,44 @@ def read_service_metrics(
     if len(extras) > 12:
         raise ValueError("service declares too many Prometheus metrics")
     query_items = tuple(extras.items())
-    key = (root.resolve(), container, query_items)
+    cache_root = root.resolve()
+    config_token = _config_cache_token(cfg)
+    key = (cache_root, container, config_token, query_items)
+    history_key = (cache_root, container, config_token)
     now = time.monotonic()
+    cached_metrics: dict[str, float] | None = None
     if use_cache:
         with _cache_lock:
             cached = _cache.get(key)
             if cached is not None and now - cached[0] <= _CACHE_TTL_SECONDS:
-                return dict(cached[1])
+                cached_metrics = dict(cached[1])
+            if cached_metrics is not None and not include_history:
+                return cached_metrics
+            if include_history:
+                cached_history = _history_cache.get(history_key)
+                if cached_metrics is not None and cached_history is not None:
+                    if now - cached_history[0] <= _CACHE_TTL_SECONDS:
+                        return cached_metrics
 
-    output = run_prometheus_queries(root, cfg, [*_container_queries(container), *extras.values()])
+    instant_queries = [*_container_queries(container), *extras.values()]
+    output_urls = _query_urls(instant_queries)
+    if include_history:
+        end = int(time.time())
+        selector = f'name="{container}"'
+        history_queries = [
+            f"sum(rate(container_cpu_usage_seconds_total{{{selector}}}[5m])) * 100",
+            f"max(container_memory_working_set_bytes{{{selector}}}) / 1024 / 1024",
+        ]
+        output_urls.extend(
+            "http://127.0.0.1:9090/api/v1/query_range"
+            f"?query={urllib.parse.quote(query, safe='')}&start={end - 3600}&end={end}&step=60"
+            for query in history_queries
+        )
+    output = (
+        run_prometheus_urls(root, cfg, output_urls)
+        if include_history
+        else run_prometheus_queries(root, cfg, instant_queries)
+    )
     parts = output.split(RECORD_SEPARATOR)
     names = (
         "cpu_percent",
@@ -157,12 +193,35 @@ def read_service_metrics(
         if value is not None and value >= 0:
             metrics[name] = round(value, 2)
 
+    history: dict[str, list[tuple[int, float]]] | None = None
+    if include_history:
+        history_payloads: list[object] = []
+        for part in parts[len(names) : len(names) + 2]:
+            try:
+                history_payloads.append(json.loads(part))
+            except json.JSONDecodeError:
+                history_payloads.append({})
+        while len(history_payloads) < 2:
+            history_payloads.append({})
+        history = {
+            "cpu_percent": _range_points(history_payloads[0], clamp_percent=True),
+            "memory_megabytes": _range_points(history_payloads[1]),
+        }
+
     if use_cache:
         with _cache_lock:
             _cache[key] = (time.monotonic(), dict(metrics))
             if len(_cache) > _CACHE_LIMIT:
-                oldest = min(_cache, key=lambda item: _cache[item][0])
-                del _cache[oldest]
+                oldest_metric = min(_cache, key=lambda item: _cache[item][0])
+                del _cache[oldest_metric]
+            if history is not None:
+                _history_cache[history_key] = (
+                    time.monotonic(),
+                    {name: list(points) for name, points in history.items()},
+                )
+                if len(_history_cache) > _CACHE_LIMIT:
+                    oldest_history = min(_history_cache, key=lambda item: _history_cache[item][0])
+                    del _history_cache[oldest_history]
     return metrics
 
 
@@ -202,7 +261,7 @@ def read_service_metric_history(
 ) -> dict[str, list[tuple[int, float]]]:
     """Return bounded one-hour CPU and memory series for one managed container."""
     _validate_container(container)
-    key = (root.resolve(), container)
+    key = (root.resolve(), container, _config_cache_token(cfg))
     now = time.monotonic()
     if use_cache:
         with _cache_lock:

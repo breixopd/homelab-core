@@ -80,12 +80,13 @@ class BootstrapServiceSecretView(StrictModel):
 
 
 class BootstrapDesiredState(StrictModel):
+    deployment_mode: Literal["management", "provision"] = "provision"
     domain: str = Field(min_length=1, max_length=253)
     email: str = Field(min_length=3, max_length=254)
     timezone: str = Field(min_length=1, max_length=100)
-    proxmox_api_url: str = Field(max_length=2_048, pattern=r"^[^\x00-\x1f\x7f]*$")
-    proxmox_node: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._-]+$")
-    proxmox_storage: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
+    proxmox_api_url: str = Field(default="", max_length=2_048, pattern=r"^[^\x00-\x1f\x7f]*$")
+    proxmox_node: str = Field(default="", max_length=100, pattern=r"^(?:[A-Za-z0-9._-]+)?$")
+    proxmox_storage: str = Field(default="", max_length=100, pattern=r"^(?:[A-Za-z0-9._:-]+)?$")
     service_settings: dict[
         ServiceName,
         dict[BootstrapServiceSettingKey, BootstrapServiceSettingScalar],

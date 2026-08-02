@@ -72,15 +72,14 @@ _ORPHANED_MATERIAL_FILES = (
     "ssh/homelab_admin_ed25519",
     "ssh/homelab_admin_ed25519.pub",
 )
-_REQUIRED_CREDENTIALS = frozenset(
+_BASE_REQUIRED_CREDENTIALS = frozenset(
     {
         "CLOUDFLARE_API_TOKEN",
         "CLOUDFLARE_ZONE_ID",
-        "PROXMOX_API_TOKEN_ID",
-        "PROXMOX_API_TOKEN_SECRET",
         "SSO_USER_PASSWORD",
     }
 )
+_PROVISION_REQUIRED_CREDENTIALS = frozenset({"PROXMOX_API_TOKEN_ID", "PROXMOX_API_TOKEN_SECRET"})
 
 
 def _sha256_file(path: Path) -> str:
@@ -277,9 +276,19 @@ def _validate_desired_state(request: BootstrapInitializeRequest) -> Config:
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise BootstrapInitializationError("A valid IANA timezone is required") from exc
 
-    proxmox_url = urlparse(desired.proxmox_api_url)
-    if proxmox_url.scheme != "https" or not proxmox_url.hostname or proxmox_url.username or proxmox_url.password:
-        raise BootstrapInitializationError("The Proxmox API URL must be an HTTPS origin without credentials")
+    proxmox: dict[str, object] = {"provision_machines": False}
+    if desired.deployment_mode == "provision":
+        proxmox_url = urlparse(desired.proxmox_api_url)
+        if proxmox_url.scheme != "https" or not proxmox_url.hostname or proxmox_url.username or proxmox_url.password:
+            raise BootstrapInitializationError("The Proxmox API URL must be an HTTPS origin without credentials")
+        if not desired.proxmox_node or not desired.proxmox_storage:
+            raise BootstrapInitializationError("A Proxmox node and storage are required for provisioning")
+        proxmox = {
+            "api_url": desired.proxmox_api_url.strip(),
+            "node": desired.proxmox_node.strip(),
+            "lxc_storage": desired.proxmox_storage.strip(),
+            "provision_machines": True,
+        }
 
     catalog = load_service_catalog()
     setup_settings = {
@@ -301,12 +310,7 @@ def _validate_desired_state(request: BootstrapInitializeRequest) -> Config:
                 "email": desired.email.strip().lower(),
                 "timezone": desired.timezone,
                 "service_settings": desired.service_settings,
-                "proxmox": {
-                    "api_url": desired.proxmox_api_url.strip(),
-                    "node": desired.proxmox_node.strip(),
-                    "lxc_storage": desired.proxmox_storage.strip(),
-                    "provision_machines": True,
-                },
+                "proxmox": proxmox,
                 "dns": {"provider": "cloudflare", "proxy_enabled": True},
             }
         )
@@ -316,14 +320,23 @@ def _validate_desired_state(request: BootstrapInitializeRequest) -> Config:
 
 def _validated_credentials(request: BootstrapInitializeRequest, config: Config) -> dict[str, str]:
     values = {name: value.strip() for name, value in request.credential_values.items()}
+    provisioning = request.desired_state.deployment_mode == "provision"
+    mode_required = _PROVISION_REQUIRED_CREDENTIALS if provisioning else frozenset()
+    if not provisioning and set(values).intersection(_PROVISION_REQUIRED_CREDENTIALS):
+        raise BootstrapInitializationError("Proxmox credentials are not accepted in management mode")
     catalog = load_service_catalog()
     active = active_setup_secrets(config, catalog)
-    unsupported = sorted(set(values) - _REQUIRED_CREDENTIALS - set(active))
+    supported = _BASE_REQUIRED_CREDENTIALS | mode_required | set(active)
+    unsupported = sorted(set(values) - supported)
     if unsupported:
         raise BootstrapInitializationError("Bootstrap credentials contain unsupported names")
 
-    required = _REQUIRED_CREDENTIALS | frozenset(
-        name for name, (_manifest, secret) in active.items() if secret.setup is not None and secret.setup.required
+    required = (
+        _BASE_REQUIRED_CREDENTIALS
+        | mode_required
+        | frozenset(
+            name for name, (_manifest, secret) in active.items() if secret.setup is not None and secret.setup.required
+        )
     )
     missing = sorted(name for name in required if not values.get(name))
     if missing:
@@ -335,10 +348,11 @@ def _validated_credentials(request: BootstrapInitializeRequest, config: Config) 
     zone_id = values["CLOUDFLARE_ZONE_ID"].lower()
     if len(zone_id) != 32 or any(character not in "0123456789abcdef" for character in zone_id):
         raise BootstrapInitializationError("The Cloudflare zone ID must contain 32 hexadecimal characters")
-    if "@" not in values["PROXMOX_API_TOKEN_ID"] or "!" not in values["PROXMOX_API_TOKEN_ID"]:
-        raise BootstrapInitializationError("The Proxmox API token ID is invalid")
-    if len(values["PROXMOX_API_TOKEN_SECRET"]) < 16:
-        raise BootstrapInitializationError("The Proxmox API token secret is invalid")
+    if provisioning:
+        if "@" not in values["PROXMOX_API_TOKEN_ID"] or "!" not in values["PROXMOX_API_TOKEN_ID"]:
+            raise BootstrapInitializationError("The Proxmox API token ID is invalid")
+        if len(values["PROXMOX_API_TOKEN_SECRET"]) < 16:
+            raise BootstrapInitializationError("The Proxmox API token secret is invalid")
 
     try:
         return prepare_bootstrap_credentials(config, values)

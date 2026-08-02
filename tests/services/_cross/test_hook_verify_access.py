@@ -8,6 +8,7 @@ from toolkit.core.config.config import Config, DNSConfig, NetworkConfig, Service
 from toolkit.core.manifest.routes import compile_routes
 from toolkit.core.ops.hook_verify import (
     _check_caddy_forward_auth_route,
+    _check_caddy_forward_auth_routes_batch,
     _check_caddy_split_native_paths,
     _check_cloudflare_public_dns_parity,
     _check_forward_auth_routes,
@@ -108,6 +109,36 @@ def test_forward_auth_probe_originates_from_private_peer(monkeypatch, tmp_path):
     assert f"prometheus.example.com:443:{cfg.node_ip('infra')}" in observed["command"]
 
 
+def test_forward_auth_batch_uses_one_remote_probe(monkeypatch, tmp_path):
+    cfg = Config(domain="example.com")
+    calls = []
+
+    def fake_ssh(_cfg, source_ip, command, **_kwargs):
+        calls.append((source_ip, command))
+        return (
+            0,
+            "__HOMELAB_FORWARD_0__\t302\thttps://auth.example.com/\n"
+            "__HOMELAB_FORWARD_1__\t302\thttps://auth.example.com/\n",
+            "",
+        )
+
+    monkeypatch.setattr("toolkit.core.ansible.ansible_ssh.ssh_run_on_vm", fake_ssh)
+
+    checks = _check_caddy_forward_auth_routes_batch(
+        cfg,
+        [
+            ("grafana", "grafana.example.com", cfg.node_ip("media"), cfg.node_ip("infra")),
+            ("prometheus", "prometheus.example.com", cfg.node_ip("media"), cfg.node_ip("infra")),
+        ],
+        tmp_path,
+    )
+
+    assert [check.passed for check in checks] == [True, True]
+    assert len(calls) == 1
+    assert calls[0][0] == cfg.node_ip("media")
+    assert calls[0][1].count("curl -skI") == 2
+
+
 def test_forward_auth_checks_follow_compiled_app_routes(monkeypatch):
     cfg = Config(
         domain="example.com",
@@ -123,11 +154,14 @@ def test_forward_auth_checks_follow_compiled_app_routes(monkeypatch):
     observed: list[tuple[str, str]] = []
     observed_native: list[tuple[str, str, tuple[str, ...]]] = []
 
-    def fake_check(_cfg, service, host, _source_ip, _caddy_ip, _root):
-        observed.append((service, host))
-        return VerifyCheck(service, "forward_auth", True, "ok")
+    def fake_batch(_cfg, entries, _root):
+        checks = []
+        for service, host, _source_ip, _caddy_ip in entries:
+            observed.append((service, host))
+            checks.append(VerifyCheck(service, "forward_auth", True, "ok"))
+        return checks
 
-    monkeypatch.setattr("toolkit.core.ops.hook_verify._check_caddy_forward_auth_route", fake_check)
+    monkeypatch.setattr("toolkit.core.ops.hook_verify._check_caddy_forward_auth_routes_batch", fake_batch)
 
     def fake_native_paths(_cfg, service, host, paths, _vm_ip, _root, **_kwargs):
         observed_native.append((service, host, paths))

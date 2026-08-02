@@ -586,6 +586,18 @@ def test_email_dns_records():
     assert "_dmarc.example.com" in names
 
 
+def test_email_dns_records_are_not_published_when_public_mail_is_disabled():
+    assert email_dns_records("example.com", "1.2.3.4", mail_public_access=False) == []
+
+
+def test_email_dns_records_only_publish_autoconfig_with_a_real_endpoint():
+    records = email_dns_records("example.com", "1.2.3.4", autoconfig_enabled=False)
+    names = {record.name for record in records}
+
+    assert "autoconfig.example.com" not in names
+    assert "autodiscover.example.com" not in names
+
+
 def test_resolve_public_dns_ip_prefers_explicit_config():
     from toolkit.core.config.config import Config, DNSConfig, ProxmoxConfig
 

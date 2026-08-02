@@ -110,3 +110,48 @@ def test_service_metric_history_is_bounded_and_parsed(monkeypatch, tmp_path: Pat
     assert len(captured) == 1
     assert len(captured[0]) == 2
     assert all("query_range" in url and "romm" in url for url in captured[0])
+
+
+def test_metrics_and_history_share_one_prometheus_batch(monkeypatch, tmp_path: Path) -> None:
+    captured: list[list[str]] = []
+
+    def run(_root, _cfg, urls):
+        captured.append(urls)
+        return RECORD_SEPARATOR.join(
+            [
+                *[_result(float(index)) for index in range(9)],
+                _range_result([(1_700_000_000, 10.0)]),
+                _range_result([(1_700_000_000, 256.0)]),
+            ]
+        )
+
+    monkeypatch.setattr("toolkit.controller.prometheus_api.run_prometheus_urls", run)
+
+    metrics = read_service_metrics(tmp_path, Config(), "media-cache", include_history=True)
+    history = read_service_metric_history(tmp_path, Config(), "media-cache")
+
+    assert metrics["cpu_percent"] == 0.0
+    assert history == {
+        "cpu_percent": [(1_700_000_000_000, 10.0)],
+        "memory_megabytes": [(1_700_000_000_000, 256.0)],
+    }
+    assert len(captured) == 1
+    assert len(captured[0]) == 11
+    assert sum("query_range" in url for url in captured[0]) == 2
+
+
+def test_metric_cache_is_scoped_to_configuration(monkeypatch, tmp_path: Path) -> None:
+    calls: list[Config] = []
+
+    def run(_root, cfg, _queries):
+        calls.append(cfg)
+        return RECORD_SEPARATOR.join([_result(float(len(calls)))] * 9)
+
+    monkeypatch.setattr("toolkit.controller.prometheus_api.run_prometheus_queries", run)
+
+    first = read_service_metrics(tmp_path, Config(domain="first.example"), "media-cache")
+    second = read_service_metrics(tmp_path, Config(domain="second.example"), "media-cache")
+
+    assert first["cpu_percent"] == 1.0
+    assert second["cpu_percent"] == 2.0
+    assert len(calls) == 2

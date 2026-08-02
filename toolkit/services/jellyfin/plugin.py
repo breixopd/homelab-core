@@ -102,12 +102,18 @@ class JellyfinPlugin(ServicePlugin):
 
     def _check_ldap_plugin_active(self, cfg, secrets, vm_ip, root, resolve_bootstrap_password) -> VerifyCheck:
         """LDAP Authentication plugin installed and active (not just configured on disk)."""
-        from toolkit.services.sdk import VerifyCheck
+        from toolkit.services.sdk import VerifyCheck, VerifyStatus
 
         admin_pass = resolve_bootstrap_password(secrets, "JELLYFIN_ADMIN_PASSWORD")
         api_key = secrets.get("JELLYFIN_API_KEY", "")
         if not admin_pass and not api_key:
-            return VerifyCheck("jellyfin", "ldap_active", True, "skipped (no credentials)")
+            return VerifyCheck(
+                "jellyfin",
+                "ldap_active",
+                False,
+                "Jellyfin admin credentials unavailable; LDAP plugin cannot be verified",
+                status=VerifyStatus.NOT_READY,
+            )
         plugins = self._fetch_plugins(cfg, secrets, vm_ip, root, resolve_bootstrap_password)
         if plugins is None:
             return VerifyCheck("jellyfin", "ldap_active", False, "plugins API unreachable")
