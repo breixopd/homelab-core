@@ -10,6 +10,15 @@ from collections.abc import Sequence
 _TERMINATION_GRACE_SECONDS = 0.5
 
 
+def _signal_process_group(pid: int, sig: signal.Signals) -> bool:
+    """Signal a process group, returning false when it has already exited."""
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        return False
+    return True
+
+
 def run_text_process_group(
     args: Sequence[str],
     *,
@@ -29,26 +38,15 @@ def run_text_process_group(
     try:
         stdout, stderr = process.communicate(input=input_text, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            # The process group may exit between TimeoutExpired and signalling.
-            pass
+        _signal_process_group(process.pid, signal.SIGTERM)
         try:
             stdout, stderr = process.communicate(timeout=_TERMINATION_GRACE_SECONDS)
             # The group leader can exit before a descendant finishes handling
             # SIGTERM. Close that race so timed-out helpers cannot outlive the
             # bounded operation as runnable processes.
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            _signal_process_group(process.pid, signal.SIGKILL)
         except subprocess.TimeoutExpired:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                # SIGTERM may have completed while the grace timeout elapsed.
-                pass
+            _signal_process_group(process.pid, signal.SIGKILL)
             stdout, stderr = process.communicate()
         raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr) from exc
     return subprocess.CompletedProcess(list(args), process.returncode, stdout, stderr)
