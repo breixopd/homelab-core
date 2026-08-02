@@ -334,7 +334,7 @@ def _check_repo_parity(cfg: Config, root: Path) -> list[VerifyCheck]:
 
 
 def _check_cloudflare_public_dns_parity(cfg: Config, secrets: dict[str, str]) -> VerifyCheck:
-    """Public Cloudflare A records must match desired routes + dns remote record."""
+    """Public Cloudflare address/alias records must match desired routes."""
     if cfg.dns.provider.lower() != "cloudflare":
         return VerifyCheck("cloudflare", "public_dns", True, "not applicable (DNS provider is not Cloudflare)")
     if not secrets.get("CLOUDFLARE_API_TOKEN", "").strip():
@@ -352,28 +352,30 @@ def _check_cloudflare_public_dns_parity(cfg: Config, secrets: dict[str, str]) ->
     if not public_ip:
         return VerifyCheck("cloudflare", "public_dns", False, "public IP unknown")
 
-    desired_a = {
+    desired_public = {
         (r.name.rstrip("."), r.type): (r.content, r.proxied)
         for r in desired_records_from_config(cfg, public_ip)
-        if r.type == "A"
+        if r.type in {"A", "CNAME"}
     }
-    if not desired_a:
-        return VerifyCheck("cloudflare", "public_dns", True, "no public A records expected")
+    if not desired_public:
+        return VerifyCheck("cloudflare", "public_dns", True, "no public address/alias records expected")
 
     try:
         client = cloudflare_client_from_secrets(secrets, cfg.domain)
         existing = {
             (r.name.rstrip("."), r.type): (r.content, r.proxied)
             for r in client.list_all_managed_records()
-            if r.type == "A"
+            if r.type in {"A", "CNAME"}
         }
     except Exception as exc:
         return VerifyCheck("cloudflare", "public_dns", False, str(exc)[:120])
 
-    missing = sorted(key for key in desired_a if key not in existing)
-    mismatched = sorted(key for key in desired_a if key in existing and existing[key] != desired_a[key])
+    missing = sorted(key for key in desired_public if key not in existing)
+    mismatched = sorted(
+        key for key in desired_public if key in existing and existing[key] != desired_public[key]
+    )
     ok = not missing and not mismatched
-    detail = f"{len(desired_a) - len(missing)}/{len(desired_a)} public A records"
+    detail = f"{len(desired_public) - len(missing)}/{len(desired_public)} public address/alias records"
     if missing:
         detail += f" (missing: {missing[:3]}{'…' if len(missing) > 3 else ''})"
     if mismatched:
