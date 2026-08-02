@@ -47,6 +47,21 @@ def test_remote_repository_rejects_untrusted_paths(path: str) -> None:
     assert repository.list() == []
 
 
+def test_remote_repository_rejects_empty_artifact() -> None:
+    repository = DumpRepository.remote(
+        "/opt/homelab/generated/pre-deploy-dumps",
+        [
+            {
+                "path": "/opt/homelab/generated/pre-deploy-dumps/pre-deploy-20260709-120000.sql.gz",
+                "size_bytes": 0,
+                "sha256": "a" * 64,
+            }
+        ],
+    )
+
+    assert repository.list() == []
+
+
 def test_resolve_rejects_unknown_dump_id(tmp_path: Path) -> None:
     dump_dir = tmp_path / "generated" / "pre-deploy-dumps"
     _write_dump(dump_dir)

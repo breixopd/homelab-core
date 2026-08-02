@@ -127,7 +127,7 @@ class DumpRepository:
                 path.parent != root
                 or not path.is_absolute()
                 or not _DUMP_NAME.fullmatch(path.name)
-                or size_bytes < 0
+                or size_bytes <= 0
                 or not _SHA256.fullmatch(sha256)
             ):
                 continue
