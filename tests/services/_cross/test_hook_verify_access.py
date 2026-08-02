@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
 from pathlib import Path
 
 from tests.helpers.machines import machines_with_addresses
@@ -373,3 +374,40 @@ def test_mesh_client_access_uses_probes(monkeypatch):
     labels = {c.check for c in checks}
     assert "infra-ssh" in labels
     assert "private-grafana" in labels
+
+
+def test_mesh_private_forward_auth_requires_identity_redirect(monkeypatch):
+    monkeypatch.setattr(
+        HEADSCALE_MESH.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="HTTP/2 302\r\nlocation: https://auth.example.com/?rd=https://app.example.com/\r\n",
+            stderr="",
+        ),
+    )
+
+    ok, detail = HEADSCALE_MESH._mesh_private_https_check(
+        "app.example.com", "10.10.10.10", "auth.example.com", "forward_auth"
+    )
+
+    assert ok is True
+    assert detail == "HTTP 302 -> auth"
+
+
+def test_mesh_private_oidc_accepts_application_login_surface(monkeypatch):
+    monkeypatch.setattr(
+        HEADSCALE_MESH.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="HTTP/2 200\r\n", stderr=""
+        ),
+    )
+
+    ok, detail = HEADSCALE_MESH._mesh_private_https_check(
+        "grafana.example.com", "10.10.10.10", "auth.example.com", "oidc"
+    )
+
+    assert ok is True
+    assert detail == "HTTP 200 (oidc)"
