@@ -103,10 +103,14 @@ def main() -> None:
                 mode_heading.wait_for()
                 page.screenshot(path=output / "setup.png", full_page=True)
 
-                # Authelia maintains background browser traffic after its login
-                # shell renders, so networkidle never becomes true in CI.
-                page.goto("https://auth.breixopd.space/", wait_until="domcontentloaded")
-                page.wait_for_timeout(1000)
+                # Capture the repository-owned sign-in surface locally. Pointing
+                # documentation automation at a live deployment makes screenshots
+                # non-deterministic and can capture a CDN challenge instead of UI.
+                page.goto("http://127.0.0.1:8765/login", wait_until="networkidle")
+                sign_in_heading = page.get_by_role("heading", name="Homelab")
+                if sign_in_heading.count() != 1:
+                    raise RuntimeError(f"sign-in preview did not render at {page.url}: {page.content()[:1000]}")
+                sign_in_heading.wait_for()
                 page.screenshot(path=output / "sign-in.png", full_page=True)
                 browser.close()
         finally:
