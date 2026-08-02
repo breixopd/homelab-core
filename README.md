@@ -19,10 +19,10 @@ core repository alongside the independently releasable
 
 | Guided setup | Unified sign-in |
 | --- | --- |
-| ![Homelab guided setup](docs/screenshots/setup.png) | ![Authelia sign-in](docs/screenshots/sign-in.png) |
+| ![Homelab guided setup](docs/screenshots/setup.png) | ![Homelab sign-in](docs/screenshots/sign-in.png) |
 
 These are browser-captured from the real templates. CI refreshes them when the UI changes
-and weekly to catch drift in the deployed identity surface.
+and checks them weekly so the documentation stays aligned with the shipped interface.
 
 ## Architecture
 
