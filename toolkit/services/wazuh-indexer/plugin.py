@@ -33,8 +33,11 @@ class WazuhIndexerPlugin(ServicePlugin):
     category = "security"
 
     def ansible_secret_variables(self, cfg: Config, secrets: dict[str, str]) -> dict[str, str]:
-        """Provide the native manager API credential without persisting it in generated vars."""
-        return {"wazuh_api_password": secrets.get("WAZUH_API_PASSWORD", "")}
+        """Provide manager credentials through the owner-only ephemeral Ansible vars file."""
+        return {
+            "wazuh_api_password": secrets.get("WAZUH_API_PASSWORD", ""),
+            "wazuh_indexer_password": secrets.get("WAZUH_INDEXER_PASSWORD", ""),
+        }
 
     def generate_artifacts(self, context: ArtifactGenerationContext) -> None:
         import yaml

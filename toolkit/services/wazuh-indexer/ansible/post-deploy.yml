@@ -1,0 +1,3 @@
+---
+- name: Configure the Wazuh manager after the indexer certificate bootstrap
+  ansible.builtin.include_tasks: "{{ homelab_controller_root }}/toolkit/services/wazuh-indexer/ansible/manager.yml"

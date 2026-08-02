@@ -11,3 +11,12 @@ wazuh_email_enabled: "{{ wazuh_alert_email | length > 0 }}"
 wazuh_smtp_host: "{{ service_ips.get('mailserver', control_ip) }}"
 wazuh_smtp_port: 25
 wazuh_mail_from: "wazuh@{{ base_domain | default('localhost') }}"
+
+# Pinned Wazuh Filebeat integration assets. These are verified before Ansible
+# installs them so an upstream replacement cannot silently enter a deployment.
+wazuh_filebeat_template_url: "https://raw.githubusercontent.com/wazuh/wazuh/v4.14.6/extensions/elasticsearch/7.x/wazuh-template.json"
+wazuh_filebeat_template_sha256: "c6e30822c67c10f7e777cb51926e261d8b2c3a941c4ffcf83325f700c1c8802f"
+wazuh_filebeat_module_url: "https://packages.wazuh.com/4.x/filebeat/wazuh-filebeat-0.5.tar.gz"
+wazuh_filebeat_module_sha256: "7a8c67c47b22f89ab271b7e35f108f18b2215b7aa411cdd23c9994393070d38d"
+wazuh_indexer_host: "wazuh.indexer"
+wazuh_indexer_url: "https://{{ wazuh_indexer_host }}:9200"
