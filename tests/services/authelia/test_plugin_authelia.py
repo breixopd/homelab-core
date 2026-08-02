@@ -141,6 +141,7 @@ def test_authelia_readiness_commands_are_static_and_do_not_expose_storage_key(tm
     assert storage_key not in checks["storage_encryption"].detail
     assert len(calls) == 2
     assert all(kwargs["timeout"] == 10 for _args, kwargs in calls)
+    assert all(kwargs["user"] == "1000:1000" for _args, kwargs in calls)
     assert all("AUTHELIA_STORAGE_KEY" not in repr((args, kwargs)) for args, kwargs in calls)
     assert calls[0][0][2] == [
         "sh",

@@ -212,6 +212,7 @@ class AutheliaPlugin(ServicePlugin):
                 vm_ip,
                 root,
                 timeout=10,
+                user="1000:1000",
             )
             detail = success_detail if rc == 0 else f"{check_name} failed (rc={rc})"
             checks.append(VerifyCheck("authelia", check_name, rc == 0, detail))
