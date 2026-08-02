@@ -13,7 +13,6 @@ setup.ilm.enabled: false
 
 output.elasticsearch:
   hosts: ["{{ wazuh_indexer_url }}"]
-  index: "wazuh-alerts-4.x-%{+yyyy.MM.dd}"
   username: "${username}"
   password: "${password}"
   ssl.certificate_authorities: ["/etc/filebeat/certs/root-ca.pem"]
@@ -27,3 +26,11 @@ logging.files:
   name: filebeat
   keepfiles: 7
   permissions: 0640
+
+logging.metrics.enabled: false
+
+seccomp:
+  default_action: allow
+  syscalls:
+    - action: allow
+      names: [rseq]
