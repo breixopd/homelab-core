@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from tests.helpers.plugins import load_plugin
 from toolkit.core.config.config import Config
 
@@ -12,6 +14,31 @@ def _plugin():
         value for name in dir(module) if name.endswith("Plugin") and isinstance((value := getattr(module, name)), type)
     )
     return plugin_type()
+
+
+def test_solve_timeout_is_not_success(monkeypatch, tmp_path) -> None:
+    calls: list[list[str]] = []
+
+    def fake_exec(_cfg, _service, command, *_args, **_kwargs):
+        calls.append(command)
+        return (0, '{"status":"ok"}') if len(calls) == 1 else (1, "timeout")
+
+    monkeypatch.setattr("toolkit.services.sdk.container_exists_on_vm", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("toolkit.services.sdk.docker_exec_on_vm", fake_exec)
+
+    checks = {
+        check.check: check
+        for check in _plugin().verify(
+            SimpleNamespace(domain="example.test", is_multi_node=True),
+            {},
+            "10.10.10.11",
+            tmp_path,
+        )
+    }
+
+    assert checks["health"].passed
+    assert not checks["solve"].passed
+    assert checks["solve"].status.value == "fail"
 
 
 def test_solve_probe_uses_neutral_browser_target(tmp_path, monkeypatch) -> None:
