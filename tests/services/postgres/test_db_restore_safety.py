@@ -136,10 +136,14 @@ def test_remote_discovery_discards_shell_metacharacter_filename(tmp_path: Path) 
     with patch(
         "toolkit.core.ansible.ansible_ssh.ssh_run_on_vm",
         return_value=(0, output, ""),
-    ):
+    ) as ssh:
         records = list_dumps(_remote_cfg(), tmp_path)
 
     assert records == [valid]
+    command = ssh.call_args.args[2]
+    assert "gzip -t" in command
+    assert "gzip -cd" in command
+    assert "wc -c" in command
 
 
 def test_database_dump_uses_configured_postgres_admin_role(tmp_path: Path) -> None:

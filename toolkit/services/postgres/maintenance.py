@@ -216,13 +216,19 @@ def _local_restore(record: DumpRecord, contract: _PostgresContract) -> bool:
 def list_dumps(cfg: Config, root: Path, *, service: str, vm: str | None = None) -> list[DumpRecord]:
     """List validated PostgreSQL pre-deploy dumps from the owning node."""
     if not uses_remote_nodes(cfg):
-        return DumpRepository.local(root / "generated" / "pre-deploy-dumps").list()
+        return [
+            record
+            for record in DumpRepository.local(root / "generated" / "pre-deploy-dumps").list()
+            if _valid_dump_file(Path(record.path))
+        ]
     from toolkit.core.ansible.ansible_ssh import ssh_run_on_vm
 
     node = _node(cfg, service, vm)
     command = (
         f"for f in {shlex.quote(_DUMP_DIRECTORY)}/pre-deploy-*.sql.gz; do "
         '[ -f "$f" ] || continue; '
+        'gzip -t "$f" >/dev/null 2>&1 || continue; '
+        '[ "$(gzip -cd "$f" | wc -c)" -gt 0 ] || continue; '
         'printf \'%s\\t%s\\t%s\\n\' "$f" "$(stat -c %s "$f")" '
         '"$(sha256sum "$f" | cut -d \' \' -f1)"; done'
     )
