@@ -11,7 +11,7 @@ from toolkit.core.config.storage import DEFAULT_HOMELAB_ROOT, env_path
 from toolkit.core.secrets.secrets import generate_all_secrets, get_required_secrets, load_secrets_plaintext
 
 
-def _deploy_install_root(repo_root: Path | str | None) -> Path:
+def _deploy_install_root(config: Config, repo_root: Path | str | None) -> Path:
     """Host paths baked into generated ``.env`` volume variables."""
     override = os.environ.get("GENERATE_INSTALL_ROOT")
     if override:
@@ -20,12 +20,13 @@ def _deploy_install_root(repo_root: Path | str | None) -> Path:
     if repo_root is None:
         return default
     repo = Path(repo_root).resolve()
-    if repo == default:
-        return repo
-    repo_str = repo.as_posix()
-    if "/tmp/" in repo_str or "pytest" in repo_str:
-        return repo
-    return default
+    from toolkit.core.config.roles import uses_remote_nodes
+
+    # Remote bundles are synchronized to the fixed guest install root. The
+    # controller checkout can live anywhere, including /tmp during an isolated
+    # rollout, and must never leak into guest bind mounts. Local management mode
+    # deliberately mounts the checkout it is actually running from.
+    return default if uses_remote_nodes(config) else repo
 
 
 def _load_generate_secrets(root: Path) -> dict[str, str]:
@@ -181,7 +182,7 @@ def _build_env_vars(config: Config, vm: str, secrets: dict[str, str], root: Path
     # VM-specific
     env["PRIVATE_IP"] = config.node_ip(vm) if vm in config.machines else "127.0.0.1"
     # Install root and volume source paths (always /opt/homelab on production guests)
-    deploy_root = _deploy_install_root(root)
+    deploy_root = _deploy_install_root(config, root)
     env["INSTALL_ROOT"] = str(deploy_root)
     from toolkit.core.manifest.variables import compile_role_host_sources
 

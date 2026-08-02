@@ -271,6 +271,8 @@ def test_manifest_host_sources_match_role_compose_layout(tmp_path):
     infra = _build_env_vars(Config(), "infra", {}, root=tmp_path)
     apps = _build_env_vars(Config(), "apps", {}, root=tmp_path)
 
+    assert infra["INSTALL_ROOT"] == "/opt/homelab"
+    assert apps["INSTALL_ROOT"] == "/opt/homelab"
     assert infra["ADGUARD_CONFIG_SOURCE"].endswith("/data/adguard/config")
     assert infra["ADGUARD_WORK_SOURCE"].endswith("/data/adguard/work")
     assert infra["POSTGRES_DATA_SOURCE"].endswith("/data/postgres")
@@ -278,6 +280,15 @@ def test_manifest_host_sources_match_role_compose_layout(tmp_path):
     assert "generated/authelia" in infra["AUTHELIA_CONFIG_SOURCE"]
     assert "FMD_DATA_SOURCE" not in infra
     assert apps["FMD_DATA_SOURCE"].endswith("/data/fmd")
+
+
+def test_management_only_env_uses_the_actual_local_checkout(tmp_path: Path) -> None:
+    config = Config(proxmox={"provision_machines": False})
+
+    env = _build_env_vars(config, "infra", {}, root=tmp_path)
+
+    assert env["INSTALL_ROOT"] == str(tmp_path.resolve())
+    assert env["PROMETHEUS_CONFIG_SOURCE"] == str(tmp_path.resolve() / "generated/prometheus.yml")
 
 
 def test_private_ip_set_per_vm():
