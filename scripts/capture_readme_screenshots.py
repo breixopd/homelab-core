@@ -103,7 +103,9 @@ def main() -> None:
                 mode_heading.wait_for()
                 page.screenshot(path=output / "setup.png", full_page=True)
 
-                page.goto("https://auth.breixopd.space/", wait_until="networkidle")
+                # Authelia maintains background browser traffic after its login
+                # shell renders, so networkidle never becomes true in CI.
+                page.goto("https://auth.breixopd.space/", wait_until="domcontentloaded")
                 page.wait_for_timeout(1000)
                 page.screenshot(path=output / "sign-in.png", full_page=True)
                 browser.close()
