@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import shlex
 from types import SimpleNamespace
 
 from tests.helpers.plugins import load_plugin
@@ -57,5 +59,6 @@ def test_solve_probe_uses_neutral_browser_target(tmp_path, monkeypatch) -> None:
 
     assert all(check.passed for check in checks)
     solve_command = commands[1][-1]
-    assert "https://example.com" in solve_command
-    assert "google.com" not in solve_command
+    arguments = shlex.split(solve_command)
+    payload = json.loads(arguments[arguments.index("-d") + 1])
+    assert payload["url"] == "https://example.com"
