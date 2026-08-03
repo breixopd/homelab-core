@@ -24,6 +24,7 @@ from toolkit.webui.rbac import (
     is_family_portal_user,
     is_toolkit_admin,
 )
+from toolkit.webui.redirects import local_redirect_target as _local_redirect
 from toolkit.webui.templates_ctx import page_context
 
 router = APIRouter(tags=["services"])
@@ -114,7 +115,7 @@ async def docker_action(request: Request, action: str, name: str):
 
 def _service_url(service: str, **query: str) -> str:
     base = f"/services/{quote(service, safe='')}"
-    return f"{base}?{urlencode(query)}" if query else base
+    return _local_redirect(f"{base}?{urlencode(query)}" if query else base)
 
 
 async def _service_management(request: Request, service: str, *, collect_status: bool = True):

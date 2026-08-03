@@ -5,7 +5,7 @@ import re
 import secrets
 import uuid
 from typing import Literal, cast
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -17,6 +17,7 @@ from toolkit.controller.contracts import DestroyInfraOperation, DestroyPlanReque
 from toolkit.controller.read_models import MachineCreate, MachineRemove, MachineUpdate
 from toolkit.core.machines import MachineSpec
 from toolkit.webui.error_pages import render_error
+from toolkit.webui.redirects import local_redirect_target as _local_redirect
 from toolkit.webui.templates_ctx import page_context
 
 router = APIRouter(tags=["machines"])
@@ -97,7 +98,7 @@ async def _queue_generation(request: Request) -> RedirectResponse:
         request.app.state.controller.submit,
         JobRequest(idempotency_key=str(uuid.uuid4()), operation=GenerateOperation(validate_output=True)),
     )
-    return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+    return RedirectResponse(_local_redirect(f"/jobs/{quote(job.job_id, safe='')}"), status_code=303)
 
 
 def _flash(message: str) -> RedirectResponse:
@@ -111,7 +112,7 @@ def _rejected(action: str, exc: Exception) -> RedirectResponse:
 
 def _retirement_flash(machine_id: str, message: str) -> RedirectResponse:
     return RedirectResponse(
-        f"/machines/{machine_id}/retire?error={quote_plus(message[:500])}",
+        _local_redirect(f"/machines/{quote(machine_id, safe='')}/retire?error={quote_plus(message[:500])}"),
         status_code=303,
     )
 
@@ -255,7 +256,10 @@ async def create_retirement_plan(request: Request, machine_id: str):
         )
     except (ControllerClientError, ValidationError, ValueError) as exc:
         return _retirement_flash(machine_id, str(exc) or "Retirement plan was rejected")
-    return RedirectResponse(f"/machines/{machine_id}/retire?plan={plan.plan_id}", status_code=303)
+    return RedirectResponse(
+        _local_redirect(f"/machines/{quote(machine_id, safe='')}/retire?plan={quote(plan.plan_id, safe='')}"),
+        status_code=303,
+    )
 
 
 @router.post("/machines/{machine_id}/retire")
@@ -294,4 +298,4 @@ async def retire_machine(request: Request, machine_id: str):
         )
     except (ControllerClientError, ValidationError, ValueError) as exc:
         return _retirement_flash(machine_id, str(exc) or "Machine retirement was rejected")
-    return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+    return RedirectResponse(_local_redirect(f"/jobs/{quote(job.job_id, safe='')}"), status_code=303)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Literal, cast
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -20,6 +21,7 @@ from toolkit.controller.contracts import (
 )
 from toolkit.controller.read_models import ManagedHostCreate, ManagedHostSpec, ManagedHostUpdate
 from toolkit.webui.error_pages import render_error
+from toolkit.webui.redirects import local_redirect_target
 from toolkit.webui.templates_ctx import page_context
 
 router = APIRouter(tags=["operations"])
@@ -34,7 +36,7 @@ async def _submit(request: Request, operation) -> RedirectResponse:
         request.app.state.controller.submit,
         JobRequest(idempotency_key=str(uuid.uuid4()), operation=operation),
     )
-    return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+    return RedirectResponse(local_redirect_target(f"/jobs/{quote(job.job_id, safe='')}"), status_code=303)
 
 
 @router.get("/operations", response_class=HTMLResponse)

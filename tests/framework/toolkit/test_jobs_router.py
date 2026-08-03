@@ -11,11 +11,26 @@ from httpx import ASGITransport, AsyncClient
 from toolkit.controller.client import ControllerClientError
 from toolkit.controller.contracts import JobEvent, JobRecord, JobRequest, JobState, VerifyOperation
 from toolkit.controller.read_models import JobSummaryView, JobsView
+from toolkit.webui.routers.jobs import _local_redirect
 
 pytestmark = pytest.mark.anyio
 
 _JOB_ID = "job-123456789012"
 _NOW = datetime(2026, 7, 11, 10, 30, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("location", "expected"),
+    [
+        ("/jobs/job-123?flash=ok", "/jobs/job-123?flash=ok"),
+        ("https://attacker.example/", "/"),
+        ("//attacker.example/", "/"),
+        (r"/jobs/job-123\\next", "/"),
+        ("/jobs/job-123\r\nLocation: https://attacker.example", "/"),
+    ],
+)
+def test_job_redirects_are_local_only(location: str, expected: str) -> None:
+    assert _local_redirect(location) == expected
 
 
 class JobsController:

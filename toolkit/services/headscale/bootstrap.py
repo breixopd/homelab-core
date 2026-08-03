@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from toolkit.core.ops.automation import docker_exec
 
@@ -232,6 +233,21 @@ def headscale_control_state_verified(login_server: str) -> bool:
     return status_data.get("BackendState") == "Running" and control_url == login_server.rstrip("/")
 
 
+def _is_tailscale_saas_control_url(control_url: str) -> bool:
+    """Match only HTTPS origins owned by tailscale.com."""
+    try:
+        parsed = urlsplit(control_url)
+        hostname = parsed.hostname or ""
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and not parsed.username
+        and not parsed.password
+        and (hostname == "tailscale.com" or hostname.endswith(".tailscale.com"))
+    )
+
+
 def ensure_controller_mesh_joined(
     cfg: Config,
     *,
@@ -292,7 +308,7 @@ def ensure_controller_mesh_joined(
                 if control.rstrip("/") == login_server:
                     logs.append("Headscale: controller mesh active")
                     return logs
-                if control and "tailscale.com" in control:
+                if _is_tailscale_saas_control_url(control):
                     logs.append(
                         "Headscale: controller still on Tailscale SaaS — run "
                         "'sudo tailscale logout' first if you intend to join Headscale"
